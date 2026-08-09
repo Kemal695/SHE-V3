@@ -1,0 +1,85 @@
+# =============================================================================
+# Profile: test (for unit + integration tests)
+# =============================================================================
+# Uses:
+#   - Test JWT Ed25519 keypair (src/test/resources/keys/jwt_ed25519.pem)
+#   - Test KEK (NOT for production)
+#   - Disables Flyway (tests use their own schema setup)
+# =============================================================================
+
+spring:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: none
+  datasource:
+    url: jdbc:h2:mem:she_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+
+# H2 driver — needed because Postgres driver is in runtime scope only
+# (and H2 is brought in by spring-boot-starter-test transitively)
+---
+
+she:
+  jwt:
+    signing-private-key-path: classpath:keys/jwt_ed25519.pem
+    signing-key-id: 2025q1
+    signing-public-keys-json: '[{"kid":"2025q1","public_key_pem":"-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6AdBtZzttkGRU2uEK0OnHWpbuIYmc+3bvwPX/yMmAlw=\n-----END PUBLIC KEY-----\n"}]'
+    access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds:
+      USER: 2592000
+      TENANT_ADMIN: 28800
+      PLATFORM_ADMIN: 28800
+      SUPER_ADMIN: 14400
+    issuer: she.et
+    audience: she-api
+
+  security:
+    bcrypt-cost: 4   # lower cost for faster tests
+    kek: testKekNotForProd0000000000000000==
+    mfa-issuer: SmartHomeEthiopia
+    login-rate-limit:
+      max-attempts: 5
+      window-minutes: 15
+      lockout-minutes: 60
+    dev-mode-rls-bypass: true
+
+  mqtt:
+    broker-url: ssl://localhost:8883
+    backend-cert-path: /tmp/test-backend.crt
+    backend-key-path: /tmp/test-backend.key
+    ca-bundle-path: /tmp/test-ca-bundle.pem
+    shared-subscription-group: she-backend
+    client-id-prefix: she-backend-test
+    internal-token: test-internal-token
+
+  ca:
+    url: http://localhost:9002
+    provisioner-name: she-device-provisioner
+    provisioner-password-file: /tmp/test-provisioner-password.txt
+    intermediate-cert-path: /tmp/test-intermediate.crt
+    ca-bundle-path: /tmp/test-ca-bundle.pem
+    crl-publish-base-url: http://localhost:8088/ca
+    cert-cache-ttl-seconds: 300
+
+  api:
+    base-path: /api/v3
+    pagination:
+      default-page-size: 20
+      max-page-size: 100
+    rate-limit:
+      per-user-per-minute: 600
+      per-tenant-per-minute: 6000
+
+logging:
+  level:
+    et.she: DEBUG
+    org.springframework: WARN

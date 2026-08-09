@@ -1,0 +1,53 @@
+# SHE V3 — root .gitignore
+
+# Secrets / env files (NEVER commit real secrets)
+.env
+.env.local
+.env.*.local
+*.env
+!**/.env.example
+!**/.env.example.local
+
+# Certs / keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+!**/ca/.gitignore
+!**/test/resources/keys/*.pem
+!**/test/resources/keys/*.pub
+
+# step-ca data
+.step-ca-data/
+infra/ca/out/
+
+# Build outputs
+backend/target/
+**/*.class
+**/*.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+jacoco.exec
+**/coverage/
+
+# Docker
+docker-compose.override.yml

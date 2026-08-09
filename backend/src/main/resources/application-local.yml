@@ -1,0 +1,25 @@
+# Profile: local (developer machine)
+# V3-CONFIGURATION §5: local profile uses self-signed CA + relaxed RLS for fast iteration.
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    # Local dev uses the migration role with superuser (created by 01-bootstrap-roles.sql)
+    user: she_migrate
+    password: ChangeMeLocal
+
+she:
+  security:
+    # In local dev, RLS can be bypassed by setting app.is_platform_admin=on per request
+    # for fast iteration. This is flagged and enforced via @Profile("!prod") guard.
+    dev-mode-rls-bypass: true
+
+logging:
+  level:
+    et.she: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE

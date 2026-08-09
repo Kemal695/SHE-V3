@@ -1,0 +1,19 @@
+# CA private keys — NEVER commit
+*.key
+*.pem
+!*.example.pem
+
+# step-ca data
+.step-ca-data/
+
+# Provisioner password (placeholder is OK to commit; real one is gitignored)
+step-ca-provisioner-password.real.txt
+
+# Device cert outputs
+out/
+
+# Generated JWT signing keys
+keys/
+
+# Generated CRL files
+ca/*/crl.pem

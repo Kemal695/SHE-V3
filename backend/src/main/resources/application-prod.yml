@@ -1,0 +1,25 @@
+# Profile: prod (Ethio Telecom Cloud production VPS — promoted manually via GH Actions)
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    user: ${SPRING_DATASOURCE_MIGRATION_USERNAME}
+    password: ${SPRING_DATASOURCE_MIGRATION_PASSWORD}
+
+she:
+  security:
+    dev-mode-rls-bypass: false
+
+logging:
+  level:
+    root: WARN
+    et.she: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+
+springdoc:
+  swagger-ui:
+    enabled: false   # disable Swagger UI in prod

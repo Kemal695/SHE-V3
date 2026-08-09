@@ -1,0 +1,20 @@
+# Profile: staging (Ethio Telecom Cloud staging VPS — auto-deployed by GitHub Actions on merge to main)
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    user: ${SPRING_DATASOURCE_MIGRATION_USERNAME}
+    password: ${SPRING_DATASOURCE_MIGRATION_PASSWORD}
+
+she:
+  security:
+    dev-mode-rls-bypass: false   # strict RLS in staging — matches prod
+
+logging:
+  level:
+    et.she: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
