@@ -51,13 +51,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             Map<String, Object> claims = jwtService.decode(token);
 
+            Object subObj = claims.get("sub");
+            if (subObj == null) {
+                throw new SheException("AUTH_TOKEN_INVALID", "Missing sub claim", 401);
+            }
+            UUID userId = UUID.fromString(subObj.toString());
+
+            Object tenantObj = claims.get("tenant_id");
+            UUID tenantId = tenantObj != null ? UUID.fromString(tenantObj.toString()) : null;
+
+            @SuppressWarnings("unchecked")
+            Map<String, String> homeRoles = (Map<String, String>) claims.getOrDefault("home_roles", new HashMap<>());
+
             AuthenticatedUser user = new AuthenticatedUser(
-                    UUID.fromString((String) claims.get("sub")),
+                    userId,
                     (String) claims.get("email"),
                     (String) claims.get("platform_role"),
-                    claims.get("tenant_id") != null ? UUID.fromString((String) claims.get("tenant_id")) : null,
+                    tenantId,
                     (String) claims.get("tenant_role"),
-                    (Map<String, String>) claims.getOrDefault("home_roles", new HashMap<>()),
+                    homeRoles,
                     (String) claims.get("jti")
             );
 
@@ -74,14 +86,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(auth);
 
         } catch (SheException e) {
-            // Let the GlobalExceptionHandler handle it via re-throw — but for filters,
-            // we need to send the response directly since the exception won't propagate
-            // through the filter chain to @ControllerAdvice.
             response.setStatus(e.getHttpStatus());
             response.setContentType("application/json");
             response.getWriter().write("""
                 {"error":{"code":"%s","message":"%s","http_status":%d}}
                 """.formatted(e.getCode(), e.getMessage(), e.getHttpStatus()));
+            return;
+        } catch (Exception e) {
+            response.setStatus(401);
+            response.setContentType("application/json");
+            response.getWriter().write("""
+                {"error":{"code":"AUTH_TOKEN_INVALID","message":"Invalid authentication token","http_status":401}}
+                """);
             return;
         }
 

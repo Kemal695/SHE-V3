@@ -1,0 +1,47 @@
+# =============================================================================
+# SHE V3 firmware — sdkconfig.prod (production build, Secure Boot v2 + Flash Encryption)
+# =============================================================================
+# V3-FIRMWARE §2.4 + §12. V3-SECURITY-MODEL §5. ADR-013. P0-3 (eFuse burn sequence).
+# This config is used AFTER eFuses are burned at factory (irreversible).
+# =============================================================================
+
+# ---- Secure Boot v2 (AES-256 digest, burned into eFuse BLOCK_KEY0) ----
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_v2.pem"   # RSA-3072 (offline air-gapped machine)
+
+# ---- Flash Encryption (AES-256-XTS, HMAC key in eFuse BLOCK_KEY1) ----
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y   # don't enable at runtime — must be pre-burned
+CONFIG_SECURE_FLASH_UART_BOOTLOADER_ALLOW_ENC=n
+CONFIG_SECURE_FLASH_UART_BOOTLOADER_ALLOW_DEC=n
+CONFIG_SECURE_FLASH_UART_BOOTLOADER_ALLOW_CACHE=n
+
+# ---- NVS Encryption (separate layer for fctry partition) ----
+CONFIG_NVS_ENCRYPTION=y
+CONFIG_NVS_ASSERT_ERROR_CHECK=y
+
+# ---- Disable UART console (silent in prod) ----
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_ESP_CONSOLE_UART=n
+CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT=y
+
+# ---- JTAG + download mode disabled via eFuse (set at factory, not via sdkconfig) ----
+# These are eFuse settings, not sdkconfig — burned by espefuse.py at factory:
+#   espefuse.py burn_efuse DIS_PAD_JTAG 1
+#   espefuse.py burn_efuse DIS_DOWNLOAD_JTAG 1
+#   espefuse.py burn_efuse DIS_DOWNLOAD_MODE 1
+#   espefuse.py burn_efuse SECURE_BOOT_EN 1
+# (See infra/ca/bootstrap-ca.sh for the full sequence per P0-3.)
+
+# ---- Warn-only logging in prod ----
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_MAXIMUM_LEVEL_WARN=y
+CONFIG_LOG_COLORS=n
+
+# ---- HTTPS-only OTA (Ed25519 signature verification required) ----
+CONFIG_OTA_ALLOW_HTTP=n
+
+# ---- Disable eFuse console commands (anti-tamper) ----
+CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH=n

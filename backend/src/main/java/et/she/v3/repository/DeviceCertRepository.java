@@ -37,6 +37,16 @@ public interface DeviceCertRepository extends JpaRepository<DeviceCert, UUID> {
     Optional<DeviceCert> findActiveByCn(@Param("cn") String cn);
 
     /**
+     * Find by cert serial — used by revocation endpoint.
+     */
+    @Query("""
+        SELECT dc FROM DeviceCert dc
+        WHERE dc.certSerial = :serial
+          AND dc.status = 'ACTIVE'
+        """)
+    Optional<DeviceCert> findActiveByCertSerial(@Param("serial") String serial);
+
+    /**
      * Check if a cert with the given serial already exists (idempotency for factory).
      */
     boolean existsByCertSerial(String certSerial);

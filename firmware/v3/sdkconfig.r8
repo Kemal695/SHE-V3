@@ -1,0 +1,25 @@
+# =============================================================================
+# SHE V3 firmware — sdkconfig.r8 (SHE-R8 — ESP32-S3, 8-channel relay + PZEM)
+# =============================================================================
+# V3-HARDWARE §2.2. ADR-012: ESP32-S3-WROOM-1 for SHE-R8 (volume SKU).
+# 8 MB flash + PSRAM.
+# =============================================================================
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_SHE_R4=
+CONFIG_SHE_R8=y
+CONFIG_SHE_R16=
+
+# PSRAM (S3 has 8 MB PSRAM on WROOM-1)
+CONFIG_SPIRAM=y
+
+# I2C for PCF8574 (1 chip = 8 channels)
+CONFIG_SHE_I2C_NUM=0
+CONFIG_SHE_RELAY_COUNT=8
+CONFIG_SHE_HAS_PZEM=y
+CONFIG_SHE_HAS_VOICE=n
+
+# UART1 for PZEM-004T v3 (Modbus RTU)
+CONFIG_SHE_PZEM_UART_NUM=1
+CONFIG_SHE_PZEM_TX_PIN=17
+CONFIG_SHE_PZEM_RX_PIN=18

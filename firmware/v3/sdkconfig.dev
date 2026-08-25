@@ -1,0 +1,30 @@
+# =============================================================================
+# SHE V3 firmware — sdkconfig.dev (development build, no Secure Boot)
+# =============================================================================
+# V3-FIRMWARE §2.4. V3-SECURITY-MODEL §5 (firmware security is prod-only).
+# Used for: local dev, factory bring-up, firmware contractor's desk.
+# =============================================================================
+
+# ---- Disable Secure Boot + Flash Encryption in dev ----
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_BOOT_V2_ENABLED=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n
+
+# ---- Enable UART console for debugging ----
+CONFIG_ESP_CONSOLE_UART=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_NONE=n
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# ---- Verbose logging in dev ----
+CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+
+# ---- Enable JTAG (disabled in prod via eFuse) ----
+# (no config needed — JTAG is enabled by default; eFuse DIS_PAD_JTAG disables it in prod)
+
+# ---- Allow download mode (disabled in prod via eFuse DIS_DOWNLOAD_MODE) ----
+# (no config needed — download mode is enabled by default)
+
+# ---- Allow HTTP OTA (for testing only — prod requires HTTPS) ----
+CONFIG_OTA_ALLOW_HTTP=y

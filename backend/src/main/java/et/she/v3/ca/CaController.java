@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -82,7 +83,8 @@ public class CaController {
             String expires_at
     ) {}
 
-    @PostMapping("/factory/register-cert")
+    @PostMapping("/ca/sign-and-register")
+    @Transactional
     public ResponseEntity<Map<String, Object>> registerCert(
             @Valid @RequestBody RegisterCertRequest req,
             HttpServletRequest httpReq) {
@@ -138,6 +140,7 @@ public class CaController {
     ) {}
 
     @PostMapping("/ca/revoke")
+    @Transactional
     public ResponseEntity<Map<String, Object>> revoke(
             @Valid @RequestBody RevokeRequest req,
             HttpServletRequest httpReq) {
@@ -149,7 +152,7 @@ public class CaController {
         // RLS: revocation is platform-admin scope
         tenantContextInterceptor.setRlsGucs(UUID.fromString("00000000-0000-0000-0000-000000000000"), true);
 
-        DeviceCert cert = deviceCertRepository.findActiveByCn(req.serial())
+        DeviceCert cert = deviceCertRepository.findActiveByCertSerial(req.serial())
                 .orElseThrow(() -> new SheException("CERT_NOT_FOUND",
                         "Active cert with serial " + req.serial() + " not found", 404));
         cert.setStatus("REVOKED");

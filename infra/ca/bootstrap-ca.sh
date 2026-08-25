@@ -27,6 +27,28 @@ echo "== SHE V3 step-ca bootstrap =="
 echo "STEPPATH=${STEPPATH}"
 echo "PROVISIONER=${PROVISIONER}"
 echo "CA_URL=${CA_URL}"
+echo "SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-local}"
+
+# -----------------------------------------------------------------------------
+# 0. Prod-guard — enforce RSA 4096 root + intermediate in production (P0-2, P1-23)
+# -----------------------------------------------------------------------------
+# Dev shortcut: local/staging may use ECDSA P-256 for faster bootstrapping.
+# Production MUST use RSA 4096-bit root (20yr) + RSA 4096-bit intermediate (10yr)
+# per P0-2 and P1-23. This guard prevents accidental prod deployment with weak keys.
+# -----------------------------------------------------------------------------
+if [ "${SPRING_PROFILES_ACTIVE:-local}" = "prod" ]; then
+    echo "== PROD MODE: enforcing RSA 4096 root + intermediate (P0-2, P1-23) =="
+    REQUIRED_KTY="RSA"
+    REQUIRED_SIZE="4096"
+    REQUIRED_ROOT_YEARS="20"
+    REQUIRED_INT_YEARS="10"
+else
+    echo "== DEV/STAGING MODE: using ECDSA P-256 for fast bootstrap (prod requires RSA 4096) =="
+    REQUIRED_KTY="EC"
+    REQUIRED_SIZE="P-256"
+    REQUIRED_ROOT_YEARS="20"
+    REQUIRED_INT_YEARS="10"
+fi
 
 # -----------------------------------------------------------------------------
 # 1. Initialize the CA
@@ -52,43 +74,91 @@ step ca init \
 echo "== step ca init complete =="
 
 # -----------------------------------------------------------------------------
-# 2. Patch ca.json to enforce RSA 4096 + 20yr root / 10yr intermediate
-#    (step-ca defaults to P-256 with 10yr root / 10yr intermediate — we override)
+# 2. Regenerate root + intermediate CAs with profile-appropriate key type
+#    - prod:     RSA 4096-bit,  20yr root / 10yr intermediate (P0-2, P1-23)
+#    - dev/stg:  ECDSA P-256,   20yr root / 10yr intermediate (fast bootstrap)
+#
+#    step-ca's `step ca init` defaults to P-256 / 10yr — we override to match
+#    the canonical key type for the active profile + always 20yr/10yr validity.
 # -----------------------------------------------------------------------------
-# Replace the default root/intermediate templates to match P0-2:
-#   root:         RSA 4096, 20 years
-#   intermediate: RSA 4096, 10 years
-# This is done by editing ca.json's `authority` section. The simplest approach
-# in dev: regenerate root + intermediate with the correct profile, then
-# update ca.json to point at them.
 CA_JSON="${STEPPATH}/config/ca.json"
 TMP_ROOT_CRT="/tmp/root_ca.crt"
 TMP_ROOT_KEY="/tmp/root_ca_key.pem"
 TMP_INT_CRT="/tmp/intermediate_ca.crt"
 TMP_INT_KEY="/tmp/intermediate_ca_key.pem"
 
-echo "== Regenerating root CA (RSA 4096, 20yr) =="
-step certificate create "Smart Home Ethiopia Root CA" \
-  "${TMP_ROOT_CRT}" "${TMP_ROOT_KEY}" \
-  --profile root-ca \
-  --kty RSA \
-  --size 4096 \
-  --not-after 175200h \
-  --password-file "${PASSWORD_FILE}" \
-  --force
+# Compute not-after hours from years
+ROOT_NOT_AFTER="$((REQUIRED_ROOT_YEARS * 365 * 24))h"
+INT_NOT_AFTER="$((REQUIRED_INT_YEARS * 365 * 24))h"
 
-echo "== Regenerating intermediate CA (RSA 4096, 10yr, signed by root) =="
-step certificate create "Smart Home Ethiopia Intermediate CA" \
-  "${TMP_INT_CRT}" "${TMP_INT_KEY}" \
-  --profile intermediate-ca \
-  --kty RSA \
-  --size 4096 \
-  --not-after 87600h \
-  --ca "${TMP_ROOT_CRT}" \
-  --ca-key "${TMP_ROOT_KEY}" \
-  --ca-password-file "${PASSWORD_FILE}" \
-  --password-file "${PASSWORD_FILE}" \
-  --force
+echo "== Regenerating root CA (${REQUIRED_KTY} ${REQUIRED_SIZE}, ${REQUIRED_ROOT_YEARS}yr) =="
+if [ "${REQUIRED_KTY}" = "RSA" ]; then
+    step certificate create "Smart Home Ethiopia Root CA" \
+      "${TMP_ROOT_CRT}" "${TMP_ROOT_KEY}" \
+      --profile root-ca \
+      --kty RSA \
+      --size "${REQUIRED_SIZE}" \
+      --not-after "${ROOT_NOT_AFTER}" \
+      --password-file "${PASSWORD_FILE}" \
+      --force
+else
+    step certificate create "Smart Home Ethiopia Root CA" \
+      "${TMP_ROOT_CRT}" "${TMP_ROOT_KEY}" \
+      --profile root-ca \
+      --kty EC \
+      --curve "${REQUIRED_SIZE}" \
+      --not-after "${ROOT_NOT_AFTER}" \
+      --password-file "${PASSWORD_FILE}" \
+      --force
+fi
+
+echo "== Regenerating intermediate CA (${REQUIRED_KTY} ${REQUIRED_SIZE}, ${REQUIRED_INT_YEARS}yr, signed by root) =="
+if [ "${REQUIRED_KTY}" = "RSA" ]; then
+    step certificate create "Smart Home Ethiopia Intermediate CA" \
+      "${TMP_INT_CRT}" "${TMP_INT_KEY}" \
+      --profile intermediate-ca \
+      --kty RSA \
+      --size "${REQUIRED_SIZE}" \
+      --not-after "${INT_NOT_AFTER}" \
+      --ca "${TMP_ROOT_CRT}" \
+      --ca-key "${TMP_ROOT_KEY}" \
+      --ca-password-file "${PASSWORD_FILE}" \
+      --password-file "${PASSWORD_FILE}" \
+      --force
+else
+    step certificate create "Smart Home Ethiopia Intermediate CA" \
+      "${TMP_INT_CRT}" "${TMP_INT_KEY}" \
+      --profile intermediate-ca \
+      --kty EC \
+      --curve "${REQUIRED_SIZE}" \
+      --not-after "${INT_NOT_AFTER}" \
+      --ca "${TMP_ROOT_CRT}" \
+      --ca-key "${TMP_ROOT_KEY}" \
+      --ca-password-file "${PASSWORD_FILE}" \
+      --password-file "${PASSWORD_FILE}" \
+      --force
+fi
+
+# -----------------------------------------------------------------------------
+# 2b. PROD-GUARD: verify the generated root CA matches P0-2 requirements
+# -----------------------------------------------------------------------------
+if [ "${SPRING_PROFILES_ACTIVE:-local}" = "prod" ]; then
+    echo "== PROD-GUARD: verifying root CA key type + size =="
+    ROOT_KEY_INFO=$(openssl x509 -in "${TMP_ROOT_CRT}" -noout -text 2>/dev/null | grep -A1 "Public-Key" | head -1)
+    if ! echo "${ROOT_KEY_INFO}" | grep -q "4096 bit"; then
+        echo "FATAL: Root CA is not RSA 4096-bit — refusing to continue in prod mode." >&2
+        echo "Root CA key info: ${ROOT_KEY_INFO}" >&2
+        exit 1
+    fi
+    echo "  ✓ Root CA is RSA 4096-bit (P0-2, P1-23 enforced)"
+
+    INT_KEY_INFO=$(openssl x509 -in "${TMP_INT_CRT}" -noout -text 2>/dev/null | grep -A1 "Public-Key" | head -1)
+    if ! echo "${INT_KEY_INFO}" | grep -q "4096 bit"; then
+        echo "FATAL: Intermediate CA is not RSA 4096-bit — refusing to continue in prod mode." >&2
+        exit 1
+    fi
+    echo "  ✓ Intermediate CA is RSA 4096-bit (P0-2 enforced)"
+fi
 
 # Overwrite the auto-generated ones
 cp "${TMP_ROOT_CRT}" "${STEPPATH}/certs/root_ca.crt"

@@ -145,10 +145,32 @@ public class JwtService {
         }
 
         Map<String, Object> claims = parseJson(B64_URL_DEC.decode(payloadB64));
-        Long exp = ((Number) claims.get("exp")).longValue();
-        if (exp == null || exp < System.currentTimeMillis() / 1000) {
+
+        // Validate exp (null-safe — avoid NPE if claim is missing)
+        Object expObj = claims.get("exp");
+        if (expObj == null) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Missing exp claim", 401);
+        }
+        long exp;
+        try {
+            exp = ((Number) expObj).longValue();
+        } catch (ClassCastException e) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Invalid exp claim type", 401);
+        }
+        if (exp < System.currentTimeMillis() / 1000) {
             throw new SheException("AUTH_TOKEN_EXPIRED", "Token expired", 401);
         }
+
+        // Validate iss + aud (V3-SECURITY-MODEL §1.2)
+        String iss = (String) claims.get("iss");
+        String aud = (String) claims.get("aud");
+        if (iss == null || !iss.equals(props.jwt().issuer())) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Invalid iss claim", 401);
+        }
+        if (aud == null || !aud.equals(props.jwt().audience())) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Invalid aud claim", 401);
+        }
+
         return claims;
     }
 

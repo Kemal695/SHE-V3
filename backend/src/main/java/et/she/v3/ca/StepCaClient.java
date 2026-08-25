@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,7 +56,17 @@ public class StepCaClient {
         if (url == null || url.isBlank()) {
             throw new IllegalStateException("STEP_CA_CLIENT_URL is not set");
         }
+        
+        HttpClient httpClient = HttpClient.create();
+        if (url.startsWith("https")) {
+            io.netty.handler.ssl.SslContext sslContext = io.netty.handler.ssl.SslContextBuilder.forClient()
+                    .trustManager(io.netty.handler.ssl.util.InsecureTrustManagerFactory.INSTANCE)
+                    .build();
+            httpClient = HttpClient.create().secure(t -> t.sslContext(sslContext));
+        }
+
         this.webClient = WebClient.builder()
+                .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(httpClient))
                 .baseUrl(url)
                 .build();
         // Read provisioner password from file (avoids env var leakage into process args)

@@ -26,12 +26,16 @@ name: she-v3
 # Networks: emulate the production VPC segmentation
 # ----------------------------------------------------------------------------
 networks:
+  she-frontend:   # Nginx ↔ Spring Boot ↔ admin-web (not used in Phase 0)
   she-backend:    # Spring Boot ↔ Postgres ↔ Redis ↔ EMQX ↔ MinIO ↔ step-ca
+  she-mqtt:       # EMQX cluster inter-node (Ekka Mnesia mesh)
 
 volumes:
   she-postgres-data:
   she-redis-data:
   she-emqx-1-data:
+  she-emqx-2-data:
+  she-emqx-3-data:
   she-minio-data:
   she-stepca-data:
   she-ca-certs:   # shared RO volume with CA bundle for EMQX + Spring Boot
@@ -112,6 +116,8 @@ services:
     container_name: she-emqx-1
     restart: unless-stopped
     networks:
+      she-mqtt:
+        aliases: [emqx-1]
       she-backend:
         aliases: [emqx-1]
     ports:
@@ -119,9 +125,13 @@ services:
       - "18083:18083"   # dashboard
       - "8083:8083"     # WebSocket (Phase 1+)
     environment:
-      EMQX_NODE__NAME: emqx@localhost
+      EMQX_NODE__NAME: emqx@emqx-1.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt
+      EMQX_NODE__COOKIE: ${EMQX_NODE__COOKIE:-she_cluster_cookie_change_me}
       EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD__DEFAULT_USERNAME:-admin}
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD__DEFAULT_PASSWORD:-ChangeMeLocal}
+      # Cluster discovery via DNS — emqx-1, emqx-2, emqx-3 are network aliases
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: static
+      EMQX_CLUSTER__STATIC__SEEDS: '[emqx@emqx-1.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-2.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-3.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt]'
       # mTLS listener (V3-SECURITY-MODEL §3.4)
       EMQX_LISTENERS__SSL__DEFAULT__BIND: "0.0.0.0:8883"
       EMQX_LISTENERS__SSL__DEFAULT__MAX_CONNECTIONS: 5000
@@ -131,33 +141,120 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
-      # HTTP auth backend → Spring Boot /internal/mqtt/auth (V3-SECURITY-MODEL §4.2)
-      EMQX_AUTHENTICATION: >
-        [
-          {
-            "mechanism": "password_based",
-            "backend": "http",
-            "method": "post",
-            "url": "http://she-backend:8080/internal/mqtt/auth",
-            "headers": { "content-type": "application/json" },
-            "body": { "clientid": "${clientid}", "cn": "${peer_cert_cn}", "fingerprint": "${peer_cert_fingerprint}" }
-          }
-        ]
-      # EMQX_AUTHENTICATION__CACHE__TTL removed (not supported in 5.8.4)
-      # ACL — allow all for local dev (file authz debug deferred)
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
+      # Disable plain TCP (1883) — devices MUST use 8883 with mTLS per V3-SECURITY-MODEL §3.4
+      EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
+      # HTTP auth backend → Spring Boot /internal/mqtt/auth (V3-SECURITY-MODEL §4.2) P1-11 TTL 300s
+      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      # ACL — native file source (V3-SECURITY-MODEL §4.3): etc/acl.conf rules P1-32 HOCON
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
+      EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
+      EMQX_AUTHORIZATION__SOURCES__1__PATH: etc/acl.conf
+      EMQX_AUTHORIZATION__NO_MATCH: deny
       EMQX_LOG__CONSOLE__LEVEL: warning
     volumes:
       - she-emqx-1-data:/opt/emqx/data
       - she-ca-certs:/etc/emqx/certs:ro
-      - ./emqx/acl.conf:/etc/emqx/acl.conf:ro
+      - ./emqx-acl/acl.conf:/opt/emqx/etc/acl.conf:ro
     depends_on:
-      - step-ca  # for CA certs
+      - step-ca
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
       interval: 10s
       timeout: 5s
       retries: 12
 
+  emqx-2:
+    image: emqx/emqx:5.8.4
+    container_name: she-emqx-2
+    restart: unless-stopped
+    networks:
+      she-mqtt:
+        aliases: [emqx-2]
+      she-backend:
+        aliases: [emqx-2]
+    ports:
+      - "8884:8883"     # second node MQTTS for testing
+      - "18084:18083"
+    environment:
+      # identical config to emqx-1 (env vars inherited by Docker Compose merge)
+      EMQX_NODE__NAME: emqx@emqx-2.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt
+      EMQX_NODE__COOKIE: ${EMQX_NODE__COOKIE:-she_cluster_cookie_change_me}
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD__DEFAULT_USERNAME:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD__DEFAULT_PASSWORD:-ChangeMeLocal}
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: static
+      EMQX_CLUSTER__STATIC__SEEDS: '[emqx@emqx-1.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-2.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-3.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt]'
+      EMQX_LISTENERS__SSL__DEFAULT__BIND: "0.0.0.0:8883"
+      EMQX_LISTENERS__SSL__DEFAULT__MAX_CONNECTIONS: 5000
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: /etc/emqx/certs/server.key
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: /etc/emqx/certs/server.crt
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: /etc/emqx/certs/ca_bundle.pem
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
+      EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
+      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
+      EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
+      EMQX_AUTHORIZATION__SOURCES__1__PATH: etc/acl.conf
+      EMQX_AUTHORIZATION__NO_MATCH: deny
+      EMQX_LOG__CONSOLE__LEVEL: warning
+    volumes:
+      - she-emqx-2-data:/opt/emqx/data
+      - she-ca-certs:/etc/emqx/certs:ro
+      - ./emqx-acl/acl.conf:/opt/emqx/etc/acl.conf:ro
+    depends_on:
+      - emqx-1
+      - step-ca
+
+  emqx-3:
+    image: emqx/emqx:5.8.4
+    container_name: she-emqx-3
+    restart: unless-stopped
+    networks:
+      she-mqtt:
+        aliases: [emqx-3]
+      she-backend:
+        aliases: [emqx-3]
+    ports:
+      - "8885:8883"
+      - "18085:18083"
+    environment:
+      EMQX_NODE__NAME: emqx@emqx-3.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt
+      EMQX_NODE__COOKIE: ${EMQX_NODE__COOKIE:-she_cluster_cookie_change_me}
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD__DEFAULT_USERNAME:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD__DEFAULT_PASSWORD:-ChangeMeLocal}
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: static
+      EMQX_CLUSTER__STATIC__SEEDS: '[emqx@emqx-1.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-2.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt,emqx@emqx-3.${COMPOSE_PROJECT_NAME:-she-v3}_she-mqtt]'
+      EMQX_LISTENERS__SSL__DEFAULT__BIND: "0.0.0.0:8883"
+      EMQX_LISTENERS__SSL__DEFAULT__MAX_CONNECTIONS: 5000
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: /etc/emqx/certs/server.key
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: /etc/emqx/certs/server.crt
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: /etc/emqx/certs/ca_bundle.pem
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
+      EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
+      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
+      EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
+      EMQX_AUTHORIZATION__SOURCES__1__PATH: etc/acl.conf
+      EMQX_AUTHORIZATION__NO_MATCH: deny
+      EMQX_LOG__CONSOLE__LEVEL: warning
+    volumes:
+      - she-emqx-3-data:/opt/emqx/data
+      - she-ca-certs:/etc/emqx/certs:ro
+      - ./emqx-acl/acl.conf:/opt/emqx/etc/acl.conf:ro
+    depends_on:
+      - emqx-1
+      - step-ca
+
+  # ---------------------------------------------------------------------------
+  # MinIO — storage-1 in production
+  # V3-ARCHITECTURE §5.3 (bucket catalog + lifecycle)
+  # ---------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2024-10-13T13-34-11Z
     container_name: she-minio
@@ -200,10 +297,9 @@ services:
       # and writes config + certs into the she-stepca-data volume.
     volumes:
       - she-stepca-data:/home/step
-      - she-ca-certs:/home/step/ca-certs-output
-      - ./ca/bootstrap-ca-local.sh:/bootstrap-ca.sh:ro
+      - she-ca-certs:/ca-certs-output
+      - ./ca/bootstrap-ca.sh:/bootstrap-ca.sh:ro
       - ./ca/step-ca-provisioner-password.txt:/provisioner-password.txt:ro
-    user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -233,10 +329,16 @@ services:
     ports:
       - "8088:80"
     volumes:
-      - she-ca-certs:/usr/share/nginx/html/ca:ro
+      # Mount the WHOLE ca-certs volume at /usr/share/nginx/html (not /html/ca)
+      # because step-ca writes CRL to /ca-certs-output/ca/{id}/crl.pem,
+      # so the file appears at /usr/share/nginx/html/ca/{id}/crl.pem
+      # and nginx's `location /ca/ { alias /usr/share/nginx/html/ca/; }` resolves correctly.
+      # The root location returns 404, so other files in the volume (ca_bundle.pem, etc.)
+      # are NOT exposed publicly.
+      - she-ca-certs:/usr/share/nginx/html:ro
       - ./nginx/crl-server.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - step-ca  # for CA certs
+      - step-ca
 
   # ---------------------------------------------------------------------------
   # Spring Boot backend (local dev — runs on host via mvn spring-boot:run)
@@ -249,15 +351,3 @@ services:
   #
   # For CI/staging, GitHub Actions builds the Docker image from backend/Dockerfile
   # and pushes to ghcr.io/she-v3/she-backend:sha-<git-sha>.
-
-
-
-
-
-
-
-
-
-
-
-

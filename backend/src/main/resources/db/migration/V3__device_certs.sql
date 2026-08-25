@@ -62,7 +62,6 @@ CREATE INDEX idx_device_ca_certs_status    ON device_ca_certs (status) WHERE sta
 CREATE INDEX idx_device_ca_certs_tenant_id ON device_ca_certs (tenant_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON device_ca_certs TO she_app;
-GRANT USAGE, SELECT ON SEQUENCE device_ca_certs_id_seq TO she_app;
 
 -- =============================================================================
 -- device_certs — per-device issued certs (one row per device cert)
@@ -133,4 +132,3 @@ CREATE INDEX idx_device_certs_ca_id       ON device_certs (ca_id);
 CREATE INDEX idx_device_certs_tenant_id   ON device_certs (tenant_id, status);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON device_certs TO she_app;
-GRANT USAGE, SELECT ON SEQUENCE device_certs_id_seq TO she_app;

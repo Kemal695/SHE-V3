@@ -1,0 +1,118 @@
+# =============================================================================
+# SHE V3 firmware — Kconfig.projbuild
+# =============================================================================
+# Declares all custom CONFIG_SHE_* options used in sdkconfig.* files.
+# Without this file, ESP-IDF silently drops all CONFIG_SHE_* symbols and
+# every #ifdef CONFIG_SHE_* evaluates to false → broken builds.
+# =============================================================================
+
+menu "SHE V3 Configuration"
+
+    choice SHE_SKU
+        prompt "SHE Device SKU"
+        default SHE_R8
+        help
+            Select the hardware SKU to build for.
+            SHE-R4: ESP32-C3, 4 relays, no PZEM
+            SHE-R8: ESP32-S3, 8 relays + PZEM (volume SKU)
+            SHE-R16: ESP32-S3, 16 relays + PZEM + mic
+
+    config SHE_R4
+        bool "SHE-R4 (ESP32-C3, 4-channel)"
+    config SHE_R8
+        bool "SHE-R8 (ESP32-S3, 8-channel)"
+    config SHE_R16
+        bool "SHE-R16 (ESP32-S3, 16-channel + voice)"
+    endchoice
+
+    config SHE_HAS_PZEM
+        bool "Has PZEM-004T energy monitor"
+        default y
+        depends on SHE_R8 || SHE_R16
+        help
+            PZEM-004T v3 energy monitor via Modbus RTU on UART1.
+            Only available on SHE-R8 and SHE-R16.
+
+    config SHE_HAS_VOICE
+        bool "Has Picovoice voice control"
+        default y
+        depends on SHE_R16
+        help
+            Picovoice offline voice control with INMP441 I2S mic.
+            Only available on SHE-R16.
+
+    config SHE_FIRMWARE_VERSION
+        string "Firmware version string"
+        default "3.0.0"
+        help
+            Semantic version baked into the firmware binary header.
+
+    config SHE_SECURE_VERSION
+        int "Secure version (anti-rollback, popcount semantics, max 32)"
+        default 1
+        range 1 32
+        help
+            Anti-rollback version counter. P0-4: each bit in the eFuse
+            SECURE_VERSION field represents one version increment (popcount).
+            Max 32 versions over the device lifetime.
+
+    config SHE_I2C_NUM
+        int "I2C port number for PCF8574"
+        default 0
+        range 0 1
+
+    config SHE_RELAY_COUNT
+        int "Number of relay channels"
+        default 8
+        range 4 16
+
+    config SHE_PZEM_UART_NUM
+        int "UART port for PZEM-004T"
+        default 1
+        range 0 2
+        depends on SHE_HAS_PZEM
+
+    config SHE_PZEM_TX_PIN
+        int "PZEM UART TX GPIO"
+        default 17
+        depends on SHE_HAS_PZEM
+
+    config SHE_PZEM_RX_PIN
+        int "PZEM UART RX GPIO"
+        default 18
+        depends on SHE_HAS_PZEM
+
+    config SHE_I2S_NUM
+        int "I2S port for INMP441 mic"
+        default 0
+        range 0 1
+        depends on SHE_HAS_VOICE
+
+    config SHE_I2S_BCLK_PIN
+        int "I2S BCLK GPIO"
+        default 4
+        depends on SHE_HAS_VOICE
+
+    config SHE_I2S_WS_PIN
+        int "I2S WS GPIO"
+        default 5
+        depends on SHE_HAS_VOICE
+
+    config SHE_I2S_DATA_PIN
+        int "I2S DATA GPIO"
+        default 6
+        depends on SHE_HAS_VOICE
+
+    config SHE_PICOVOICE_ACCESS_KEY
+        string "Picovoice access key"
+        default ""
+        depends on SHE_HAS_VOICE
+        help
+            Access key from Picovoice Console. Required for wake word + intent models.
+
+    config SHE_VOICE_TASK_STACK
+        int "Voice task stack size"
+        default 8192
+        depends on SHE_HAS_VOICE
+
+endmenu

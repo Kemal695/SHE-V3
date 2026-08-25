@@ -11,7 +11,8 @@ This manifest certifies that **all V3 documentation and ADRs are reviewed, compl
 
 ## 1. V3 documentation set (45 files)
 
-All files live under `docs/v3-docs-final/`. Every file header carries `**Status:** Locked`.
+All files live under `docs/v3-specs/` (copied into the repo for self-containment).
+Every file header carries `**Status:** Locked`.
 
 | # | File | Purpose | Status |
 |---|---|---|---|
@@ -53,7 +54,8 @@ All files live under `docs/v3-docs-final/`. Every file header carries `**Status:
 
 ## 2. Architecture Decision Records (14 ADRs)
 
-All ADRs live under `docs/v3-docs-final/V3-ADR/`. Every ADR contains the required sections: `## Context`, `## Decision`, `## Alternatives Considered`, `## Consequences`. Every ADR header carries `**Status:** Locked`.
+All ADRs live under `docs/ADRs/` (copied into the repo for self-containment).
+Every ADR contains the required sections: `## Context`, `## Decision`, `## Alternatives Considered`, `## Consequences`. Every ADR header carries `**Status:** Locked`.
 
 | ADR | File | Decision | Date | Status |
 |---|---|---|---|---|
@@ -118,6 +120,25 @@ After this lock:
 - **Migration files are forward-only.** A Flyway migration, once merged to `main`, may not be edited — write a new migration that reverses the change.
 - **Error codes are part of the public API contract.** Once shipped, an error code cannot be renamed — only deprecated with a 12-month sunset per `V3-ERROR-CODES.md §12.1`.
 - **Schema names, env var names, and topic namespace segments are part of the public API contract.** Renames require a new ADR.
+
+---
+
+## 6. Phase 0 bug-fix changelog
+
+The following fixes were applied during local environment setup + verification. They are tracked here so they are not lost when Phase 1 begins. Each fix links to the canonical decision it respects.
+
+| # | Fix | Files changed | Canonical decision | Verification |
+|---|---|---|---|---|
+| 1 | EMQX 5.x file authz: dev uses allow-all (deferred from inline rules) | `infra/docker-compose.yml` (dev only) | P1-32 — production MUST use HOCON `authorization { sources = [...] }` via `EMQX_AUTHORIZATION__SOURCES` JSON env var | Smoke test confirms prod config in `infra/emqx/cluster-override.conf` has the correct HOCON rules |
+| 2 | EMQX cluster discovery: single-node for local dev | `infra/docker-compose.yml` (dev only) | V3-ARCHITECTURE §6 — production uses 3-node DNS discovery | Production config `cluster-override.conf` retains 3-node mesh |
+| 3 | step-ca bootstrap: P-256 dev shortcut + prod-guard | `infra/ca/bootstrap-ca.sh` | P0-2, P1-23 — production root + intermediate MUST be RSA 4096-bit | Prod-guard added: when `SPRING_PROFILES_ACTIVE=prod`, script verifies root + intermediate are RSA 4096-bit before continuing (FATAL exit on mismatch) |
+| 4 | Flyway: removed `GRANT ... ON SEQUENCE` for non-existent sequences | `backend/src/main/resources/db/migration/V1__tenants.sql`, `V2__users.sql`, `V3__device_certs.sql` | V3-DATABASE-DESIGN §2 — forward-only migrations | Migrations now run cleanly on fresh DB (sequence grants handled by `ALTER DEFAULT PRIVILEGES` in `01-bootstrap-roles.sql`) |
+| 5 | TenantContextInterceptor: fixed principal retrieval via SecurityContextHolder | `backend/src/main/java/et/she/v3/security/TenantContextInterceptor.java` | P0-5 — RLS GUC must be set per request from JWT claims | Smoke test confirms `/auth/me` returns correct user (RLS working) |
+| 6 | JwtService: fixed JWT_SIGNING_KEY_ID env var resolution | `backend/src/main/resources/application.yml` | P1-6 — EdDSA with `kid` header | Smoke test confirms JWT `kid=2025q1` |
+| 7 | Jackson Instant serialization: registered JavaTimeModule | `backend/src/main/java/et/she/v3/config/JacksonConfig.java` (new), `SheConfig.java` | V3-API-SPECIFICATION §1 — timestamps are ISO-8601 UTC | Smoke test confirms `created_at` serializes as ISO-8601 |
+| 8 | JSONB mapping: added `@JdbcTypeCode(SqlTypes.JSON)` to `User.totpRecoveryCodes` | `backend/src/main/java/et/she/v3/entity/User.java` | V3-DATABASE-DESIGN §4.2 — `totp_recovery_codes` is JSONB | User CRUD operations now work without JDBC type errors |
+| 9 | CRL endpoint 404: fixed double `ca/` path in docker-compose volume mount | `infra/docker-compose.yml`, `infra/nginx/crl-server.conf` | V3-SECURITY-MODEL §3.3, P1-22 — CRL endpoint must serve | After fix, `GET /ca/{intermediate_id}/crl.pem` returns 200 |
+| 10 | ADRs + V3 docs copied into repo (were external references) | `docs/ADRs/` (14 files), `docs/v3-specs/` (33 files) | V3-ROADMAP §2 — docs must be locked + in-repo | `docs/LOCK-MANIFEST.md` references now resolve within the repo |
 
 ---
 

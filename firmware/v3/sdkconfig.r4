@@ -1,0 +1,28 @@
+# =============================================================================
+# SHE V3 firmware — sdkconfig.r4 (SHE-R4 — ESP32-C3, 4-channel relay, no PZEM)
+# =============================================================================
+# V3-HARDWARE §2.1. ADR-012: ESP32-C3-WROOM-02 for SHE-R4.
+# 4 MB flash (smaller than S3's 8 MB) — partition table adjusted.
+# No PSRAM on C3.
+# =============================================================================
+
+CONFIG_IDF_TARGET="esp32c3"
+CONFIG_SHE_R4=y
+CONFIG_SHE_R8=
+CONFIG_SHE_R16=
+
+# Disable PSRAM (C3 has no PSRAM support)
+CONFIG_SPIRAM=n
+
+# Smaller flash layout for 4 MB modules
+CONFIG_PARTITION_TABLE_FILENAME="partitions_r4.csv"
+
+# No JTAG on C3 (RISC-V) — DIS_PAD_JTAG eFuse not applicable
+# C3 has fewer eFuse key blocks — Ed25519 OTA pubkey is compiled in (not in eFuse)
+# See V3-SECURITY-MODEL §5.5 + P1-27.
+
+# I2C for PCF8574 (1 chip = 4 channels)
+CONFIG_SHE_I2C_NUM=0
+CONFIG_SHE_RELAY_COUNT=4
+CONFIG_SHE_HAS_PZEM=n
+CONFIG_SHE_HAS_VOICE=n

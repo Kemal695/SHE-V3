@@ -4,6 +4,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.hibernate.Session;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -39,12 +41,10 @@ public class TenantContextInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        var principal = request.getUserPrincipal();
-        if (principal instanceof AuthenticatedUser auth) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser auth) {
             setRlsGucs(auth.tenantId(), auth.isBypassCapable());
         }
-        // If unauthenticated: do nothing. /actuator/health and /api/v3/auth/login
-        // either don't touch tenant-scoped tables, or explicitly set the GUC themselves.
         return true;
     }
 

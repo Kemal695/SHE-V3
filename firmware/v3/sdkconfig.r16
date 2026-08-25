@@ -1,0 +1,37 @@
+# =============================================================================
+# SHE V3 firmware — sdkconfig.r16 (SHE-R16 — ESP32-S3, 16-channel relay + PZEM + mic)
+# =============================================================================
+# V3-HARDWARE §2.3. ADR-012: ESP32-S3-WROOM-1 for SHE-R16.
+# 8 MB flash + PSRAM + INMP441 I2S MEMS mic for Picovoice voice control.
+# =============================================================================
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_SHE_R4=
+CONFIG_SHE_R8=
+CONFIG_SHE_R16=y
+
+# PSRAM (S3 has 8 MB PSRAM)
+CONFIG_SPIRAM=y
+
+# I2C for PCF8574 (2 chips = 16 channels)
+CONFIG_SHE_I2C_NUM=0
+CONFIG_SHE_RELAY_COUNT=16
+CONFIG_SHE_HAS_PZEM=y
+CONFIG_SHE_HAS_VOICE=y
+
+# UART1 for PZEM-004T v3
+CONFIG_SHE_PZEM_UART_NUM=1
+CONFIG_SHE_PZEM_TX_PIN=17
+CONFIG_SHE_PZEM_RX_PIN=18
+
+# I2S for INMP441 mic (Picovoice wake word)
+CONFIG_SHE_I2S_NUM=0
+CONFIG_SHE_I2S_BCLK_PIN=4
+CONFIG_SHE_I2S_WS_PIN=5
+CONFIG_SHE_I2S_DATA_PIN=6
+
+# Picovoice SDK (only compiled for R16)
+CONFIG_SHE_PICOVOICE_ACCESS_KEY=""
+
+# Voice task stack (larger for Picovoice)
+CONFIG_SHE_VOICE_TASK_STACK=8192

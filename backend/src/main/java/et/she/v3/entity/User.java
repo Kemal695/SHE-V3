@@ -7,7 +7,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -53,6 +55,15 @@ public class User {
     @Column(name = "totp_secret_encrypted")
     private byte[] totpSecretEncrypted;
 
+    /**
+     * JSONB column storing 10 bcrypt-hashed single-use recovery codes.
+     *
+     * <p>{@code @JdbcTypeCode(SqlTypes.JSON)} tells Hibernate to use its JSON
+     * mapper instead of treating the column as a plain String. Without this,
+     * Postgres JDBC may reject writes because the column type is {@code jsonb}
+     * but the parameter type is {@code varchar}.</p>
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "totp_recovery_codes", columnDefinition = "jsonb")
     private String totpRecoveryCodes;
 

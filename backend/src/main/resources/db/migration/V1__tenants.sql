@@ -96,7 +96,6 @@ ON CONFLICT (subdomain) DO NOTHING;
 -- Grants — she_app gets standard DML; she_migrate owns DDL
 -- =============================================================================
 GRANT SELECT, INSERT, UPDATE, DELETE ON tenants TO she_app;
-GRANT USAGE, SELECT ON SEQUENCE tenants_id_seq TO she_app;
 
 -- =============================================================================
 -- Indexes (V3-DATABASE-DESIGN §9)

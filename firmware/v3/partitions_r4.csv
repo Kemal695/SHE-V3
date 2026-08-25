@@ -1,0 +1,13 @@
+# SHE-R4 partition table (ESP32-C3, 4 MB flash — smaller than S3's 8 MB)
+# V3-FIRMWARE §2.3 (adjusted for 4 MB).
+#
+# Name,   Type, SubType, Offset,  Size,    Flags
+# -----------------------------------------------------------------------------
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xF000,  0x1000,
+factory,  app,  factory, 0x10000, 0x100000,
+ota_0,    app,  ota_0,   0x110000,0x100000,
+ota_1,    app,  ota_1,   0x210000,0x100000,
+otadata,  data, ota,     0x310000,0x2000,
+fctry,    data, nvs,     0x320000,0x10000,
+nvs.keys, data, nvs,     0x330000,0x1000,

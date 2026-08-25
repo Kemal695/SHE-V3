@@ -132,15 +132,22 @@ public class GlobalExceptionHandler {
     }
 
     private static void writeErrorStatic(HttpServletResponse resp, HttpServletRequest req,
-                                          String code, String message, int status) throws IOException {
+                                           String code, String message, int status) throws IOException {
         resp.setStatus(status);
         resp.setContentType(MediaType.APPLICATION_JSON_VALUE);
         resp.setCharacterEncoding("UTF-8");
         String reqId = MDC.get("reqId");
         if (reqId == null) reqId = "req-" + UUID.randomUUID();
-        String body = """
-            {"error":{"code":"%s","message":"%s","http_status":%d,"request_id":"%s"}}
-            """.formatted(code, message, status, reqId);
-        resp.getWriter().write(body);
+
+        Map<String, Object> error = new HashMap<>();
+        error.put("code", code);
+        error.put("message", message != null ? message : "");
+        error.put("http_status", status);
+        error.put("request_id", reqId);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("error", error);
+
+        new com.fasterxml.jackson.databind.ObjectMapper().writeValue(resp.getWriter(), body);
     }
 }

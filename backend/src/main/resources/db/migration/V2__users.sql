@@ -95,4 +95,3 @@ CREATE INDEX idx_users_oauth         ON users (oauth_provider, oauth_subject) WH
 -- Grants
 -- =============================================================================
 GRANT SELECT, INSERT, UPDATE, DELETE ON users TO she_app;
-GRANT USAGE, SELECT ON SEQUENCE users_id_seq TO she_app;

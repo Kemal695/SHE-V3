@@ -1,0 +1,23 @@
+## =============================================================================
+## SHE V3 firmware — ESP-IDF component manifest
+## =============================================================================
+## V3-FIRMWARE §2.1: ESP-IDF v5.1.x (LTS).
+## Dependencies are pulled by `idf.py reconfigure` from the ESP Component Registry.
+## =============================================================================
+## ESP-IDF version constraint
+idf: "^5.1.0"
+
+## Component dependencies (from ESP Component Registry)
+dependencies:
+  ## MQTT client (built-in, but listed for explicit version pinning)
+  espressif/mdns: "^1.2.0"
+  ## HTTPS OTA (built-in via esp_https_ota)
+  ## Picovoice SDK — only for SHE-R16 (R16 has INMP441 I2S mic)
+  ## Commented out for R4/R8 builds to avoid pulling in unused audio deps
+  # picovoice/picovoice: "^3.0.0"
+
+  ## Required for esp_local_ctrl (mDNS + HTTPS local control)
+  espressif/esp_local_ctrl: "^2.0.0"
+
+  ## Wi-Fi provisioning (BLE SoftAP)
+  espressif/provisioning: "^1.0.0"

@@ -6,9 +6,13 @@ import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
+import et.she.v3.entity.Home;
+import et.she.v3.entity.HomeMember;
 import et.she.v3.entity.Tenant;
 import et.she.v3.entity.User;
 import et.she.v3.errors.SheException;
+import et.she.v3.repository.HomeMemberRepository;
+import et.she.v3.repository.HomeRepository;
 import et.she.v3.repository.TenantRepository;
 import et.she.v3.repository.UserRepository;
 import et.she.v3.security.AuthenticatedUser;
@@ -38,6 +42,8 @@ public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final TenantRepository tenantRepository;
+    private final HomeRepository homeRepository;
+    private final HomeMemberRepository homeMemberRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SheProperties props;
@@ -46,6 +52,8 @@ public class AuthServiceImpl implements AuthService {
 
     public AuthServiceImpl(UserRepository userRepository,
                            TenantRepository tenantRepository,
+                           HomeRepository homeRepository,
+                           HomeMemberRepository homeMemberRepository,
                            PasswordEncoder passwordEncoder,
                            JwtService jwtService,
                            SheProperties props,
@@ -53,6 +61,8 @@ public class AuthServiceImpl implements AuthService {
                            TenantContextInterceptor tenantContextInterceptor) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
+        this.homeRepository = homeRepository;
+        this.homeMemberRepository = homeMemberRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.props = props;
@@ -93,6 +103,24 @@ public class AuthServiceImpl implements AuthService {
         user.setPreferredLanguage(req.language() != null ? req.language() : "en");
 
         User saved = userRepository.save(user);
+
+        // Auto-create a default home so the mobile app's dashboard has somewhere to land.
+        // V3-MOBILE-APP §5 — dashboard selects homes.first; without this a fresh user
+        // hits "No homes found" with no in-app way to create one.
+        Home home = new Home();
+        home.setTenantId(tenant.getId());
+        home.setOwnerUserId(saved.getId());
+        home.setName("My Home");
+        home = homeRepository.save(home);
+
+        HomeMember member = new HomeMember();
+        member.setTenantId(tenant.getId());
+        member.setHomeId(home.getId());
+        member.setUserId(saved.getId());
+        member.setRole("OWNER");
+        member.setGrantedByUserId(saved.getId());
+        homeMemberRepository.save(member);
+
         return issueTokens(saved, tenant);
     }
 

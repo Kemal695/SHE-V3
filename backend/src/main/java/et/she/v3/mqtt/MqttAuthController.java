@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -70,6 +71,7 @@ public class MqttAuthController {
     // =========================================================================
 
     @PostMapping("/auth")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<MqttAuthDtos.AuthResponse> authenticate(
             @Valid @RequestBody MqttAuthDtos.AuthRequest req,
             HttpServletRequest httpReq) {
@@ -78,15 +80,22 @@ public class MqttAuthController {
 
         // Strip "sha256:" prefix if EMQX sends it
         String fingerprint = req.fingerprint();
-        if (fingerprint.startsWith("sha256:")) {
+        if (fingerprint != null && fingerprint.startsWith("sha256:")) {
             fingerprint = fingerprint.substring("sha256:".length());
         }
 
-        // Look up the device cert by fingerprint.
+        // Look up the device cert.
+        // EMQX 5.x has NO cert-fingerprint placeholder for HTTP authn bodies — only
+        // ${clientid} / ${cert_common_name} / ${cert_subject}. So when EMQX can't supply a
+        // fingerprint it sends an empty one and we fall back to the CN (normalized MAC)
+        // lookup. The mTLS chain is still verified by EMQX itself (verify_peer), so the CN
+        // comes from the verified client cert. When a fingerprint IS provided it stays the
+        // primary key (defense-in-depth).
+        //
         // RLS chicken-and-egg: we don't yet know the tenant_id (we're trying to find it
         // via the cert). The RLS policy allows reads when `app.is_platform_admin='on'`,
         // which is safe here because:
-        //   1. The query is a tenant-agnostic fingerprint lookup (returns 0 or 1 row)
+        //   1. The query is a tenant-agnostic lookup (returns 0 or 1 row)
         //   2. The result is only used to decide ALLOW/DENY — no tenant data is leaked
         //   3. The endpoint is internal (not exposed via Cloudflare) and protected by
         //      X-Internal-Token verification
@@ -94,12 +103,14 @@ public class MqttAuthController {
         // so the sentinel won't match any real tenant — only the platform_admin branch allows the read).
         tenantContextInterceptor.setRlsGucs(UUID.fromString("00000000-0000-0000-0000-000000000000"), true);
 
-        DeviceCert cert = deviceCertRepository.findActiveByFingerprint(fingerprint)
-                .orElseThrow(() -> {
-                    log.debug("MQTT auth DENY: fingerprint not found or inactive — cn={}", req.cn());
-                    return new SheException("CERT_NOT_FOUND",
-                            "Device cert not found", 403);
-                });
+        Optional<DeviceCert> certOpt = (fingerprint != null && !fingerprint.isBlank())
+                ? deviceCertRepository.findActiveByFingerprint(fingerprint)
+                : deviceCertRepository.findActiveByCn(req.cn());
+        DeviceCert cert = certOpt.orElseThrow(() -> {
+            log.debug("MQTT auth DENY: cert not found or inactive — cn={}", req.cn());
+            return new SheException("CERT_NOT_FOUND",
+                    "Device cert not found", 403);
+        });
 
         // Verify clientid == CN == normalized MAC (defense-in-depth)
         if (!req.clientid().equals(req.cn())) {
@@ -120,6 +131,7 @@ public class MqttAuthController {
     // =========================================================================
 
     @PostMapping("/acl")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<MqttAuthDtos.AclResponse> authorize(
             @Valid @RequestBody MqttAuthDtos.AclRequest req,
             HttpServletRequest httpReq) {

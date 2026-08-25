@@ -1,0 +1,6 @@
+# SHE V3 mobile — l10n config (V3-I18N)
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-dir: lib/l10n
+synthetic-package: false

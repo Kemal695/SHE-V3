@@ -50,6 +50,6 @@ EXPOSE 8080 9090
 
 ENTRYPOINT ["/opt/she-backend/entrypoint.sh"]
 
-# Health probe — Spring Boot Actuator
+# Health probe — Spring Boot Actuator (management port 9090 per application.yml)
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
-    CMD curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"' || exit 1
+    CMD curl -sf http://localhost:9090/actuator/health | grep -q '"status":"UP"' || exit 1

@@ -52,6 +52,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/v3/auth/login", "/api/v3/auth/register").permitAll()
                 .requestMatchers("/api/v3/auth/refresh").permitAll()
                 .requestMatchers("/api/v3/tenant/branding").permitAll()
+                // WebSocket handshake — auth is handled by WsAuthInterceptor via Sec-WebSocket-Protocol
+                .requestMatchers("/ws/v3").permitAll()
                 // Internal endpoints — protected by network ACL in prod (not exposed to Cloudflare)
                 .requestMatchers("/internal/**").permitAll()
                 // Swagger UI (local + staging only — disabled in prod via application-prod.yml)
@@ -76,17 +78,8 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder(12);
     }
 
-    /**
-     * Register the {@link et.she.v3.security.TenantContextInterceptor} to run after
-     * Spring Security has populated the AuthenticatedUser principal.
-     */
-    @Bean
-    public WebMvcConfigurer tenantContextInterceptorConfigurer(HandlerInterceptor tenantContextInterceptor) {
-        return new WebMvcConfigurer() {
-            @Override
-            public void addInterceptors(InterceptorRegistry registry) {
-                registry.addInterceptor(tenantContextInterceptor);
-            }
-        };
-    }
+    // NOTE: TenantContextInterceptor (HandlerInterceptor) was removed — it ran before
+    // the @Transactional boundary, so SET LOCAL didn't apply to the correct transaction.
+    // Replaced by TenantContextAspect (AOP @Around on @Transactional methods) which
+    // runs INSIDE the transaction. See TenantContextAspect.java.
 }
