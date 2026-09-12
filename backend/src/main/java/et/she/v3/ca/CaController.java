@@ -21,8 +21,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 
@@ -191,31 +192,84 @@ public class CaController {
     // CRL refresh — every 6 hours per P1-22 (revocation SLA < 6 hours)
     // =========================================================================
 
-    @Scheduled(cron = "0 0 */6 * * *")    // top of every 6th hour
+    /**
+     * Verify that the published CRL still matches the CA's current one.
+     *
+     * This used to *publish* the CRL by stripping the scheme+host off
+     * {@code ca.crl-publish-base-url} and treating the remainder as a filesystem
+     * directory — conflating a URL with a path. With the default
+     * {@code http://localhost:8088/ca} it wrote to {@code \ca\default\crl.pem}
+     * and logged {@code INFO CRL refreshed}, a false success: no topology mounts
+     * the ca-certs volume into the backend, so the target is unreachable
+     * everywhere. ({@code default} came from {@link #readIntermediateId()} falling
+     * back to that literal.)
+     *
+     * Publication is owned by {@code refresh-crl.sh}/cron, the only component that
+     * can write the root-owned volume. This job now verifies instead, so a stalled
+     * publisher is an alarm rather than a silent revocation-SLA breach.
+     */
+    @Scheduled(cron = "${she.ca.crl-verify-cron:0 0 */6 * * *}")    // top of every 6th hour
     public void refreshCrl() {
         try {
             String intermediateId = readIntermediateId();
             byte[] crl = stepCaClient.fetchCrl(intermediateId);
 
-            // Write to the CRL publish directory (served by nginx)
-            Path publishDir = Path.of(props.ca().crlPublishBaseUrl().replaceFirst("^https?://[^/]+", ""))
-                    .resolve(intermediateId);
-            Files.createDirectories(publishDir);
-            Path crlFile = publishDir.resolve("crl.pem");
-            Files.copy(new java.io.ByteArrayInputStream(crl), crlFile, StandardCopyOption.REPLACE_EXISTING);
+            String base = props.ca().crlPublishBaseUrl();
+            if (base == null || base.isBlank()) {
+                log.warn("CRL publish base URL is not configured — cannot verify publication");
+                return;
+            }
+            String publishedUrl = base.replaceAll("/+$", "") + "/" + intermediateId + "/crl.pem";
+            byte[] published;
+            try (java.io.InputStream in = java.net.URI.create(publishedUrl).toURL().openStream()) {
+                published = in.readAllBytes();
+            }
 
-            log.info("CRL refreshed — size={} bytes, path={}", crl.length, crlFile);
+            if (java.util.Arrays.equals(crl, published)) {
+                log.info("CRL verified — published copy matches step-ca ({} bytes, url={})",
+                        crl.length, publishedUrl);
+            } else {
+                log.warn("CRL publication is STALE — step-ca has {} bytes, {} has {} bytes. "
+                        + "Run refresh-crl.sh; revocation may be delayed beyond the 6h SLA.",
+                        crl.length, publishedUrl, published.length);
+            }
         } catch (Exception e) {
-            log.error("CRL refresh FAILED — revocation may be delayed beyond 6h SLA", e);
+            log.error("CRL verification FAILED — revocation may be delayed beyond 6h SLA", e);
         }
     }
 
     private String readIntermediateId() throws Exception {
         Path idFile = Path.of(props.ca().intermediateCertPath()).getParent().resolve("intermediate_id.txt");
         if (Files.exists(idFile)) {
-            return Files.readString(idFile).trim();
+            String id = Files.readString(idFile).trim();
+            if (!id.isBlank()) {
+                return id;
+            }
         }
-        // Fallback: compute fingerprint of the intermediate cert
-        return "default";
+        // Derive it from the certificate. step-ca names the intermediate directory
+        // after the first 16 hex chars of the SHA-256 fingerprint of the DER-encoded
+        // intermediate cert (verified against the live CA: 4746eb60a64abb7e).
+        // The previous fallback was the literal "default", which produced bogus
+        // paths and made every CRL refresh look successful.
+        Path cert = Path.of(props.ca().intermediateCertPath());
+        if (!Files.exists(cert)) {
+            throw new IllegalStateException("Cannot determine intermediate id — no intermediate_id.txt "
+                    + "and no intermediate certificate at " + cert);
+        }
+        return fingerprintPrefix(Files.readAllBytes(cert));
+    }
+
+    /** First 16 hex chars of the SHA-256 of the DER-encoded certificate. */
+    private static String fingerprintPrefix(byte[] pem) throws Exception {
+        String base64 = new String(pem, java.nio.charset.StandardCharsets.US_ASCII)
+                .replaceAll("-----[A-Z ]+-----", "")
+                .replaceAll("\\s", "");
+        byte[] der = Base64.getDecoder().decode(base64);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(der);
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 0; i < 8; i++) {
+            sb.append(String.format("%02x", digest[i]));
+        }
+        return sb.toString();
     }
 }

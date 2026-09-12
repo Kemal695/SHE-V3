@@ -9,6 +9,9 @@
 # Provisioner password (placeholder is OK to commit; real one is gitignored)
 step-ca-provisioner-password.real.txt
 
+# Provisioner JWK (encrypted at rest) — environment-specific, do not commit
+provisioner-key.json
+
 # Device cert outputs
 out/
 

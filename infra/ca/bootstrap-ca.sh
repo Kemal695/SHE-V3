@@ -168,22 +168,82 @@ cp "${TMP_INT_KEY}"  "${STEPPATH}/certs/intermediate_ca_key.pem"
 chmod 0600 "${STEPPATH}/certs/root_ca_key.pem" "${STEPPATH}/certs/intermediate_ca_key.pem"
 chmod 0644 "${STEPPATH}/certs/root_ca.crt" "${STEPPATH}/certs/intermediate_ca.crt"
 
-# Patch ca.json to point at the new root + intermediate
-# (ca.json's "root" + "crt" + "key" fields)
-jq --arg root "${STEPPATH}/certs/root_ca.crt" \
-   --arg intcrt "${STEPPATH}/certs/intermediate_ca.crt" \
-   --arg intkey "${STEPPATH}/certs/intermediate_ca_key.pem" \
-   '.root = $root | .crt = $intcrt | .key = $intkey' \
-   "${CA_JSON}" > "${CA_JSON}.tmp"
+# -----------------------------------------------------------------------------
+# 2c. Patch ca.json — deliberately WITHOUT jq
+# -----------------------------------------------------------------------------
+# jq is NOT bundled in smallstep/step-ca:0.27.4 (the image is Alpine 3.20.3 and
+# ships none) and this container runs as uid 1000 (step), so it cannot `apk add`
+# one either. The previous revision piped ca.json through jq, which under
+# `set -e` aborted the script the instant jq was missing — immediately after
+# `step ca init`. Nothing below ever ran, yet the container still booted, from the
+# pristine `step ca init` config, which has NO db and NO crl block. Consequences:
+#   * POST /revoke answered "501 NOT_IMPLEMENTED" (no persistence layer), so a
+#     device certificate could never actually be revoked; and
+#   * no CRL was ever generated, so the published crl.pem stayed the unparseable
+#     16-byte text placeholder that the old revision of this script wrote.
+# A pure-shell patch keeps the bootstrap dependency-free.
+#
+# `step ca init` already writes root/crt pointing at ${STEPPATH}/certs/*.crt —
+# the very paths the regenerated hierarchy is copied to below — so strictly only
+# the intermediate KEY path needs rewriting (init puts it under secrets/). All
+# three are rewritten anyway, so the patch does not depend on init's layout.
+#
+# Intermediate CA id — first 16 hex chars of its SHA-256 fingerprint. Also forms
+# the CRL Distribution Point path used here and by refresh-crl.sh.
+INTERMEDIATE_ID="$(step certificate fingerprint "${STEPPATH}/certs/intermediate_ca.crt" | cut -c1-16)"
+CRL_IDP_URL="${CRL_IDP_URL:-http://localhost:8088/ca/${INTERMEDIATE_ID}/crl.pem}"
+
+# db  — REQUIRED for revocation. The `--no-db` flag above only suppresses the
+#       block in the generated config; an authority with no database cannot
+#       record a revoked serial, so /revoke fails and the CRL stays empty.
+#       (badgerv2 + dataSource is exactly what `step ca init` emits itself.)
+# crl — CRL generation/serving, disabled by default. Field names per
+#       certificates v0.27.4 authority/config/config.go (CRLConfig): enabled,
+#       generateOnRevoke, cacheDuration, renewPeriod, idpURL. There is NO
+#       `generateOnRestart` field — an earlier revision wrote one, and step-ca
+#       silently ignored it. cacheDuration 6h == the P1-22 revocation SLA.
+awk -v root_crt="${STEPPATH}/certs/root_ca.crt" \
+    -v int_crt="${STEPPATH}/certs/intermediate_ca.crt" \
+    -v int_key="${STEPPATH}/certs/intermediate_ca_key.pem" \
+    -v db_dir="${STEPPATH}/db" \
+    -v idp_url="${CRL_IDP_URL}" '
+  /^[[:space:]]*"root":[[:space:]]*"/ { sub(/"[^"]*"[[:space:]]*,?[[:space:]]*$/, "\"" root_crt "\",") }
+  /^[[:space:]]*"crt":[[:space:]]*"/  { sub(/"[^"]*"[[:space:]]*,?[[:space:]]*$/, "\"" int_crt  "\",") }
+  /^[[:space:]]*"key":[[:space:]]*"/  { sub(/"[^"]*"[[:space:]]*,?[[:space:]]*$/, "\"" int_key  "\",") }
+  !inserted && /^[[:space:]]*"authority":[[:space:]]*\{/ {
+    print "\t\"db\": {"
+    print "\t\t\"type\": \"badgerv2\","
+    print "\t\t\"dataSource\": \"" db_dir "\","
+    print "\t\t\"badgerFileLoadingMode\": \"\""
+    print "\t},"
+    print "\t\"crl\": {"
+    print "\t\t\"enabled\": true,"
+    print "\t\t\"generateOnRevoke\": true,"
+    print "\t\t\"cacheDuration\": \"6h\","
+    print "\t\t\"renewPeriod\": \"4h\","
+    print "\t\t\"idpURL\": \"" idp_url "\""
+    print "\t},"
+    inserted = 1
+  }
+  { print }
+' "${CA_JSON}" > "${CA_JSON}.tmp"
 mv "${CA_JSON}.tmp" "${CA_JSON}"
 
-# Add CRL issuer config — step-ca serves CRL at /crl/{crl-id} per ca.json's
-# crl config block. We enable CRL generation with a 6h refresh (P1-22).
-jq '. + {crl: {enabled: true, generateOnRestart: true}}' \
-   "${CA_JSON}" > "${CA_JSON}.tmp"
-mv "${CA_JSON}.tmp" "${CA_JSON}"
+# --- structural sanity checks (the image has no JSON parser) ----------------
+if [ "$(tr -cd '{' < "${CA_JSON}" | wc -c)" != "$(tr -cd '}' < "${CA_JSON}" | wc -c)" ]; then
+    echo "FATAL: ${CA_JSON} is not brace-balanced after patching." >&2
+    exit 1
+fi
+for needle in '"db"' '"crl"' '"badgerv2"' '"generateOnRevoke"'; do
+    if ! grep -q "${needle}" "${CA_JSON}"; then
+        echo "FATAL: ${needle} missing from ${CA_JSON} after patching." >&2
+        exit 1
+    fi
+done
 
 echo "== ca.json patched =="
+grep -A5 '"db"' "${CA_JSON}"
+grep -A6 '"crl"' "${CA_JSON}"
 
 # -----------------------------------------------------------------------------
 # 3. Build the CA bundle (root + intermediate) for EMQX + Spring Boot
@@ -246,28 +306,26 @@ chmod 0600 "${BACKEND_KEY}"
 # -----------------------------------------------------------------------------
 # 5. Generate the initial CRL file (served by the crl-server container)
 # -----------------------------------------------------------------------------
-INTERMEDIATE_ID="$(step certificate fingerprint "${STEPPATH}/certs/intermediate_ca.crt" | cut -c1-16)"
+# INTERMEDIATE_ID was resolved in §2c above (it also builds the CRL Distribution
+# Point URL there).
 CRL_DIR="/ca-certs-output/ca/${INTERMEDIATE_ID}"
 mkdir -p "${CRL_DIR}"
 
-echo "== Generating initial CRL for intermediate ${INTERMEDIATE_ID} =="
-# step-ca will serve CRL at /crl/{cert-id} once it boots; for the standalone
-# nginx CRL server we generate it manually here (and refresh-crl.sh updates it).
-step ca root --crl > "${CRL_DIR}/crl.pem" 2>/dev/null || true
-# If step ca root --crl requires the server running, fall back to openssl
-if [ ! -s "${CRL_DIR}/crl.pem" ]; then
-    openssl ca -gencrl \
-        -config <(echo "[ca]"; echo "default_ca = CA_default"; echo "[CA_default]"; \
-                  echo "database = /dev/null"; \
-                  echo "new_certs_dir = /dev/null"; \
-                  echo "certificate = ${STEPPATH}/certs/intermediate_ca.crt"; \
-                  echo "private_key = ${STEPPATH}/certs/intermediate_ca_key.pem"; \
-                  echo "default_md = sha256"; \
-                  echo "default_crl_days = 7") \
-        -passin pass:"$(cat "${PASSWORD_FILE}")" \
-        -out "${CRL_DIR}/crl.pem" 2>/dev/null || \
-    echo "placeholder CRL — will be regenerated by refresh-crl.sh" > "${CRL_DIR}/crl.pem"
+echo "== CRL directory ready: ${CRL_DIR} =="
+# Do NOT pre-seed a CRL file here. step-ca owns CRL generation (crl.enabled +
+# generateOnRevoke) and its CRL numbering is the authoritative one; an
+# openssl-generated file would start at a different number, and the previous
+# text placeholder ("placeholder CRL") was not a parseable CRL at all — yet nginx
+# serves whatever sits at this path as Content-Type: application/pkix-crl.
+#
+# Publication is done by infra/ca/refresh-crl.sh, which fetches step-ca's CRL
+# (GET /crl) and writes it here. Run it once after the stack is up; cron keeps it
+# fresh every 6 hours thereafter (P1-22).
+if [ -f "${CRL_DIR}/crl.pem" ]; then
+    echo "   removing stale crl.pem so nginx cannot serve a placeholder"
+    rm -f "${CRL_DIR}/crl.pem"
 fi
+echo "   Next: run infra/ca/refresh-crl.sh (or wait for the 6-hourly cron)"
 
 # -----------------------------------------------------------------------------
 # 6. Print the root CA fingerprint for client bootstrap (STEP_CA_FINGERPRINT)

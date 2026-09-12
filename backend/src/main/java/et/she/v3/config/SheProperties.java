@@ -86,6 +86,7 @@ public record SheProperties(
             String url,
             String provisionerName,
             String provisionerPasswordFile,
+            String provisionerKeyPath,
             String intermediateCertPath,
             String caBundlePath,
             String crlPublishBaseUrl,
