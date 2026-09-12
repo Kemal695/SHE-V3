@@ -58,8 +58,13 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-she_v3}
-      POSTGRES_USER: ${POSTGRES_USER:-she_app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeLocal}
+      # POSTGRES_USER becomes the *bootstrap* superuser (OID 10) and Postgres refuses
+      # to let that role drop SUPERUSER — so it must NOT be the application role.
+      # she_app is created by postgres/init/01-bootstrap-roles.sql as a plain
+      # NOSUPERUSER NOBYPASSRLS role; pointing POSTGRES_USER at she_app silently
+      # made the app a superuser and disabled every RLS policy (P0-5).
+      POSTGRES_USER: ${POSTGRES_USER:-she_superuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeLocalSuper}
       # Superuser password is required for migration bootstrap (she_app does NOT have BYPASSRLS — P0-5)
       POSTGRES_SUPERUSER_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-ChangeMeLocalSuper}
       PGDATA: /var/lib/postgresql/data
@@ -72,7 +77,7 @@ services:
       - ./postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-she_app} -d ${POSTGRES_DB:-she_v3}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-she_superuser} -d ${POSTGRES_DB:-she_v3}"]
       interval: 5s
       timeout: 3s
       retries: 12

@@ -43,8 +43,18 @@ import java.util.concurrent.TimeUnit;
  * V3-ARCHITECTURE §7.2 — shared subscription distributes messages across Spring Boot instances.
  * V3-MQTT-STANDARDS §7 — shared sub group `she-backend`.
  *
- * Subscribes to (shared):
- *   $share/she-backend/she/+/+/+/+/(telemetry|status|params/local|energy|ota/status|ota/progress)
+ * Subscribes to (shared), one subscription per device->cloud direction:
+ *   $share/she-backend/she/+/+/+/+/telemetry
+ *   $share/she-backend/she/+/+/+/+/status
+ *   $share/she-backend/she/+/+/+/+/params/local
+ *   $share/she-backend/she/+/+/+/+/energy
+ *   $share/she-backend/she/+/+/+/+/ota/status
+ *   $share/she-backend/she/+/+/+/+/ota/progress
+ *
+ * NOTE: MQTT topic filters support only `+` and `#` — there is NO regex alternation.
+ * A combined filter such as `.../+/(telemetry|status|...)` is treated as a literal
+ * 8-level topic, so it matches nothing AND is rejected by the broker ACL. That is why
+ * each direction is subscribed separately (see DEVICE_PUBLISH_DIRECTIONS).
  *
  * V3-SECURITY-MODEL §4.4 — P1-10: backend uses client cert + explicit ACL, NO superuser.
  *
@@ -62,6 +72,14 @@ public class MqttSubscriberService implements MqttCallbackExtended {
 
     private static final Logger log = LoggerFactory.getLogger(MqttSubscriberService.class);
 
+    /**
+     * Directions a device publishes to the cloud (V3-MQTT-STANDARDS §3).
+     * Subscribed individually because MQTT topic filters have no regex support —
+     * a single `(a|b|c)` alternation filter matches nothing and is ACL-denied.
+     */
+    private static final List<String> DEVICE_PUBLISH_DIRECTIONS = List.of(
+            "telemetry", "status", "params/local", "energy", "ota/status", "ota/progress");
+
     private final SheProperties props;
     private final ObjectMapper objectMapper;
     private final NodeRepository nodeRepository;
@@ -71,6 +89,22 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     private final TenantContextInterceptor tenantContextInterceptor;
     private final WsEventBus wsEventBus;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    /**
+     * Opens a real transaction around MQTT ingest.
+     *
+     * <p>{@code processMessageWithRls} is called from {@code messageArrived} in this
+     * same class, so a {@code @Transactional} annotation on it never takes effect —
+     * Spring's proxy is bypassed on self-invocation. With no transaction, the
+     * {@code SET LOCAL app.is_platform_admin} issued below is discarded by Postgres
+     * ("SET LOCAL can only be used in transaction blocks"), the RLS GUCs are never
+     * applied, and every ingest path fails to resolve its device: the log fills with
+     * "telemetry from unknown MAC" and no telemetry/energy is ever stored.</p>
+     *
+     * <p>Driving the transaction programmatically keeps the GUC, the JdbcTemplate and
+     * the JPA repositories bound to one connection for the whole dispatch.</p>
+     */
+    private final org.springframework.transaction.support.TransactionTemplate txTemplate;
 
     private IMqttAsyncClient mqttClient;
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -83,7 +117,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                                  EnergyService energyService,
                                  TenantContextInterceptor tenantContextInterceptor,
                                  WsEventBus wsEventBus,
-                                 org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
+                                 org.springframework.jdbc.core.JdbcTemplate jdbcTemplate,
+                                 org.springframework.transaction.PlatformTransactionManager txManager) {
         this.props = props;
         this.objectMapper = objectMapper;
         this.nodeRepository = nodeRepository;
@@ -93,6 +128,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.wsEventBus = wsEventBus;
         this.jdbcTemplate = jdbcTemplate;
+        this.txTemplate = new org.springframework.transaction.support.TransactionTemplate(txManager);
     }
 
     @PostConstruct
@@ -101,8 +137,11 @@ public class MqttSubscriberService implements MqttCallbackExtended {
             connect();
         } catch (Exception e) {
             log.error("MQTT initial connect failed — will retry every 10s", e);
-            reconnectExecutor.scheduleWithFixedDelay(this::safeReconnect, 10, 10, TimeUnit.SECONDS);
         }
+        // Always-on watchdog: a single one-shot retry is not enough — a broker
+        // restart (or a failed retry while the broker is still starting) used
+        // to leave the subscriber disconnected forever with zero clients.
+        reconnectExecutor.scheduleWithFixedDelay(this::safeReconnect, 10, 10, TimeUnit.SECONDS);
     }
 
     @PreDestroy
@@ -150,11 +189,14 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         log.info("MQTT connected");
 
         // Shared subscription — V3-ARCHITECTURE §7.2
-        // $share/she-backend/she/+/+/+/+/(telemetry|status|params/local|energy|ota/status|ota/progress)
-        String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
-                "/she/+/+/+/+/(telemetry|status|params/local|energy|ota/status|ota/progress)";
-        mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
-        log.info("MQTT subscribed to: {}", sharedTopic);
+        // One subscription per direction: MQTT has no regex topic filters, so the old
+        // `.../+/(telemetry|status|...)` filter matched nothing and was ACL-denied.
+        for (String direction : DEVICE_PUBLISH_DIRECTIONS) {
+            String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
+                    "/she/+/+/+/+/" + direction;
+            mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
+            log.info("MQTT subscribed to: {}", sharedTopic);
+        }
 
         // Also subscribe to `config` NON-shared (full self-description on connect — don't miss during instance restart)
         String configTopic = "she/+/+/+/+/config";
@@ -169,7 +211,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                 connect();
             }
         } catch (Exception e) {
-            log.warn("MQTT reconnect failed: {}", e.getMessage());
+            log.warn("MQTT reconnect failed: {} (cause: {})", e.getMessage(),
+                    e.getCause() != null ? e.getCause().toString() : "none", e);
         }
     }
 
@@ -216,9 +259,11 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         if (reconnect) {
             log.info("MQTT reconnected to {}", serverURI);
             try {
-                String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
-                        "/she/+/+/+/+/(telemetry|status|params/local|energy|ota/status|ota/progress)";
-                mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
+                for (String direction : DEVICE_PUBLISH_DIRECTIONS) {
+                    String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
+                            "/she/+/+/+/+/" + direction;
+                    mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
+                }
                 mqttClient.subscribe("she/+/+/+/+/config", 1).waitForCompletion();
             } catch (Exception e) {
                 log.error("MQTT re-subscribe failed", e);
@@ -258,22 +303,41 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         }
     }
 
-    @org.springframework.transaction.annotation.Transactional
+    /**
+     * Dispatch one device message inside a transaction whose RLS context is
+     * "platform admin" — device traffic is not tied to a tenant, and resolving
+     * the device already requires reading across tenants.
+     *
+     * <p>Note: deliberately NOT annotated {@code @Transactional}. This method is
+     * called from {@code messageArrived} in the same class, so the annotation would
+     * be silently ignored (self-invocation bypasses the Spring proxy) and the
+     * {@code SET LOCAL} would be discarded. {@link #txTemplate} opens the
+     * transaction explicitly instead.</p>
+     */
     public void processMessageWithRls(String direction, String mac, String payload, String topic) throws Exception {
-        if (jdbcTemplate != null) {
-            jdbcTemplate.execute("SET LOCAL app.is_platform_admin = 'true'");
-        }
-        // Dispatch by direction
-        switch (direction) {
-            case "config"           -> handleConfigMessage(mac, payload);
-            case "params/local"     -> handleParamsLocal(mac, payload);
-            case "telemetry"        -> handleTelemetry(mac, payload);
-            case "status"           -> handleStatus(mac, payload);
-            case "energy"           -> handleEnergy(mac, payload);
-            case "ota/status"       -> handleOtaStatus(mac, payload);
-            case "ota/progress"     -> handleOtaProgress(mac, payload);
-            default -> log.warn("Unknown direction '{}' on topic {}", direction, topic);
-        }
+        txTemplate.execute(status -> {
+            if (jdbcTemplate != null) {
+                jdbcTemplate.execute("SET LOCAL app.is_platform_admin = 'true'");
+            }
+            // Dispatch by direction
+            try {
+                switch (direction) {
+                    case "config"           -> handleConfigMessage(mac, payload);
+                    case "params/local"     -> handleParamsLocal(mac, payload);
+                    case "telemetry"        -> handleTelemetry(mac, payload);
+                    case "status"           -> handleStatus(mac, payload);
+                    case "energy"           -> handleEnergy(mac, payload);
+                    case "ota/status"       -> handleOtaStatus(mac, payload);
+                    case "ota/progress"     -> handleOtaProgress(mac, payload);
+                    default -> log.warn("Unknown direction '{}' on topic {}", direction, topic);
+                }
+            } catch (Exception e) {
+                // Roll the transaction back and surface the cause to the caller's
+                // existing catch block.
+                throw new IllegalStateException(e);
+            }
+            return null;
+        });
     }
 
     @Override
@@ -408,7 +472,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                 node.getNodeId(), mac, devicesNode.size(), servicesNode.size());
 
         // Push WebSocket node.presence (online)
-        wsEventBus.publishNodePresence(node.getTenantId(), node.getId(), true, node.getLastSeenAt());
+        wsEventBus.publishNodePresence(node.getTenantId(), node.getHomeId(), node.getId(), true, node.getLastSeenAt());
     }
 
     /**
@@ -441,7 +505,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                         nodeParamRepository.updateLastValue(param.getId(), value, Instant.now());
 
                         // Push WebSocket node.state
-                        wsEventBus.publishNodeState(node.getTenantId(), node.getId(),
+                        wsEventBus.publishNodeState(node.getTenantId(), node.getHomeId(), node.getId(),
                                 device.getId(), deviceName, paramName, valueNode);
                     });
                 });
@@ -480,7 +544,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         insertTelemetryRow(now, node, diag.getId(), "MQTT_Reconnects", root.path("mqtt_reconnects").asDouble(), "count");
 
         // Push WebSocket node.telemetry
-        wsEventBus.publishNodeTelemetry(node.getTenantId(), node.getId(), root);
+        wsEventBus.publishNodeTelemetry(node.getTenantId(), node.getHomeId(), node.getId(), root);
     }
 
     private void insertTelemetryRow(Instant time, Node node, UUID deviceId,
@@ -511,7 +575,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         nodeRepository.updatePresence(node.getId(), online, Instant.now());
         log.info("Node {} status={}", node.getNodeId(), status);
 
-        wsEventBus.publishNodePresence(node.getTenantId(), node.getId(), online, Instant.now());
+        wsEventBus.publishNodePresence(node.getTenantId(), node.getHomeId(), node.getId(), online, Instant.now());
     }
 
     /**
@@ -541,7 +605,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         );
 
         // Push WebSocket energy.update + node.telemetry
-        wsEventBus.publishEnergyUpdate(node.getTenantId(), node.getId(), powerW, energyWh);
+        wsEventBus.publishEnergyUpdate(node.getTenantId(), node.getHomeId(), node.getId(), powerW, energyWh);
     }
 
     /**

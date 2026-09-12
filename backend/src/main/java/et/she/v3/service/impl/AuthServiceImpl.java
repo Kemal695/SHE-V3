@@ -76,6 +76,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse register(RegisterRequest req) {
+        // The tenant id has to be resolved *before* app.tenant_id can be set, but
+        // the RLS policy on `tenants` is keyed on exactly that GUC — so the lookup
+        // would return zero rows. Open a platform-admin window for this one read.
+        // See TenantContextInterceptor#setRlsGucsForTenantLookup.
+        tenantContextInterceptor.setRlsGucsForTenantLookup();
+
         // B2C registration → default tenant
         Tenant tenant = tenantRepository.findBySubdomain("default")
                 .orElseThrow(() -> new SheException("INTERNAL_ERROR",
@@ -142,7 +148,10 @@ public class AuthServiceImpl implements AuthService {
                             + props.security().loginRateLimit().lockoutMinutes() + " minutes", 429);
         }
 
-        // Resolve tenant — for B2C login, use the default tenant
+        // Resolve tenant — for B2C login, use the default tenant.
+        // Same pre-resolution RLS window as register(): the tenant lookup has to
+        // happen before app.tenant_id can be set.
+        tenantContextInterceptor.setRlsGucsForTenantLookup();
         Tenant tenant = tenantRepository.findBySubdomain("default")
                 .orElseThrow(() -> new SheException("INTERNAL_ERROR",
                         "Default B2C tenant not seeded", 500));
@@ -289,6 +298,37 @@ public class AuthServiceImpl implements AuthService {
                 ),
                 tenant.getBrandingConfig()
         );
+    }
+
+    // =========================================================================
+    // CLAIM-TOKEN (BLE provisioning — P1-3)
+    // =========================================================================
+
+    @Override
+    public Map<String, Object> claimToken() {
+        var principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(principal instanceof AuthenticatedUser auth)) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Not authenticated", 401);
+        }
+        Instant now = Instant.now();
+        // 10-min TTL per V3-API-SPECIFICATION (NodeDtos.ClaimRequest).
+        Instant expiry = now.plus(Duration.ofMinutes(10));
+
+        Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put("sub", auth.userId().toString());
+        claims.put("tenant_id", auth.tenantId().toString());
+        claims.put("type", "claim");
+        claims.put("jti", UUID.randomUUID().toString());
+        claims.put("iat", now.getEpochSecond());
+        claims.put("exp", expiry.getEpochSecond());
+        claims.put("iss", props.jwt().issuer());
+        claims.put("aud", props.jwt().audience());
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("claim_token", jwtService.encode(claims));
+        data.put("expires_in", 600);
+        data.put("token_type", "Bearer");
+        return data;
     }
 
     // =========================================================================

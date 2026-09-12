@@ -29,6 +29,12 @@ import java.util.UUID;
  * Cost is calculated at ingest (server-side, not firmware) per V3-ENERGY-MONITORING §4.5.
  */
 @Service
+// Required for RLS: TenantContextAspect applies `app.tenant_id` /
+// `app.is_platform_admin` only inside a transaction. Without this annotation
+// there is no transaction at all, so the GUCs are never set and every
+// tenant-scoped read here is filtered to zero rows by RLS (the /energy and
+// /energy/daily endpoints returned 404 as a result).
+@Transactional
 public class EnergyService {
 
     private static final Logger log = LoggerFactory.getLogger(EnergyService.class);
@@ -249,10 +255,33 @@ public class EnergyService {
     }
 
     /**
+     * Per-day energy history for the mobile 7-day chart (M7 fix).
+     * One row per day: {date, energyWh, costEtb}. Days without readings are
+     * omitted (the app zero-fills gaps).
+     */
+    public List<Map<String, Object>> getDailyEnergy(UUID tenantId, UUID nodeId, int days) {
+        if (days < 1 || days > 90) days = 7;
+        Instant from = Instant.now().minusSeconds((long) days * 86400);
+        return jdbcTemplate.queryForList(
+                """
+                SELECT time_bucket('1 day', time) AS day,
+                       MAX(energy_wh) - MIN(energy_wh) AS energy_wh,
+                       SUM(cost_etb) AS cost_etb
+                FROM device_energy_readings
+                WHERE tenant_id = ? AND node_id = ? AND time >= ?
+                GROUP BY 1 ORDER BY 1 ASC
+                """,
+                tenantId, nodeId, java.sql.Timestamp.from(from)
+        );
+    }
+
+    /**
      * Get today's energy cost for a node — for real-time WebSocket energy.update.
      */
     public double getTodayCostEtb(UUID tenantId, UUID nodeId) {
-        Instant dayStart = Instant.now().truncatedTo(ChronoUnit.DAYS);
+        // Day boundary in Addis Ababa time (H7 fix — UTC midnight is 3 AM local).
+        Instant dayStart = java.time.ZonedDateTime.now(java.time.ZoneId.of("Africa/Addis_Ababa"))
+                .truncatedTo(ChronoUnit.DAYS).toInstant();
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 """
                 SELECT COALESCE(SUM(cost_etb), 0) AS cost

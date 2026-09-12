@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,23 +32,63 @@ public class ScheduledJobs {
     // 2 AM daily — drop_chunks (V3-DATABASE-DESIGN §10)
     // =========================================================================
 
+    // Retention is ENFORCED by TimescaleDB background policies, not by this job:
+    //   V18 → audit_log           730 days
+    //   V23 → device_telemetry     30 days
+    //   V24 → device_energy_readings 365 days
+    // They run inside the TimescaleDB background worker as the hypertable owner
+    // (she_migrate), which is the only role allowed to drop chunks.
+    //
+    // This job used to duplicate that work by calling drop_chunks() directly.
+    // That was always redundant, and it broke outright once P0-5 (RLS) was
+    // actually enforced: she_app is deliberately NOT the owner of the hypertables
+    // (that would defeat relforcerowsecurity), so every call raised
+    // "must be owner of hypertable" — swallowed by the catch below, so retention
+    // silently did nothing while the log looked busy.
+    //
+    // It now asserts the policies are present, scheduled and carry the expected
+    // window, so a missing retention policy is a loud alarm instead of silent
+    // unbounded growth.
+    private static final Map<String, String> EXPECTED_RETENTION = Map.of(
+            "device_telemetry", "30 days",
+            "device_energy_readings", "365 days",
+            "audit_log", "730 days"
+    );
+
     @Scheduled(cron = "0 0 2 * * *")
     public void enforceRetention() {
         try {
-            jdbcTemplate.queryForObject(
-                    "SELECT drop_chunks('device_telemetry', INTERVAL '30 days')", Object.class);
-            log.info("Retention: dropped device_telemetry chunks > 30 days");
+            List<Map<String, Object>> policies = jdbcTemplate.queryForList(
+                    """
+                    SELECT hypertable_name, scheduled, config
+                    FROM timescaledb_information.jobs
+                    WHERE proc_name = 'policy_retention'
+                      AND hypertable_name IN ('device_telemetry', 'device_energy_readings', 'audit_log')
+                    """
+            );
+            Map<String, Map<String, Object>> byTable = new HashMap<>();
+            for (Map<String, Object> row : policies) {
+                byTable.put(String.valueOf(row.get("hypertable_name")), row);
+            }
 
-            jdbcTemplate.queryForObject(
-                    "SELECT drop_chunks('device_energy_readings', INTERVAL '365 days', cascade_to_materializations => true)",
-                    Object.class);
-            log.info("Retention: dropped device_energy_readings chunks > 365 days (cascade to materializations)");
-
-            jdbcTemplate.queryForObject(
-                    "SELECT drop_chunks('audit_log', INTERVAL '730 days')", Object.class);
-            log.info("Retention: dropped audit_log chunks > 2 years");
+            for (Map.Entry<String, String> expected : EXPECTED_RETENTION.entrySet()) {
+                String table = expected.getKey();
+                Map<String, Object> policy = byTable.get(table);
+                if (policy == null) {
+                    log.error("Retention policy MISSING for {} (expected {}). Data will grow "
+                            + "unbounded — re-run the migration or call add_retention_policy.",
+                            table, expected.getValue());
+                    continue;
+                }
+                if (!Boolean.TRUE.equals(policy.get("scheduled"))) {
+                    log.error("Retention policy for {} exists but is NOT SCHEDULED (expected {}).",
+                            table, expected.getValue());
+                    continue;
+                }
+                log.info("Retention OK: {} — policy active, config={}", table, policy.get("config"));
+            }
         } catch (Exception e) {
-            log.error("Retention job failed: {}", e.getMessage(), e);
+            log.error("Retention check failed: {}", e.getMessage(), e);
         }
     }
 
