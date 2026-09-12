@@ -1,5 +1,6 @@
 package et.she.v3.service.impl;
 
+import et.she.v3.audit.AuditService;
 import et.she.v3.dto.HomeDtos;
 import et.she.v3.entity.Home;
 import et.she.v3.entity.HomeMember;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -28,13 +30,16 @@ public class HomeServiceImpl implements HomeService {
     private final RoomRepository roomRepository;
     private final HomeMemberRepository homeMemberRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     public HomeServiceImpl(HomeRepository homeRepository, RoomRepository roomRepository,
-                           HomeMemberRepository homeMemberRepository, UserRepository userRepository) {
+                           HomeMemberRepository homeMemberRepository, UserRepository userRepository,
+                           AuditService auditService) {
         this.homeRepository = homeRepository;
         this.roomRepository = roomRepository;
         this.homeMemberRepository = homeMemberRepository;
         this.userRepository = userRepository;
+        this.auditService = auditService;
     }
 
     @Override
@@ -200,6 +205,13 @@ public class HomeServiceImpl implements HomeService {
         member.setGrantedByUserId(user.userId());
         member = homeMemberRepository.save(member);
 
+        // P1-19: granting access to a home is the most security-sensitive tenant action.
+        auditService.record(user.tenantId(), "TENANT_ADMIN", user.userId(), "home.member.added",
+                "home", homeId,
+                Map.of("granted_to", invitee.getId().toString(), "email", req.email(),
+                       "role", req.role()),
+                null, null, null);
+
         return new HomeDtos.MemberResponse(invitee.getId(), invitee.getEmail(), invitee.getFullName(),
                 member.getRole(), member.getGrantedAt().toString());
     }
@@ -218,8 +230,16 @@ public class HomeServiceImpl implements HomeService {
             throw new SheException("RBAC_LAST_OWNER_CANNOT_LEAVE",
                     "Cannot demote the last owner — transfer ownership first", 409);
         }
+        String previousRole = member.getRole();
         member.setRole(req.role());
         homeMemberRepository.save(member);
+
+        // P1-19: a role change can be a privilege escalation — record before and after.
+        auditService.record(member.getTenantId(), "TENANT_ADMIN", currentUserIdOrNull(),
+                "home.member.role_changed", "home", homeId,
+                Map.of("target_user", userId.toString(), "from", previousRole, "to", req.role()),
+                null, null, null);
+
         User u = userRepository.findById(userId).orElse(null);
         return new HomeDtos.MemberResponse(userId, u != null ? u.getEmail() : null,
                 u != null ? u.getFullName() : null, member.getRole(), member.getGrantedAt().toString());
@@ -237,6 +257,21 @@ public class HomeServiceImpl implements HomeService {
         }
         member.setRevokedAt(Instant.now());
         homeMemberRepository.save(member);
+
+        // P1-19: revoking access.
+        auditService.record(member.getTenantId(), "TENANT_ADMIN", currentUserIdOrNull(),
+                "home.member.removed", "home", homeId,
+                Map.of("target_user", userId.toString(), "role", String.valueOf(member.getRole())),
+                null, null, null);
+    }
+
+    /** Audit rows are best-effort: never fail the audited action over an unknown actor. */
+    private UUID currentUserIdOrNull() {
+        try {
+            return currentUser().userId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private long countActiveOwners(UUID homeId) {
