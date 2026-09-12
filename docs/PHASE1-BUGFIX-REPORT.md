@@ -595,7 +595,63 @@ volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cach
 revoking can legitimately return the previous CRL. The harness now **polls for up to 20 s** for the
 serial to appear instead of racing it, so a real regression cannot be masked by a timing flake.
 
-### 7.12 Status
+### 7.12 The audit trail did not exist — RESOLVED (P1-19)
+
+P1-19 is a locked canonical decision: `audit_log` must be "a tamper-evident hash chain via
+`hash`/`prev_hash`/`sequence_number`". PHASE1-SIGNOFF recorded it as delivered —
+`V18__audit_log.sql` plus `ScheduledJobs.verifyAuditLogHashChain()`.
+
+**Two independent defects meant none of it was real.**
+
+**(a) Nothing ever wrote to `audit_log`.** There is no `Audit` entity, repository or service
+anywhere in the codebase; the only reference outside the verifier was a
+`// TODO: insert audit_log row …` in `EnergyService`. The table was permanently empty, so the
+nightly job reported `verified: 0 tenants, 0 mismatches` — a compliance control that silently
+recorded nothing while reporting success.
+
+**(b) The verifier could not detect tampering anyway.** V3-DATABASE-DESIGN §5.10 defines
+`hash = SHA-256(prev_hash || canonical JSON of this row)`. The job only compared each row's
+`prev_hash` with the previous row's `hash` **linkage**, and never recomputed `hash` from the row's
+content. So anyone with DB write access could edit a row's `action`, `details` or `target_id` in
+place and the chain would still "verify". That is not tamper-*evident*.
+
+**Fix.**
+
+- New `audit/AuditService` appends hash-chained rows in their **own transaction** (`REQUIRES_NEW`)
+  under the platform-admin GUC, so an entry survives a failed business operation and is not filtered
+  by the caller's tenant context. It derives `sequence_number` per tenant and computes
+  `hash = SHA-256(prev_hash || canonical JSON)`.
+- The **canonical form is defined once and shared** with the verifier: a JSON object with a fixed
+  key order, nulls rendered as `""`, `details` re-serialised with recursively sorted keys (so JSONB's
+  key order cannot change the digest), and `created_at` excluded (its text form varies by driver and
+  timezone, which would make the hash irreproducible).
+- `verifyAuditLogHashChain()` now recomputes each row's `hash` from that same canonical form **in
+  addition to** the linkage check, and reports `hash does not match row content; the row was
+  modified in place`.
+- Wired to authentication so far: `auth.register`, `auth.login.success`, `auth.login.failed`.
+
+**Verified end to end** (with a temporary fast cron, then reverted):
+
+| step | result |
+|---|---|
+| 3 real registrations through `POST /api/v3/auth/register` | rows at `sequence_number` 1,2,3 with `prev_hash` correctly equal to the previous row's `hash` |
+| nightly job on that data | `Audit log hash chain verified: 1 tenants, 0 mismatches` |
+| `UPDATE audit_log SET details = … ` on one row, chain columns untouched | `AUDIT LOG HASH CHAIN MISMATCH … hash does not match row content; the row was modified in place (SECURITY_ALERT)` — **1** mismatch, exactly the tampered row |
+| the same tamper before this change | undetected (linkage was intact) |
+
+The canonical form was additionally reproduced independently in Python and matches the stored digest
+byte-for-byte, confirming the writer is self-consistent.
+
+Two bugs were found and fixed while proving this: `queryForMap()` throws
+`EmptyResultDataAccessException` on a tenant's *first* entry (now `queryForList`), and the verifier's
+per-row query selected only `id, sequence_number, prev_hash, hash, details`, so every other canonical
+field was silently `""` and every row looked tampered.
+
+**Still to do:** only authentication is wired. Other privileged actions (cert revocation, OTA
+start, param writes, admin/user management) still need `AuditService.record(...)` calls — without
+them the trail is incomplete even though the chain is now sound.
+
+### 7.13 Status
 
 All defects found during this pass are now resolved, and every tenant-scoped table in `public` has
 row-level security enforced (V30 rebuilt the policies, V31 covered the four tables that had none,
@@ -608,14 +664,21 @@ V32 covers `automation_rules` by inherited scope).
 | `scripts/she_e2e_track1.py` | **27/27** |
 | `scripts/she_e2e_revocation.py` | **13/13** |
 | `scripts/she_e2e_rls_isolation.py` | **10/10** |
+| backend unit/integration tests (`mvn test`) | **26/26**, BUILD SUCCESS |
+| `flutter analyze` | **0 errors** (3 warnings, 16 infos) |
 
 **Remaining work, outside the scope of this report:**
 
+- **Wire the remaining audit events.** `AuditService` is only called from authentication today.
+  Cert revocation, OTA start, param writes and admin/user management still need `record(...)` calls
+  — see §7.12.
 - Rotate the CA provisioner password — it is still in git history from the initial commit and must
   be rotated before any real deployment.
 - Flash the ESP32-WROOM-32D. Not dead: it is a CH340 on COM4 and it emits the ROM banner at 115200
-  baud once EN is pulsed correctly. The link is intermittent, so it was not flashed — see §5b of the
-  local-verification skill for the probe recipe.
+  baud once EN is pulsed correctly. esptool cannot complete a sync at any baud, so the PC→board
+  direction looks broken — try a known-good data cable. Before flashing, check `esptool flash_id`:
+  `build-esp32d` is laid out for 8 MB, but a WROOM-32D is often 4 MB. See §5b of the
+  local-verification skill.
 - The continuous aggregates `energy_hourly` / `energy_daily` carry `tenant_id` but cannot carry RLS
   (§7.9). Latent only — nothing queries them today.
 

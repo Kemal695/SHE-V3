@@ -1,5 +1,6 @@
 package et.she.v3.scheduled;
 
+import et.she.v3.audit.AuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,9 +24,11 @@ public class ScheduledJobs {
     private static final Logger log = LoggerFactory.getLogger(ScheduledJobs.class);
 
     private final JdbcTemplate jdbcTemplate;
+    private final AuditService auditService;
 
-    public ScheduledJobs(JdbcTemplate jdbcTemplate) {
+    public ScheduledJobs(JdbcTemplate jdbcTemplate, AuditService auditService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.auditService = auditService;
     }
 
     // =========================================================================
@@ -121,7 +124,7 @@ public class ScheduledJobs {
     // 3 AM daily — audit_log hash chain verification (P1-19)
     // =========================================================================
 
-    @Scheduled(cron = "0 0 3 * * *")
+    @Scheduled(cron = "${she.audit.chain-cron:0 0 3 * * *}")    // 3 AM daily
     @org.springframework.transaction.annotation.Transactional
     public void verifyAuditLogHashChain() {
         try {
@@ -137,9 +140,14 @@ public class ScheduledJobs {
             int mismatches = 0;
             for (Map<String, Object> tenantRow : tenants) {
                 java.util.UUID tenantId = (java.util.UUID) tenantRow.get("tenant_id");
+                // Every column that feeds the canonical form MUST be selected —
+                // recomputeHash() reads them all, and a missing column silently
+                // becomes "" in the digest, which made every row look tampered.
                 List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                         """
-                        SELECT id, sequence_number, prev_hash, hash, details
+                        SELECT id, sequence_number, prev_hash, hash, details,
+                               tenant_id, actor_type, actor_user_id, action,
+                               target_type, target_id, ip_address, user_agent, request_id
                         FROM audit_log
                         WHERE tenant_id = ?
                         ORDER BY COALESCE(sequence_number, 0), created_at
@@ -152,7 +160,7 @@ public class ScheduledJobs {
                     byte[] storedHash = (byte[]) row.get("hash");
                     byte[] storedPrevHash = (byte[]) row.get("prev_hash");
 
-                    // Verify prev_hash chain link
+                    // 1. Link: this row's prev_hash must equal the previous row's hash.
                     if (prevHash != null && storedPrevHash != null) {
                         if (!java.util.Arrays.equals(prevHash, storedPrevHash)) {
                             log.error("AUDIT LOG HASH CHAIN MISMATCH: tenant={} id={} — prev_hash mismatch (SECURITY_ALERT)",
@@ -160,6 +168,22 @@ public class ScheduledJobs {
                             mismatches++;
                         }
                     }
+
+                    // 2. Content: recompute hash = SHA-256(prev_hash || canonical JSON).
+                    //    Without this the chain only proves LINKAGE — an attacker
+                    //    could edit a row's action/details in place and the job
+                    //    would still report success, which is not what P1-19
+                    //    ("tamper-evident") claims.
+                    if (storedHash != null) {
+                        byte[] expected = auditService.recomputeHash(row, storedPrevHash);
+                        if (expected != null && !java.util.Arrays.equals(expected, storedHash)) {
+                            log.error("AUDIT LOG HASH CHAIN MISMATCH: tenant={} id={} — hash does not match "
+                                    + "row content; the row was modified in place (SECURITY_ALERT)",
+                                    tenantId, row.get("id"));
+                            mismatches++;
+                        }
+                    }
+
                     prevHash = storedHash;
                 }
             }

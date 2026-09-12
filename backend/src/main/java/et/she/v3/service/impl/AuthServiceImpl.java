@@ -18,6 +18,7 @@ import et.she.v3.repository.UserRepository;
 import et.she.v3.security.AuthenticatedUser;
 import et.she.v3.security.JwtService;
 import et.she.v3.security.TenantContextInterceptor;
+import et.she.v3.audit.AuditService;
 import et.she.v3.service.AuthService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -49,6 +50,7 @@ public class AuthServiceImpl implements AuthService {
     private final SheProperties props;
     private final StringRedisTemplate redis;
     private final TenantContextInterceptor tenantContextInterceptor;
+    private final AuditService auditService;
 
     public AuthServiceImpl(UserRepository userRepository,
                            TenantRepository tenantRepository,
@@ -58,7 +60,8 @@ public class AuthServiceImpl implements AuthService {
                            JwtService jwtService,
                            SheProperties props,
                            StringRedisTemplate redis,
-                           TenantContextInterceptor tenantContextInterceptor) {
+                           TenantContextInterceptor tenantContextInterceptor,
+                           AuditService auditService) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.homeRepository = homeRepository;
@@ -68,6 +71,7 @@ public class AuthServiceImpl implements AuthService {
         this.props = props;
         this.redis = redis;
         this.tenantContextInterceptor = tenantContextInterceptor;
+        this.auditService = auditService;
     }
 
     // =========================================================================
@@ -127,6 +131,9 @@ public class AuthServiceImpl implements AuthService {
         member.setGrantedByUserId(saved.getId());
         homeMemberRepository.save(member);
 
+        auditService.record(tenant.getId(), "USER", saved.getId(), "auth.register",
+                "user", saved.getId(), Map.of("email", req.email()), null, null, null);
+
         return issueTokens(saved, tenant);
     }
 
@@ -164,6 +171,8 @@ public class AuthServiceImpl implements AuthService {
                         "Invalid email or password", 401));
 
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
+            auditService.record(tenant.getId(), "USER", user.getId(), "auth.login.failed",
+                    "user", user.getId(), Map.of("email", req.email()), null, null, null);
             throw new SheException("AUTH_INVALID_CREDENTIALS",
                     "Invalid email or password", 401);
         }
@@ -188,6 +197,9 @@ public class AuthServiceImpl implements AuthService {
         // Update last_login_at
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
+
+        auditService.record(tenant.getId(), "USER", user.getId(), "auth.login.success",
+                "user", user.getId(), Map.of("email", req.email()), null, null, null);
 
         return issueTokens(user, tenant);
     }
