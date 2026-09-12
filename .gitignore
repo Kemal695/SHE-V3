@@ -51,3 +51,31 @@ jacoco.exec
 
 # Docker
 docker-compose.override.yml
+
+# Provisioner / CA secrets (plaintext, local only — rotate before any real deploy)
+infra/ca/step-ca-provisioner-password.txt
+infra/ca/provisioner-key.json
+
+# ESP-IDF build outputs (hundreds of MB) + generated sdkconfig
+firmware/*/build/
+firmware/*/build-*/
+firmware/v3/sdkconfig
+firmware/v3/sdkconfig.*
+!firmware/v3/sdkconfig.defaults
+!firmware/v3/sdkconfig.defaults.*
+
+# Flutter tooling state
+.flutter_tool_state
+mobile/.flutter_tool_state
+mobile/.flutter
+mobile/plugins/
+.freebuff/
+
+# Local scratch / one-off artifacts
+_backup_*.dump
+_hw.txt
+backend/test*.sh
+backend/final-5.sh
+
+# Assistant workspace
+.workbuddy-ai/
