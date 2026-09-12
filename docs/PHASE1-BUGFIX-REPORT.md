@@ -502,10 +502,39 @@ certificate, and now **throws** instead of returning `"default"` when neither is
 `http://localhost:8088/ca/4746eb60a64abb7e/crl.pem` are byte-identical (491 bytes, both
 `sha256:84e950c4…`), so the new code path reaches the real published CRL.
 
-### 7.8 Still documented, NOT fixed
+### 7.8 Defect P — fresh CA bootstrap could not write the volume — RESOLVED (2026-09-12)
 
-| # | Defect | Evidence | Impact | Recommended fix |
-|---|---|---|---|---|
-| **P** | **A fresh CA bootstrap cannot write the shared volume.** `/ca-certs-output` is root-owned (`drwxr-xr-x root root`) while the step-ca container runs as `User=step` (uid 1000). | `docker exec she-step-ca touch /ca-certs-output/.write-probe` → **Permission denied**; `mkdir /ca-certs-output/ca/probe` → denied. On a brand-new volume the bootstrap fails at its first `/ca-certs-output` write, leaving EMQX with no `ca_bundle.pem`/`server.crt`. | **High (first install).** Masked today because the volume was populated on 2026-08-09 and its files are root-owned, so nothing has re-run the bootstrap since. | Add a one-shot init service that `chown -R 1000:1000 /ca-certs-output` before step-ca starts, or set `user: "0:0"` on the step-ca service (at the cost of running the CA as root). |
+Docker creates a named volume's root as `root:root 0755`, but the step-ca image runs as uid 1000
+(`User=step`). The bootstrap's **first** write is `cat > /ca-certs-output/ca_bundle.pem`
+(`bootstrap-ca.sh:255`), so on a brand-new volume it died immediately and EMQX and the backend came
+up with no `ca_bundle.pem` / `server.crt`. This was masked locally only because the volume was
+first populated on 2026-08-09.
+
+**Fix — a one-shot init service** (`ca-certs-init` in `infra/docker-compose.yml`) that runs as
+`user: "0:0"` purely to `chown -R 1000:1000 /ca-certs-output`, then exits. `step-ca` now
+`depends_on` it with `condition: service_completed_successfully`. Running the CA as root was the
+alternative and was rejected.
+
+**Deliberately no `chmod`.** `server.key` lives in this volume at `0600`, so a recursive `a+rX`
+would have published the EMQX private key to nginx. Ownership alone is sufficient because the files
+that must be world-readable already are (`0644`) — verified after the change: `server.key` is still
+`-rw-------` while `step` can now write.
+
+Verified: `touch /ca-certs-output/.write-probe` as `step` went from **Permission denied** to
+**WRITABLE**; `docker compose config` clean; all three suites still green.
+
+### 7.9 Test-harness robustness
+
+`scripts/she_e2e_revocation.py` produced one **11/13** run (R5.2 + R6.3) immediately after the
+volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cached
+(`crl.cacheDuration`) and CRL generation on revoke is asynchronous, so a single read right after
+revoking can legitimately return the previous CRL. The harness now **polls for up to 20 s** for the
+serial to appear instead of racing it, so a real regression cannot be masked by a timing flake.
+
+### 7.10 Status
+
+All defects found during this pass are now resolved. Remaining work is outside the scope of this
+report: rotating the CA provisioner password (it remains in git history from the initial commit),
+and flashing the ESP32-WROOM-32D (blocked — COM4 reads 0 bytes).
 
 

@@ -39,6 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -214,12 +215,25 @@ def main():
 
     # ---- 5. CRL now lists the serial ------------------------------------
     print("\n5. step-ca's CRL reflects the revocation")
-    after_bytes, code = fetch_crl()
+    # step-ca regenerates the CRL on revoke, but /crl is cached (crl.cacheDuration)
+    # and generation is asynchronous, so a single read immediately after the revoke
+    # can legitimately still return the previous CRL. Observed once as a 11/13 run
+    # with R5.2 + R6.3 failing, then 13/13 on the next three runs. Poll instead of
+    # racing it, so a genuine regression is not masked by a timing flake.
+    after_bytes, code = None, None
+    num_after = revoked_after = last_a = next_a = None
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        after_bytes, code = fetch_crl()
+        if after_bytes is not None:
+            num_after, revoked_after, last_a, next_a = parse_crl(after_bytes)
+            if serial.upper() in revoked_after:
+                break
+        time.sleep(2)
     if after_bytes is None:
         record("R5.1 CRL refetched after revoke", False, f"HTTP {code}")
         finish()
         return
-    num_after, revoked_after, last_a, next_a = parse_crl(after_bytes)
     record("R5.1 CRL number incremented", num_after is not None
            and num_before is not None and num_after > num_before,
            f"{num_before} -> {num_after}")

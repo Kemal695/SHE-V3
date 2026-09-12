@@ -284,6 +284,36 @@ services:
       retries: 12
 
   # ---------------------------------------------------------------------------
+  # One-shot: make the shared ca-certs volume writable by step-ca (defect P)
+  # ---------------------------------------------------------------------------
+  # Docker creates a named volume's root as root:root 0755, but the step-ca image
+  # runs as uid 1000 (User=step). On a FRESH volume the bootstrap therefore died at
+  # its very first write ("cat > /ca-certs-output/ca_bundle.pem" → Permission
+  # denied), leaving EMQX and the backend with no ca_bundle.pem / server.crt at all.
+  # It was masked here only because this volume was first populated on 2026-08-09.
+  #
+  # Runs as root (user: "0:0") for the chown only, then exits. Deliberately does NOT
+  # chmod: server.key lives in this volume at 0600 and a recursive 'a+rX' would
+  # publish the EMQX private key to nginx. Ownership alone is enough, because the
+  # files that must be world-readable already are (0644).
+  # ---------------------------------------------------------------------------
+  ca-certs-init:
+    image: alpine:3.20.3
+    container_name: she-ca-certs-init
+    restart: "no"
+    user: "0:0"
+    networks: [she-backend]
+    volumes:
+      - she-ca-certs:/ca-certs-output
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /ca-certs-output/ca
+        chown -R 1000:1000 /ca-certs-output
+        echo "ca-certs volume ready — $(stat -c '%u:%g %a' /ca-certs-output)"
+
+  # ---------------------------------------------------------------------------
   # step-ca — db-1 in production (colocated with Postgres in V3-OPS-RUNBOOK §1)
   # V3-CONFIGURATION §3 (bootstrap), V3-SECURITY-MODEL §3.1 (PKI hierarchy)
   # P0-2: root RSA 4096/20yr, intermediate RSA 4096/10yr, device cert ECDSA P-256/5yr
@@ -294,6 +324,9 @@ services:
     container_name: she-step-ca
     restart: unless-stopped
     networks: [she-backend]
+    depends_on:
+      ca-certs-init:
+        condition: service_completed_successfully
     ports:
       - "9002:9000"   # step-ca API on host 9002 (9000 is MinIO)
     environment:
