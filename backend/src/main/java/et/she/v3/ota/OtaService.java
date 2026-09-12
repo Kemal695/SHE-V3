@@ -1,5 +1,6 @@
 package et.she.v3.ota;
 
+import et.she.v3.audit.AuditService;
 import et.she.v3.dto.OtaDtos;
 import et.she.v3.entity.Node;
 import et.she.v3.entity.OtaApproval;
@@ -47,15 +48,18 @@ public class OtaService {
     private final NodeRepository nodeRepository;
     private final MqttPublishService mqttPublishService;
     private final HomeService homeService;
+    private final AuditService auditService;
 
     public OtaService(OtaBatchRepository batchRepository, OtaApprovalRepository approvalRepository,
                       NodeRepository nodeRepository,
-                      MqttPublishService mqttPublishService, HomeService homeService) {
+                      MqttPublishService mqttPublishService, HomeService homeService,
+                      AuditService auditService) {
         this.batchRepository = batchRepository;
         this.approvalRepository = approvalRepository;
         this.nodeRepository = nodeRepository;
         this.mqttPublishService = mqttPublishService;
         this.homeService = homeService;
+        this.auditService = auditService;
     }
 
     public OtaDtos.BatchResponse createBatch(UUID homeId, OtaDtos.CreateBatchRequest req) {
@@ -156,6 +160,13 @@ public class OtaService {
                 approvalRepository.save(approval);
             }
         }
+
+        // P1-19: rolling firmware to devices is a privileged action.
+        auditService.record(user.tenantId(), "TENANT_ADMIN", user.userId(), "ota.batch.started",
+                "ota_batch", batchId,
+                Map.of("target_sku", String.valueOf(batch.getTargetSku()), "affected", affected,
+                       "matched", matchingNodes.size(), "auto_approve", batch.isAutoApprove()),
+                null, null, null);
 
         log.info("OTA batch started: id={} affected={}/{} nodes", batchId, affected, matchingNodes.size());
         return new OtaDtos.BatchActionResponse(batchId, batch.getStatus(), affected);

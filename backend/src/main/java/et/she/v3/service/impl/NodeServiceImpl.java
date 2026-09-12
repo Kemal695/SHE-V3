@@ -6,6 +6,7 @@ import et.she.v3.config.SheProperties;
 import et.she.v3.dto.NodeDtos;
 import et.she.v3.entity.*;
 import et.she.v3.errors.SheException;
+import et.she.v3.audit.AuditService;
 import et.she.v3.mqtt.MqttPublishService;
 import et.she.v3.repository.*;
 import et.she.v3.security.AuthenticatedUser;
@@ -43,6 +44,7 @@ public class NodeServiceImpl implements NodeService {
     private final TenantContextInterceptor tenantContextInterceptor;
     private final JwtService jwtService;
     private final SheProperties props;
+    private final AuditService auditService;
 
     public NodeServiceImpl(NodeRepository nodeRepository,
                            NodeDeviceRepository nodeDeviceRepository,
@@ -55,7 +57,8 @@ public class NodeServiceImpl implements NodeService {
                            MqttPublishService mqttPublishService,
                            TenantContextInterceptor tenantContextInterceptor,
                            JwtService jwtService,
-                           SheProperties props) {
+                           SheProperties props,
+                           AuditService auditService) {
         this.nodeRepository = nodeRepository;
         this.nodeDeviceRepository = nodeDeviceRepository;
         this.nodeParamRepository = nodeParamRepository;
@@ -68,6 +71,7 @@ public class NodeServiceImpl implements NodeService {
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.jwtService = jwtService;
         this.props = props;
+        this.auditService = auditService;
     }
 
     // =========================================================================
@@ -366,6 +370,13 @@ public class NodeServiceImpl implements NodeService {
             throw new SheException("MQTT_PUBLISH_FAILED", "Failed to publish command to device", 502, e);
         }
 
+        // P1-19: commanding a device is a privileged action — record what was
+        // written, not just that a write happened.
+        auditService.record(node.getTenantId(), "USER", currentUserIdOrNull(), "node.param.write",
+                "node_device", deviceId,
+                Map.of("node_id", String.valueOf(nodeId), "params", deviceParams),
+                null, null, null);
+
         return new NodeDtos.WriteParamsResponse(nodeId, deviceId, acks, true);
     }
 
@@ -520,5 +531,14 @@ public class NodeServiceImpl implements NodeService {
             throw new SheException("AUTH_TOKEN_INVALID", "Not authenticated", 401);
         }
         return auth;
+    }
+
+    /** Audit rows are best-effort: never fail a write because the actor is unknown. */
+    private UUID currentUserIdOrNull() {
+        try {
+            return currentUser().userId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

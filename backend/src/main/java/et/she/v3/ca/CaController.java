@@ -1,5 +1,6 @@
 package et.she.v3.ca;
 
+import et.she.v3.audit.AuditService;
 import et.she.v3.config.SheProperties;
 import et.she.v3.errors.SheException;
 import et.she.v3.entity.DeviceCert;
@@ -54,15 +55,18 @@ public class CaController {
     private final DeviceCertRepository deviceCertRepository;
     private final SheProperties props;
     private final TenantContextInterceptor tenantContextInterceptor;
+    private final AuditService auditService;
 
     public CaController(StepCaClient stepCaClient,
                         DeviceCertRepository deviceCertRepository,
                         SheProperties props,
-                        TenantContextInterceptor tenantContextInterceptor) {
+                        TenantContextInterceptor tenantContextInterceptor,
+                        AuditService auditService) {
         this.stepCaClient = stepCaClient;
         this.deviceCertRepository = deviceCertRepository;
         this.props = props;
         this.tenantContextInterceptor = tenantContextInterceptor;
+        this.auditService = auditService;
     }
 
     // =========================================================================
@@ -164,6 +168,14 @@ public class CaController {
         }
         deviceCertRepository.save(cert);
 
+        // P1-19: revoking a device credential is a privileged action — hash-chained
+        // audit entry. Runs in its own transaction, so it is recorded even if the
+        // surrounding request later fails.
+        auditService.record(cert.getTenantId(), "PLATFORM_ADMIN", req.revoked_by_user_id(),
+                "ca.cert.revoked", "device_cert", cert.getId(),
+                Map.of("serial", req.serial(), "reason", String.valueOf(req.reason())),
+                clientIp(httpReq), httpReq.getHeader("User-Agent"), null);
+
         log.info("Device cert revoked — serial={}, reason={}", req.serial(), req.reason());
 
         // Trigger an immediate CRL refresh (so revocation takes effect ASAP, not 6h later)
@@ -236,6 +248,17 @@ public class CaController {
         } catch (Exception e) {
             log.error("CRL verification FAILED — revocation may be delayed beyond 6h SLA", e);
         }
+    }
+
+
+    /** Best-effort client IP for audit rows (honours X-Forwarded-For behind nginx). */
+    private static String clientIp(HttpServletRequest req) {
+        if (req == null) return null;
+        String xff = req.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        return req.getRemoteAddr();
     }
 
     private String readIntermediateId() throws Exception {

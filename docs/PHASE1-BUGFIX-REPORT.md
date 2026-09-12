@@ -628,7 +628,10 @@ place and the chain would still "verify". That is not tamper-*evident*.
 - `verifyAuditLogHashChain()` now recomputes each row's `hash` from that same canonical form **in
   addition to** the linkage check, and reports `hash does not match row content; the row was
   modified in place`.
-- Wired to authentication so far: `auth.register`, `auth.login.success`, `auth.login.failed`.
+- Wired to the privileged actions the specs call out: `auth.register`, `auth.login.success`,
+  `auth.login.failed`, `ca.cert.revoked`, `ota.batch.started`, `node.param.write`. Each records the
+  target and the parameters actually applied (not just that an action happened) — e.g.
+  `node.param.write` stores the device name → param → value map that was pushed to the device.
 
 **Verified end to end** (with a temporary fast cron, then reverted):
 
@@ -647,9 +650,22 @@ Two bugs were found and fixed while proving this: `queryForMap()` throws
 per-row query selected only `id, sequence_number, prev_hash, hash, details`, so every other canonical
 field was silently `""` and every row looked tampered.
 
-**Still to do:** only authentication is wired. Other privileged actions (cert revocation, OTA
-start, param writes, admin/user management) still need `AuditService.record(...)` calls — without
-them the trail is incomplete even though the chain is now sound.
+**Coverage after wiring.** Running the e2e harnesses end to end produced a real, correctly linked
+chain spanning all wired event types:
+
+```
+ sequence_number |      action       | link
+-----------------+-------------------+------
+               1 | auth.register     | ok
+               2 | node.param.write  | ok
+               3 | node.param.write  | ok
+               4 | ota.batch.started | ok
+               5 | ca.cert.revoked   | ok
+```
+
+**Still to do:** home/member management, scene and automation changes, billing and platform-admin
+actions are not yet audited. The chain is sound and the writer is proven; extending it is now a
+one-line `auditService.record(...)` per action.
 
 ### 7.13 Status
 
@@ -669,9 +685,9 @@ V32 covers `automation_rules` by inherited scope).
 
 **Remaining work, outside the scope of this report:**
 
-- **Wire the remaining audit events.** `AuditService` is only called from authentication today.
-  Cert revocation, OTA start, param writes and admin/user management still need `record(...)` calls
-  — see §7.12.
+- **Extend audit coverage.** `auth.*`, `ca.cert.revoked`, `ota.batch.started` and
+  `node.param.write` are wired (§7.12). Home/member management, scenes, automations, billing and
+  platform-admin operations still need `record(...)` calls.
 - Rotate the CA provisioner password — it is still in git history from the initial commit and must
   be rotated before any real deployment.
 - Flash the ESP32-WROOM-32D. Not dead: it is a CH340 on COM4 and it emits the ROM banner at 115200
