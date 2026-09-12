@@ -5,7 +5,7 @@
  * ==========================================================================*/
 
 #include "ota_handler.h"
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "esp_log.h"
 #include "esp_https_ota.h"
 #include "esp_ota_ops.h"
@@ -23,7 +23,7 @@ static const char *TAG = "she_ota";
  * For S3 builds, this is a fallback; primary verification reads from eFuse.
  * For C3 builds, this IS the verification key.
  */
-#ifdef CONFIG_SHE_R4
+#if defined(CONFIG_SHE_R4) || defined(CONFIG_SHE_DEVKIT_ESP32)
 /* Compiled-in Ed25519 public key for R4 (32 bytes) */
 static const uint8_t ota_ed25519_pubkey[32] = {
     /* TODO: Replace with actual Ed25519 public key (generated offline) */
@@ -100,7 +100,7 @@ static esp_err_t verify_ed25519_signature(const uint8_t *image, size_t image_len
     /* TODO: base64 decode sig_base64 into sig[] */
 
     /* Get public key (eFuse on S3, compiled-in on C3) */
-#ifdef CONFIG_SHE_R4
+#if defined(CONFIG_SHE_R4) || defined(CONFIG_SHE_DEVKIT_ESP32)
     const uint8_t *pubkey = ota_ed25519_pubkey;
 #else
     /* S3: read from eFuse BLOCK_KEY2 */

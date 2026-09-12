@@ -16,6 +16,7 @@ menu "SHE V3 Configuration"
             SHE-R4: ESP32-C3, 4 relays, no PZEM
             SHE-R8: ESP32-S3, 8 relays + PZEM (volume SKU)
             SHE-R16: ESP32-S3, 16 relays + PZEM + mic
+            ESP32 DevKit: classic ESP32 baseline, no attached SHE peripherals
 
     config SHE_R4
         bool "SHE-R4 (ESP32-C3, 4-channel)"
@@ -23,6 +24,8 @@ menu "SHE V3 Configuration"
         bool "SHE-R8 (ESP32-S3, 8-channel)"
     config SHE_R16
         bool "SHE-R16 (ESP32-S3, 16-channel + voice)"
+    config SHE_DEVKIT_ESP32
+        bool "Classic ESP32 DevKit baseline (no attached SHE peripherals)"
     endchoice
 
     config SHE_HAS_PZEM

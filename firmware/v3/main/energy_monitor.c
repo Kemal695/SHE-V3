@@ -6,7 +6,7 @@
  * ==========================================================================*/
 
 #include "energy_monitor.h"
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "esp_log.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"

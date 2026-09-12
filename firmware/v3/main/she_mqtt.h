@@ -10,6 +10,7 @@
 
 #include "esp_err.h"
 #include "device_profiles.h"
+#include_next "mqtt_client.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +79,11 @@ esp_err_t mqtt_publish_ota_status(const char *status, const char *version, const
  * V3-MQTT-STANDARDS §3.10.
  */
 esp_err_t mqtt_publish_ota_progress(int percent, size_t bytes_done, size_t bytes_total);
+
+/**
+ * Check if MQTT client is currently connected.
+ */
+bool mqtt_client_is_connected(void);
 
 #ifdef __cplusplus
 }

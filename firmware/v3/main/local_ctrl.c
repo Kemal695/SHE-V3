@@ -5,14 +5,18 @@
  * ==========================================================================*/
 
 #include "local_ctrl.h"
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
+#include "esp_https_server.h"
+#ifdef CONFIG_MDNS
 #include "mdns.h"
+#endif
 #include "mbedtls/constant_time.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "she_local";
@@ -52,7 +56,7 @@ static esp_err_t handler_info(httpd_req_t *req) {
     }
     if (!verify_pop(pop_header, strlen(pop_header))) {
         httpd_resp_set_status(req, "401 Unauthorized");
-        httpd_resp_send_string(req, "{\"error\":\"invalid_pop\"}");
+        httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
         return ESP_OK;
     }
 
@@ -105,7 +109,7 @@ static esp_err_t handler_ctrl(httpd_req_t *req) {
     }
     if (!verify_pop(pop_header, strlen(pop_header))) {
         httpd_resp_set_status(req, "401 Unauthorized");
-        httpd_resp_send_string(req, "{\"error\":\"invalid_pop\"}");
+        httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
         return ESP_OK;
     }
 
@@ -129,12 +133,13 @@ static esp_err_t handler_ctrl(httpd_req_t *req) {
 
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send_string(req, "{\"accepted\":true}");
+    httpd_resp_sendstr(req, "{\"accepted\":true}");
     return ESP_OK;
 }
 
 /* ---- Start mDNS advertisement ---- */
 static esp_err_t start_mdns(she_node_t *node) {
+#ifdef CONFIG_MDNS
     ESP_ERROR_CHECK(mdns_init());
     /* Hostname = node_id (e.g. "she-r8-aabbcc") */
     char hostname[32];
@@ -143,36 +148,95 @@ static esp_err_t start_mdns(she_node_t *node) {
     ESP_ERROR_CHECK(mdns_hostname_set(hostname));
     ESP_ERROR_CHECK(mdns_service_add(hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, SHE_MDNS_PORT, NULL, 0));
     ESP_LOGI(TAG, "mDNS: %s.%s.local.:%d", hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PORT);
+#else
+    ESP_LOGI(TAG, "mDNS disabled (CONFIG_MDNS=n) — local control via mDNS stubbed");
+    (void)node;
+#endif
     return ESP_OK;
 }
 
-/* ---- Start HTTPS server ---- */
+/* ---- Read a PEM string from fctry NVS (malloc'd, caller frees) ---- */
+static esp_err_t read_fctry_pem(const char *key, char **out) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    size_t len = 0;
+    err = nvs_get_str(h, key, NULL, &len);
+    if (err != ESP_OK || len == 0) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+    *out = malloc(len);
+    if (!*out) {
+        nvs_close(h);
+        return ESP_ERR_NO_MEM;
+    }
+    err = nvs_get_str(h, key, *out, &len);
+    nvs_close(h);
+    return err;
+}
+
+/* ---- Register /she/info + /she/ctrl on a started server ---- */
+static esp_err_t register_uris(httpd_handle_t server) {
+    httpd_uri_t uri_info = {
+        .uri = "/she/info", .method = HTTP_GET, .handler = handler_info,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_info));
+
+    httpd_uri_t uri_ctrl = {
+        .uri = "/she/ctrl", .method = HTTP_POST, .handler = handler_ctrl,
+    };
+    return httpd_register_uri_handler(server, &uri_ctrl);
+}
+
+/* ---- Start HTTPS server (F1 fix: real TLS via esp_https_server) ----
+ * Uses the factory-issued device cert + key from fctry NVS (same identity
+ * as MQTT mTLS). Plain HTTP is only allowed on DevKit bring-up builds. */
 static esp_err_t start_https_server(void) {
+    char *cert_pem = NULL, *key_pem = NULL;
+    bool have_tls = (read_fctry_pem(SHE_FCTRY_KEY_CERT, &cert_pem) == ESP_OK)
+                 && (read_fctry_pem(SHE_FCTRY_KEY_KEY, &key_pem) == ESP_OK);
+
+    if (have_tls) {
+        httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
+        conf.httpd.server_port = SHE_MDNS_PORT;
+        conf.httpd.ctrl_port = 32768;
+        conf.servercert = (const uint8_t *)cert_pem;
+        conf.servercert_len = strlen(cert_pem) + 1;
+        conf.prvtkey_pem = (const uint8_t *)key_pem;
+        conf.prvtkey_len = strlen(key_pem) + 1;
+
+        httpd_handle_t server = NULL;
+        esp_err_t err = httpd_ssl_start(&server, &conf);
+        /* Buffers are copied by httpd_ssl_start — free our copies */
+        free(cert_pem);
+        free(key_pem);
+        if (err == ESP_OK) {
+            ESP_ERROR_CHECK(register_uris(server));
+            ESP_LOGI(TAG, "HTTPS server started on port %d (mDNS _she_ctrl._tcp)", SHE_MDNS_PORT);
+            return ESP_OK;
+        }
+        ESP_LOGE(TAG, "httpd_ssl_start failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    free(cert_pem);
+    free(key_pem);
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+    ESP_LOGW(TAG, "No device cert in fctry NVS — DevKit fallback to PLAIN HTTP on :%d", SHE_MDNS_PORT);
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = SHE_MDNS_PORT;
     config.ctrl_port = 32768;
-
-    /* TODO: configure SSL with self-signed cert per device */
-    /* For Phase 1: plain HTTP (production uses esp_https_server) */
-
     if (httpd_start(&server, &config) == ESP_OK) {
-        /* GET /she/info */
-        httpd_uri_t uri_info = {
-            .uri = "/she/info", .method = HTTP_GET, .handler = handler_info,
-        };
-        httpd_register_uri_handler(server, &uri_info);
-
-        /* POST /she/ctrl */
-        httpd_uri_t uri_ctrl = {
-            .uri = "/she/ctrl", .method = HTTP_POST, .handler = handler_ctrl,
-        };
-        httpd_register_uri_handler(server, &uri_ctrl);
-
-        ESP_LOGI(TAG, "HTTPS server started on port %d", config.server_port);
+        ESP_ERROR_CHECK(register_uris(server));
         return ESP_OK;
     }
     return ESP_FAIL;
+#else
+    ESP_LOGE(TAG, "No device cert in fctry NVS — refusing plain HTTP (factory provisioning incomplete)");
+    return ESP_FAIL;
+#endif
 }
 
 /* ---- Start local control ---- */

@@ -6,7 +6,7 @@
 
 #include "feedback_monitor.h"
 #include "relay_driver.h"
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/adc.h"
@@ -15,11 +15,19 @@
 
 static const char *TAG = "she_feedback";
 
-/* CD4051 mux select pins (GPIO 10, 11, 12 on S3, C3-safe GPIO 4, 5, 6 on R4) */
-#ifdef CONFIG_SHE_R4
+/* CD4051 mux select pins (GPIO 10, 11, 12 on S3, C3-safe GPIO 4, 5, 6 on R4).
+ * Classic ESP32-D0WD DevKit uses 4, 5, 18 — GPIO 6-11 on ESP32-D0WD are wired
+ * to the integrated SPI flash and MUST NOT be repurposed (flash corruption +
+ * WDT reset, same hazard as relay_driver I2C pins). */
+#if defined(CONFIG_SHE_R4)
 #define MUX_SEL_A_GPIO    4
 #define MUX_SEL_B_GPIO    5
 #define MUX_SEL_C_GPIO    6
+#define MUX_ADC_CHANNEL   ADC1_CHANNEL_2
+#elif defined(CONFIG_SHE_DEVKIT_ESP32)
+#define MUX_SEL_A_GPIO    4
+#define MUX_SEL_B_GPIO    5
+#define MUX_SEL_C_GPIO    18
 #define MUX_ADC_CHANNEL   ADC1_CHANNEL_2
 #else
 #define MUX_SEL_A_GPIO    10

@@ -1,22 +1,32 @@
 /* =============================================================================
- * SHE V3 firmware — ble_provisioning.c
+ * SHE V3 firmware — ble_provisioning.c (app-claims flow)
  * =============================================================================
- * BLE SoftAP provisioning + custom claim flow.
+ * Standard Espressif wifi_prov_mgr BLE provisioning (Security 1, PoP).
  * V3-FIRMWARE §5. P1-1, P1-2, P1-3, P1-26. P0-1 (cert is factory-issued).
+ * App-claims: device only does Wi-Fi provisioning here. The mobile app calls
+ * POST /api/v3/nodes/claim (P1-3) afterwards; the device never POSTs claim.
  * ==========================================================================*/
 
 #include "ble_provisioning.h"
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "wifi_provisioning/manager.h"
 #include "wifi_provisioning/scheme_ble.h"
-#include "esp_http_client.h"
-#include "cJSON.h"
+#include "esp_mac.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "she_ble";
+
+/* DevKit bring-up PoP (P1-26 format: 9-digit numeric). DEV ONLY — production
+ * devices get a CSPRNG PoP programmed at the factory (P1-1). */
+#define SHE_DEVKIT_DEFAULT_POP    "123456789"
 
 /* ---- Read PoP from fctry NVS (P1-1: 9-digit numeric CSPRNG) ---- */
 static esp_err_t read_pop_from_fctry(char *pop, size_t pop_len) {
@@ -29,158 +39,52 @@ static esp_err_t read_pop_from_fctry(char *pop, size_t pop_len) {
     return err;
 }
 
-/* ---- POST /api/v3/nodes/claim ---- */
-static esp_err_t post_claim(const char *api_base_url, const char *mac,
-                            const char *sku, const char *claim_token,
-                            const char *tenant_id, const char *config_json,
-                            char *out_mqtt_broker, size_t broker_len) {
-    /* Build request body */
-    cJSON *body = cJSON_CreateObject();
-    cJSON_AddStringToObject(body, "mac", mac);
-    cJSON_AddStringToObject(body, "claim_token", claim_token);
-    cJSON_AddStringToObject(body, "sku", sku);
-    cJSON_AddStringToObject(body, "tenant_id", tenant_id);
-    cJSON_AddRawToObject(body, "config", config_json);
-    char *body_str = cJSON_PrintUnformatted(body);
-
-    /* Build URL */
-    char url[256];
-    snprintf(url, sizeof(url), "%s/api/v3/nodes/claim", api_base_url);
-
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 10000,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, body_str, strlen(body_str));
-
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status = esp_http_client_get_status_code(client);
-        int len = esp_http_client_get_content_length(client);
-        if (status == 200 && len > 0) {
-            char *resp = malloc(len + 1);
-            esp_http_client_read(client, resp, len);
-            resp[len] = '\0';
-            /* Parse response: {"data":{"node_db_id":"...","mqtt_broker":"ssl://mqtt.she.et:8883","node_id":"..."}} */
-            cJSON *resp_json = cJSON_Parse(resp);
-            cJSON *data = cJSON_GetObjectItem(resp_json, "data");
-            cJSON *broker = cJSON_GetObjectItem(data, "mqtt_broker");
-            if (broker && cJSON_IsString(broker)) {
-                strncpy(out_mqtt_broker, broker->valuestring, broker_len - 1);
-                out_mqtt_broker[broker_len - 1] = '\0';
-            }
-            cJSON_Delete(resp_json);
-            free(resp);
-            ESP_LOGI(TAG, "Claim successful — mqtt_broker=%s", out_mqtt_broker);
-        } else {
-            ESP_LOGE(TAG, "Claim failed: HTTP %d", status);
-            err = ESP_FAIL;
+/* ---- Provisioning event handler: mark provisioned + reboot on Wi-Fi success ----
+ * App-claims: the app calls POST /api/v3/nodes/claim after Wi-Fi succeeds,
+ * so the device only persists the provisioned flag here. */
+static void prov_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data) {
+    if (event_base == WIFI_PROV_EVENT) {
+        switch (event_id) {
+        case WIFI_PROV_START:
+            ESP_LOGI(TAG, "Provisioning started");
+            break;
+        case WIFI_PROV_CRED_RECV: {
+            wifi_sta_config_t *sta_cfg = (wifi_sta_config_t *)event_data;
+            ESP_LOGI(TAG, "Wi-Fi creds received — SSID: %s", sta_cfg->ssid);
+            break;
         }
-    }
-    esp_http_client_cleanup(client);
-    free(body_str);
-    cJSON_Delete(body);
-    return err;
-}
+        case WIFI_PROV_CRED_FAIL: {
+            wifi_prov_sta_fail_reason_t *reason = (wifi_prov_sta_fail_reason_t *)event_data;
+            ESP_LOGE(TAG, "Wi-Fi connect failed: %s",
+                     (*reason == WIFI_PROV_STA_AUTH_ERROR) ? "auth error" : "AP not found");
+            break;
+        }
+        case WIFI_PROV_CRED_SUCCESS:
+            ESP_LOGI(TAG, "Wi-Fi connected — waiting for IP...");
+            break;
+        case WIFI_PROV_END:
+            ESP_LOGI(TAG, "Provisioning session ended");
+            break;
+        default:
+            break;
+        }
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        ESP_LOGI(TAG, "Got IP: " IPSTR " — marking provisioned, rebooting in 2s",
+                 IP2STR(&event->ip_info.ip));
 
-/* ---- Store provisioning info in NVS ---- */
-static esp_err_t store_provisioning(const she_provision_payload_t *payload, const char *mqtt_broker) {
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(SHE_NVS_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-
-    nvs_set_str(h, SHE_NVS_KEY_TENANT_ID, payload->tenant_id);
-    nvs_set_str(h, SHE_NVS_KEY_MQTT_BROKER, mqtt_broker);
-    nvs_set_str(h, SHE_NVS_KEY_API_BASE_URL, payload->api_base_url);
-
-    /* Mark as provisioned in fctry NVS */
-    nvs_handle_t fctry_h;
-    nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READWRITE, &fctry_h);
-    nvs_set_u8(fctry_h, SHE_FCTRY_KEY_PROVISIONED, 1);
-    nvs_commit(fctry_h);
-    nvs_close(fctry_h);
-
-    nvs_commit(h);
-    nvs_close(h);
-    return ESP_OK;
-}
-
-/* ---- Custom protobuf callback — receives provisioning payload from app ---- */
-static void prov_recv_handler(const uint8_t *data, size_t len) {
-    ESP_LOGI(TAG, "Received provisioning payload (%d bytes)", len);
-    /* Parse JSON: {wifi_ssid, wifi_password, tenant_id, claim_token, api_base_url} */
-    char *json = malloc(len + 1);
-    memcpy(json, data, len);
-    json[len] = '\0';
-
-    cJSON *root = cJSON_Parse(json);
-    if (!root) {
-        ESP_LOGE(TAG, "Invalid JSON in provisioning payload");
-        free(json);
-        return;
-    }
-
-    she_provision_payload_t payload = {0};
-    cJSON *ssid = cJSON_GetObjectItem(root, "wifi_ssid");
-    cJSON *pass = cJSON_GetObjectItem(root, "wifi_password");
-    cJSON *tenant = cJSON_GetObjectItem(root, "tenant_id");
-    cJSON *token = cJSON_GetObjectItem(root, "claim_token");
-    cJSON *api = cJSON_GetObjectItem(root, "api_base_url");
-
-    if (ssid) strncpy(payload.wifi_ssid, ssid->valuestring, sizeof(payload.wifi_ssid) - 1);
-    if (pass) strncpy(payload.wifi_password, pass->valuestring, sizeof(payload.wifi_password) - 1);
-    if (tenant) strncpy(payload.tenant_id, tenant->valuestring, sizeof(payload.tenant_id) - 1);
-    if (token) strncpy(payload.claim_token, token->valuestring, sizeof(payload.claim_token) - 1);
-    if (api) strncpy(payload.api_base_url, api->valuestring, sizeof(payload.api_base_url) - 1);
-
-    ESP_LOGI(TAG, "Wi-Fi SSID: %s", payload.wifi_ssid);
-    ESP_LOGI(TAG, "Tenant ID: %s", payload.tenant_id);
-    ESP_LOGI(TAG, "API base: %s", payload.api_base_url);
-
-    /* 1. Connect to Wi-Fi with provided creds */
-    wifi_config_t wifi_cfg = {0};
-    strncpy((char *)wifi_cfg.sta.ssid, payload.wifi_ssid, sizeof(wifi_cfg.sta.ssid) - 1);
-    strncpy((char *)wifi_cfg.sta.password, payload.wifi_password, sizeof(wifi_cfg.sta.password) - 1);
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
-    esp_wifi_connect();
-
-    /* Wait for Wi-Fi (10s timeout) */
-    /* TODO: event group wait */
-
-    /* 2. POST /api/v3/nodes/claim */
-    /* Read MAC + SKU from fctry NVS */
-    char mac[18] = {0};
-    char sku[8] = {0};
-    nvs_handle_t fctry_h;
-    nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READONLY, &fctry_h);
-    size_t len2 = sizeof(mac);
-    nvs_get_str(fctry_h, SHE_FCTRY_KEY_MAC, mac, &len2);
-    len2 = sizeof(sku);
-    nvs_get_str(fctry_h, SHE_FCTRY_KEY_SKU, sku, &len2);
-    nvs_close(fctry_h);
-
-    /* Build config JSON (minimal for claim) */
-    const char *config_json = "{}";   /* Full config published on MQTT connect */
-
-    char mqtt_broker[128] = {0};
-    esp_err_t err = post_claim(payload.api_base_url, mac, sku,
-                               payload.claim_token, payload.tenant_id,
-                               config_json, mqtt_broker, sizeof(mqtt_broker));
-    if (err == ESP_OK) {
-        /* 3. Store provisioning info in NVS */
-        store_provisioning(&payload, mqtt_broker);
-        ESP_LOGI(TAG, "Provisioning complete — rebooting in 2s");
+        /* Persist provisioned flag in fctry NVS so next boot skips BLE */
+        nvs_handle_t fctry_h;
+        if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE,
+                                    NVS_READWRITE, &fctry_h) == ESP_OK) {
+            nvs_set_u8(fctry_h, SHE_FCTRY_KEY_PROVISIONED, 1);
+            nvs_commit(fctry_h);
+            nvs_close(fctry_h);
+        }
         vTaskDelay(pdMS_TO_TICKS(2000));
         esp_restart();
-    } else {
-        ESP_LOGE(TAG, "Claim failed — user should retry");
     }
-
-    cJSON_Delete(root);
-    free(json);
 }
 
 /* ---- Check if device is already provisioned ---- */
@@ -200,19 +104,54 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
 
     /* Read PoP from fctry NVS (P1-1: 9-digit numeric CSPRNG) */
     char pop[16] = {0};
+    bool pop_from_nvs = true;
     if (read_pop_from_fctry(pop, sizeof(pop)) != ESP_OK) {
+        pop_from_nvs = false;
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+        /* DevKit bring-up: no factory PoP — use + persist the dev default */
+        strncpy(pop, SHE_DEVKIT_DEFAULT_POP, sizeof(pop) - 1);
+        nvs_handle_t fctry_h;
+        if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE,
+                                    NVS_READWRITE, &fctry_h) == ESP_OK) {
+            nvs_set_str(fctry_h, SHE_FCTRY_KEY_POP, pop);
+            nvs_commit(fctry_h);
+            nvs_close(fctry_h);
+        }
+        ESP_LOGW(TAG, "No factory PoP — DevKit default PoP: %s", pop);
+#else
         ESP_LOGE(TAG, "PoP not found in fctry NVS — factory provisioning incomplete");
         return ESP_FAIL;
+#endif
     }
-    ESP_LOGI(TAG, "PoP loaded: %s (P1-26: 9-digit numeric)", pop);
+    /* Log the PoP *and* where it came from. The fctry partition survives
+     * re-flashing, so a device that was ever provisioned with a different
+     * PoP keeps that value and every app handshake fails with a generic
+     * "secure session rejected" until the app is given this exact PoP. */
+    ESP_LOGI(TAG, "PoP = %s (source: %s) — type this into the app's PoP field",
+             pop, pop_from_nvs ? "fctry NVS" : "DevKit default");
+    ESP_LOGW(TAG, "Erase stale fctry PoP with: idf.py -p <PORT> erase-flash");
 
-    /* Advertised device name = node_id (e.g. "SHE-R8-AABBCC") */
-    ESP_LOGI(TAG, "Advertised name: %s", node->node_id);
+    /* Advertised device name = node_id (e.g. "SHE-R8-AABBCC").
+     * DevKit without factory identity: derive "SHE-<MAC24>" from eFuse MAC. */
+    char service_name[32];
+    if (node->node_id && strlen(node->node_id) > 0) {
+        strncpy(service_name, node->node_id, sizeof(service_name) - 1);
+        service_name[sizeof(service_name) - 1] = '\0';
+    } else {
+        uint8_t mac[6] = {0};
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        snprintf(service_name, sizeof(service_name), "SHE-%02X%02X%02X",
+                 mac[3], mac[4], mac[5]);
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+        ESP_LOGW(TAG, "No node_id — DevKit service name: %s", service_name);
+#endif
+    }
+    ESP_LOGI(TAG, "Advertised name: %s", service_name);
 
     /* Initialize Wi-Fi provisioning manager with BLE scheme */
     wifi_prov_mgr_config_t cfg = {
         .scheme = wifi_prov_scheme_ble,
-#ifdef CONFIG_SHE_R4
+#if defined(CONFIG_SHE_R4) || defined(CONFIG_SHE_DEVKIT_ESP32)
         .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BLE,
 #else
         .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
@@ -220,25 +159,46 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
     };
     ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
 
-    /* Set service UUID (P1-2: 0000ffff-0000-1000-8000-00805f9b34fb) */
-    /* The 16-bit UUID 0xFFFF expands to the full 128-bit Bluetooth Base UUID automatically */
-    uint8_t service_uuid[16] = {0};
-    service_uuid[2] = 0xFF;
-    service_uuid[3] = 0xFF;
-    wifi_prov_scheme_ble_set_service_uuid(service_uuid);
+    /* Set service UUID (P1-2: 0000ffff-0000-1000-8000-00805f9b34fb).
+     * ESP-IDF expects the 128-bit UUID as a LITTLE-ENDIAN (LSB-first) byte
+     * array, so the 16-bit 0xFFFF belongs at offset 12-13 — NOT at 2-3.
+     * Placing it at 2-3 dropped the 0xFFFF into the wrong UUID field, so the
+     * device advertised a service UUID that is not the Bluetooth base UUID
+     * and not P1-2 (clients then fail to open a provisioning session on it).
+     * Kept static: the API keeps the pointer, and provisioning runs for the
+     * lifetime of the firmware. */
+    static uint8_t she_ble_service_uuid[16] = {
+        0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
+        0x00, 0x10, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+    };
+    wifi_prov_scheme_ble_set_service_uuid(she_ble_service_uuid);
 
-    /* Set device name + PoP */
-    wifi_prov_mgr_endpoint_create("she-prov");
-    wifi_prov_mgr_endpoint_register("she-prov", prov_recv_handler, NULL);
-    wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, node->node_id, NULL);
+    /* Standard Espressif Wi-Fi provisioning (prov-session/prov-config/prov-scan).
+     * No custom "she-prov" endpoint in app-claims flow — the app sends only
+     * Wi-Fi creds over BLE, then calls POST /api/v3/nodes/claim itself. */
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID,
+                                               &prov_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                               &prov_event_handler, NULL));
+    esp_err_t prov_err = wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, service_name, NULL);
+    if (prov_err == ESP_ERR_INVALID_STATE) {
+        /* Stale manager state: a previous failed attempt left Wi-Fi creds in
+         * the manager while our provisioned flag is still 0. The manager then
+         * refuses to start and the phone fails with "Failed to create
+         * session". Tear down and start clean (deinit/stop are documented
+         * no-op-safe when idle). */
+        ESP_LOGW(TAG, "Provisioning already started/stale — resetting manager for a clean session");
+        wifi_prov_mgr_stop_provisioning();
+        wifi_prov_mgr_deinit();
+        ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
+        prov_err = wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, service_name, NULL);
+    }
+    ESP_ERROR_CHECK(prov_err);
 
     ESP_LOGI(TAG, "BLE provisioning started — waiting for app to connect (PoP: %s)", pop);
 
-    /* Register custom endpoint for receiving provisioning payload */
-    /* (In production, register a protocomm handler for "she-prov" endpoint) */
-
-    /* Block until provisioning completes (or timeout) */
-    /* For Phase 1: this is a placeholder — actual implementation uses event groups */
+    /* Block until provisioning completes (IP_EVENT_STA_GOT_IP reboots above).
+     * For Phase 1: placeholder — actual implementation uses event groups. */
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

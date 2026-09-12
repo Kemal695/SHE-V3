@@ -5,14 +5,18 @@
  * V3-FIRMWARE §12.6. V3-MQTT-STANDARDS §7. P1-10, P1-13.
  * ==========================================================================*/
 
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
+#include "esp_idf_version.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <time.h>
 
 static const char *TAG = "she_mqtt";
 
@@ -21,6 +25,7 @@ extern const char ca_pem_start[]   asm("_binary_ca_pem_start");
 extern const char ca_pem_end[]   asm("_binary_ca_pem_end");
 
 static esp_mqtt_client_handle_t mqtt_client = NULL;
+static bool g_mqtt_connected = false;
 static she_node_t *g_node = NULL;
 
 /* Cached provisioning info (from NVS) */
@@ -162,6 +167,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED: {
+        g_mqtt_connected = true;
         ESP_LOGI(TAG, "MQTT connected — publishing status=online + config");
         mqtt_publish_status(true);
         if (g_node) mqtt_publish_config(g_node);
@@ -185,6 +191,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
+        g_mqtt_connected = false;
         ESP_LOGW(TAG, "MQTT disconnected — LWT will fire on broker side");
         break;
     case MQTT_EVENT_DATA: {
@@ -256,24 +263,42 @@ esp_err_t mqtt_client_start(she_node_t *node) {
         return err;
     }
 
-    /* MQTT client config — V3-FIRMWARE §12.6 */
+    /* MQTT client config — V3-FIRMWARE §12.6 (nested esp-mqtt v5 API, IDF >= 5.0) */
+    char *lwt_topic = mqtt_build_topic("status");
+#if ESP_IDF_VERSION_MAJOR >= 5
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = g_mqtt_broker,
+        .broker.verification.certificate = ca_pem_start,
+        .credentials.authentication.certificate = cert_pem,
+        .credentials.authentication.key = key_pem,
+        .credentials.client_id = g_mac,
+        .session.keepalive = 30,
+        .session.disable_clean_session = false,
+        .session.last_will.topic = lwt_topic,
+        .session.last_will.msg = "{\"status\":\"offline\"}",
+        .session.last_will.qos = 1,
+        .session.last_will.retain = 1,
+        .task.priority = 5,
+        .task.stack_size = 6144,
+        .buffer.size = 4096,
+    };
+#else
     esp_mqtt_client_config_t mqtt_cfg = {
         .uri = g_mqtt_broker,
         .client_cert_pem = cert_pem,
         .client_key_pem = key_pem,
-        .cert_pem = ca_pem_start,    /* CA bundle (root + intermediate) */
-        .client_id = g_mac,           /* V3-MQTT-STANDARDS §10 — client_id = normalized MAC */
+        .cert_pem = ca_pem_start,
+        .client_id = g_mac,
         .keepalive = 30,
         .disable_clean_session = false,
         .task_stack = 6144,
         .buffer_size = 4096,
-
-        /* LWT — V3-MQTT-STANDARDS §3.6 + P1-13 (JSON payload) */
-        .lwt_topic = mqtt_build_topic("status"),
+        .lwt_topic = lwt_topic,
         .lwt_msg = "{\"status\":\"offline\"}",
         .lwt_qos = 1,
         .lwt_retain = 1,
     };
+#endif
 
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     if (!mqtt_client) {
@@ -297,8 +322,13 @@ esp_err_t mqtt_client_stop(void) {
         esp_mqtt_client_stop(mqtt_client);
         esp_mqtt_client_destroy(mqtt_client);
         mqtt_client = NULL;
+        g_mqtt_connected = false;
     }
     return ESP_OK;
+}
+
+bool mqtt_client_is_connected(void) {
+    return g_mqtt_connected;
 }
 
 /* ---- Publish helpers ---- */

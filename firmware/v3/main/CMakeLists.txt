@@ -10,7 +10,7 @@ idf_component_register(
     SRCS
         "main.c"
         "app_wifi.c"
-        "mqtt_client.c"
+        "she_mqtt.c"
         "ble_provisioning.c"
         "ota_handler.c"
         "local_ctrl.c"
@@ -27,19 +27,27 @@ idf_component_register(
         esp_wifi
         esp_event
         esp_http_client
+        esp_http_server
+        esp_https_server
         esp_https_ota
         esp_local_ctrl
-        mdns
         mqtt
         protobuf-c
         protocomm
         wifi_provisioning
+        json
+        driver
+        app_update
+        bt
+        # mdns moved to espressif/mdns component manager (v5.2) — handled via idf_component.yml
+        # fallback: if mdns not found, local_ctrl will stub mDNS (see local_ctrl.c)
 )
 
-# R16-only: voice_control.c (Picovoice SDK)
+# R16-only: voice_control.c is a Phase-1 stub with no third-party SDK includes
+# (full Picovoice integration lands in Phase 4C). Link no external SDK here —
+# the old idf_component_get_property(picovoice ...) block broke R16 builds
+# because no `picovoice` component is declared (F9 fix).
 if(CONFIG_SHE_R16)
-    idf_component_get_property(picovoice_lib picovoice COMPONENT_LIB)
-    target_link_libraries(${COMPONENT_LIB} PUBLIC ${picovoice_lib})
     target_sources(${COMPONENT_LIB} PRIVATE "voice_control.c")
 endif()
 

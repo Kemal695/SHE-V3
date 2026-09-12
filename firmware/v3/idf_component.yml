@@ -19,5 +19,7 @@ dependencies:
   ## Required for esp_local_ctrl (mDNS + HTTPS local control)
   espressif/esp_local_ctrl: "^2.0.0"
 
-  ## Wi-Fi provisioning (BLE SoftAP)
-  espressif/provisioning: "^1.0.0"
+  ## NOTE: Wi-Fi BLE provisioning uses the IDF built-in `wifi_provisioning`
+  ## + `protocomm` components (already in main/CMakeLists.txt REQUIRES).
+  ## There is no `espressif/provisioning` registry component (F8 fix) — do NOT
+  ## re-add it or `idf.py reconfigure` will fail dependency resolution.

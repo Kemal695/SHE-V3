@@ -25,31 +25,32 @@ extern "C" {
 #define SHE_BLE_CHAR_WIFI_UUID      "0000ff01-0000-1000-8000-00805f9b34fb"
 #define SHE_BLE_CHAR_STATUS_UUID    "0000ff02-0000-1000-8000-00805f9b34fb"
 
-/* Provisioning payload (JSON, sent via BLE GATT write to SHE_BLE_CHAR_WIFI_UUID) */
+/* Provisioning payload (legacy device-claims struct, kept for API compat).
+ * App-claims flow does NOT use this — the app sends only Wi-Fi creds via the
+ * standard Espressif prov-config endpoint, then calls POST /nodes/claim itself.
+ */
 typedef struct {
     char wifi_ssid[33];
     char wifi_password[65];
-    char tenant_id[40];         /* UUID */
-    char claim_token[256];      /* 10-min TTL JWT */
-    char api_base_url[128];     /* "https://api.she.et" */
+    char tenant_id[40];         /* UUID — unused in app-claims */
+    char claim_token[256];      /* unused in app-claims */
+    char api_base_url[128];     /* unused in app-claims */
 } she_provision_payload_t;
 
 /**
  * Start BLE provisioning — blocks until provisioning completes or times out.
- * Reads PoP from fctry NVS, advertises BLE service, accepts Wi-Fi creds via GATT,
- * then POSTs to /api/v3/nodes/claim to register the device with the cloud.
+ * Reads PoP from fctry NVS, advertises BLE service, accepts Wi-Fi creds via
+ * the standard Espressif prov-config GATT endpoint. On IP_EVENT_STA_GOT_IP
+ * the provisioned flag is persisted and the device reboots.
  *
- * V3-FIRMWARE §5.1 — full flow:
+ * V3-FIRMWARE §5.1 (app-claims) — full flow:
  *   1. ESP32 boots unprovisioned → starts BLE provisioning service
  *   2. Flutter app scans → finds "SHE-R8-AABBCC" (advertised name = node_id)
  *   3. App connects (BLE Security 1, PoP required)
- *   4. App sends {wifi_ssid, wifi_password, tenant_id, claim_token, api_base_url}
- *   5. ESP32 connects to Wi-Fi
- *   6. ESP32 POSTs to {api_base_url}/api/v3/nodes/claim
- *      Body: { mac, claim_token, sku, tenant_id, config }
- *      Returns: { node_db_id, mqtt_broker }
- *   7. ESP32 stores mqtt_broker + tenant mapping in NVS
- *   8. ESP32 disconnects BLE, reboots
+ *   4. App sends {wifi_ssid, wifi_password} via standard prov-config
+ *   5. ESP32 connects to Wi-Fi, marks provisioned, reboots
+ *   6. App calls POST /api/v3/nodes/claim {mac, sku, home_id} (P1-3)
+ *   7. Device connects to MQTT with factory cert (P0-1), publishes config
  */
 esp_err_t ble_provisioning_start(she_node_t *node);
 

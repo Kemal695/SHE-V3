@@ -16,6 +16,7 @@ static const char *TAG = "she_button";
 
 #define BOOT_BUTTON_GPIO    0    /* GPIO 0 = BOOT button on ESP32 dev kits */
 #define LONG_PRESS_MS       5000
+#define DEBOUNCE_MS         50    /* F10 fix: ignore sub-50ms glitches */
 
 static void button_task(void *arg) {
     bool last_level = true;   /* pulled high = not pressed */
@@ -24,7 +25,13 @@ static void button_task(void *arg) {
         bool level = gpio_get_level(BOOT_BUTTON_GPIO);
 
         if (last_level && !level) {
-            /* Button pressed (falling edge) */
+            /* F10 fix: debounce — re-sample after 50ms, ignore the edge if high */
+            vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_MS));
+            if (gpio_get_level(BOOT_BUTTON_GPIO)) {
+                last_level = true;
+                continue;
+            }
+            /* Button pressed (debounced falling edge) */
             int press_duration = 0;
             while (!gpio_get_level(BOOT_BUTTON_GPIO)) {
                 vTaskDelay(pdMS_TO_TICKS(100));

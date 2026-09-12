@@ -9,6 +9,7 @@
 #define SHE_OTA_HANDLER_H
 
 #include "esp_err.h"
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef __cplusplus

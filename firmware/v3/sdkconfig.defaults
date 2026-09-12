@@ -45,6 +45,16 @@ CONFIG_HTTPD_MAX_URI_LEN=512
 # ---- HTTPS OTA ----
 CONFIG_OTA_ALLOW_HTTP=n
 
+# ---- BT/BLE (for Wi-Fi provisioning) ----
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=y
+CONFIG_BT_BLE_ENABLED=y
+# protocomm's BLE provisioning path (simple_ble.c) calls the BT 4.2 legacy advertising
+# API (esp_ble_gap_config_adv_data / esp_ble_gap_start_advertising). Enabling only the
+# BLE 5.0 feature set leaves those symbols undefined at link time.
+CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+CONFIG_WIFI_PROV_SCHEME_BLE=y
+
 # ---- NVS ----
 CONFIG_NVS_ENCRYPTION=y
 
@@ -74,3 +84,5 @@ CONFIG_SHE_R16=
 # ---- Firmware version (baked into binary header) ----
 CONFIG_SHE_FIRMWARE_VERSION="3.0.0"
 CONFIG_SHE_SECURE_VERSION=1
+
+CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=1

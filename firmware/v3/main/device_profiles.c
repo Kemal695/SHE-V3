@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 static const char *TAG = "device_profiles";
 
@@ -197,8 +198,15 @@ she_node_t* profile_build_for_sku(const char *sku) {
     if (strcmp(sku, "SHE-R4") == 0)  return profile_build_r4();
     if (strcmp(sku, "SHE-R8") == 0)  return profile_build_r8();
     if (strcmp(sku, "SHE-R16") == 0) return profile_build_r16();
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+    /* DevKit has no factory-programmed SKU — fall back to the R4 profile
+     * (4 relays, no PZEM) so bring-up can proceed to BLE provisioning. */
+    ESP_LOGW(TAG, "Unknown SKU: %s — DevKit fallback to SHE-R4 profile", sku);
+    return profile_build_r4();
+#else
     ESP_LOGE(TAG, "Unknown SKU: %s", sku);
     return NULL;
+#endif
 }
 
 /* =============================================================================
@@ -288,7 +296,16 @@ cJSON* profile_to_config_json(const she_node_t *node) {
 void profile_free(she_node_t *node) {
     if (!node) return;
     for (int i = 0; i < node->device_count; i++) {
-        if (node->devices[i].params) free(node->devices[i].params);
-        if (node->devices[i].attributes) cJSON_Delete(node->devices[i].attributes);
+        /* F5 fix: only relay devices own heap params (calloc'd in
+         * build_relay_device). Service devices (esp.service.*) point at
+         * static arrays — freeing those is undefined behavior (crash). */
+        if (strncmp(node->devices[i].type, "esp.service.", 12) != 0) {
+            free(node->devices[i].params);
+            node->devices[i].params = NULL;
+        }
+        if (node->devices[i].attributes) {
+            cJSON_Delete(node->devices[i].attributes);
+            node->devices[i].attributes = NULL;
+        }
     }
 }

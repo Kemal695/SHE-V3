@@ -29,9 +29,14 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
         if (s_retry_count < MAX_RETRY) {
-            esp_wifi_connect();
+            /* F11 fix: exponential backoff — 500ms, 1s, 2s, 4s, 8s (cap 10s).
+             * Gentler on the AP and on the event task than a tight retry loop. */
+            int backoff_ms = 500 << s_retry_count;
+            if (backoff_ms > 10000) backoff_ms = 10000;
             s_retry_count++;
-            ESP_LOGI(TAG, "Retrying Wi-Fi connect (%d/%d)", s_retry_count, MAX_RETRY);
+            ESP_LOGI(TAG, "Retrying Wi-Fi connect (%d/%d) in %dms", s_retry_count, MAX_RETRY, backoff_ms);
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+            esp_wifi_connect();
         } else {
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         }

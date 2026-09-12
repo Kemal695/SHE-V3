@@ -1,9 +1,9 @@
-# =============================================================================
-# SHE V3 firmware — NVS namespace + key definitions (single source of truth)
-# =============================================================================
-# V3-FIRMWARE §2.2 — nvs_keys.h.
-# All NVS namespaces + keys are defined here to avoid magic strings.
-# =============================================================================
+// =============================================================================
+// SHE V3 firmware — NVS namespace + key definitions (single source of truth)
+// =============================================================================
+// V3-FIRMWARE §2.2 — nvs_keys.h.
+// All NVS namespaces + keys are defined here to avoid magic strings.
+// =============================================================================
 
 #ifndef SHE_NVS_KEYS_H
 #define SHE_NVS_KEYS_H

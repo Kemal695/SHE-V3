@@ -26,7 +26,7 @@
 #include "nvs_keys.h"
 #include "device_profiles.h"
 #include "app_wifi.h"
-#include "mqtt_client.h"
+#include "she_mqtt.h"
 #include "ble_provisioning.h"
 #include "ota_handler.h"
 #include "local_ctrl.h"
@@ -120,6 +120,9 @@ void app_main(void) {
     read_node_identity(mac, sizeof(mac), sku, sizeof(sku), node_id, sizeof(node_id));
 
     uint8_t relay_count = 8;   /* default */
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+    relay_count = 4;           /* DevKit falls back to the SHE-R4 profile */
+#endif
     if (strcmp(sku, "SHE-R4") == 0)  relay_count = 4;
     else if (strcmp(sku, "SHE-R8") == 0)  relay_count = 8;
     else if (strcmp(sku, "SHE-R16") == 0) relay_count = 16;
@@ -168,10 +171,24 @@ void app_main(void) {
 
     /* 8. MQTT connect (mTLS, cert from fctry NVS) */
     ESP_LOGI(TAG, "Step 8: Starting MQTT client (mTLS)...");
-    if (mqtt_client_start(node) != ESP_OK) {
-        ESP_LOGE(TAG, "MQTT start failed — will retry in 30s");
-        /* TODO: implement retry logic */
+    /* F7 fix: bounded retry with backoff, then reboot to a clean state
+     * instead of running headless forever without cloud connectivity. */
+    int mqtt_attempts = 0;
+    esp_err_t mqtt_err = mqtt_client_start(node);
+    while (mqtt_err != ESP_OK && mqtt_attempts < 3) {
+        mqtt_attempts++;
+        ESP_LOGW(TAG, "MQTT start failed (attempt %d/3) — retrying in 10s", mqtt_attempts);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+        mqtt_err = mqtt_client_start(node);
     }
+    if (mqtt_err != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT init failed after 3 attempts — rebooting in 30s");
+        vTaskDelay(pdMS_TO_TICKS(30000));
+        esp_restart();
+    }
+    /* NOTE: the actual broker connection completes async (MQTT_EVENT_CONNECTED).
+     * Runtime drops are handled by the OTA health check (step 12) + esp-mqtt
+     * reconnect, not here. */
 
     /* 9. Start esp_local_ctrl (mDNS + HTTPS + PoP) */
     ESP_ERROR_CHECK(local_ctrl_start(node));
