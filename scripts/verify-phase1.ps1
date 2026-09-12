@@ -101,9 +101,20 @@ try {
 }
 
 if ($accessToken) {
+    try {
+        $tokResp = Invoke-WebRequest -Uri "$BackendUrl/api/v3/auth/claim-token" -Method POST -Headers @{Authorization="Bearer $accessToken"} -UseBasicParsing
+        $tokData = $tokResp.Content | ConvertFrom-Json
+        $claimToken = $tokData.data.claim_token
+        if ($claimToken) { Test-Pass "Claim token issued" } else { Test-Fail "Claim token response missing claim_token" }
+    } catch {
+        Test-Fail "Claim token issuance failed: $_"
+        $claimToken = $null
+    }
+    if (-not $claimToken) { $claimToken = "phase1-test" }
+
     $claimBody = @{
         mac = "aabbccddeeff"
-        claim_token = "phase1-test"
+        claim_token = $claimToken
         sku = "SHE-R8"
         config = @{}
     } | ConvertTo-Json -Compress

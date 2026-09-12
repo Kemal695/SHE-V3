@@ -127,11 +127,20 @@ ACCESS_TOKEN=$(echo "${REG_RESP}" | jq -r '.data.access_token // empty')
 if [ -n "${ACCESS_TOKEN}" ]; then
     pass "User registered for provisioning test"
 
+    # Fetch a 10-min claim token (POST /api/v3/auth/claim-token, P1-3)
+    CLAIM_TOKEN=$(curl -sf -m 10 -X POST "${BACKEND_URL}/api/v3/auth/claim-token" \
+        -H "Authorization: Bearer ${ACCESS_TOKEN}" 2>/dev/null | jq -r '.data.claim_token // empty' || echo "")
+    if [ -n "${CLAIM_TOKEN}" ]; then
+        pass "Claim token issued"
+    else
+        fail "Claim token issuance failed"
+    fi
+
     # Claim a device (simulated — no real BLE)
     CLAIM_RESP=$(curl -sf -m 10 -X POST "${BACKEND_URL}/api/v3/nodes/claim" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-        -d '{"mac":"aabbccddeeff","claim_token":"phase1-test","sku":"SHE-R8","config":{}}' 2>/dev/null || echo "{}")
+        -d "{\"mac\":\"aabbccddeeff\",\"claim_token\":\"${CLAIM_TOKEN}\",\"sku\":\"SHE-R8\",\"config\":{}}" 2>/dev/null || echo "{}")
     NODE_DB_ID=$(echo "${CLAIM_RESP}" | jq -r '.data.node_db_id // empty')
     if [ -n "${NODE_DB_ID}" ]; then
         pass "Device claimed — node_db_id=${NODE_DB_ID}"

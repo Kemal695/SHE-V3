@@ -130,3 +130,382 @@
 - **Local control HTTPS** — needs `httpd_ssl_start` instead of `httpd_start`
 
 These are tracked for Phase 2 hardening (weeks 13-24) alongside the custom hardware work.
+
+---
+
+## 4. Phase 2 hardening pass — verification status (2026-09-12)
+
+The 39 HIGH-severity bugs listed in §2 have now been implemented and verified against the
+working tree. Verification method: clean `mvn -o test` (26 tests, all green), `flutter analyze`
+(0 errors), and per-bug source inspection.
+
+### 4.1 Backend — 15/15 resolved
+
+| # | Bug | Status | Where it is fixed |
+|---|---|---|---|
+| H1 | No RBAC on home/room/member ops | ✅ | `HomeServiceImpl.getAuthorizedHomeOrThrow()` — tenant check + role hierarchy (OWNER>ADMIN>MEMBER>GUEST), applied on all 11 entry points |
+| H2 | No RBAC on OTA ops | ✅ | `OtaService` — `currentUser()` + `RBAC_INSUFFICIENT_ROLE` ("Tenant admin role required for OTA operations") |
+| H3 | IDOR on device param write | ✅ | `NodeServiceImpl.writeParams()` → `getAuthorizedNodeOrThrow(nodeId,"MEMBER")` + `device.getNodeId().equals(nodeId)` check |
+| H4 | OTA progress broadcast to all tenants | ✅ | `WsEventBus.sessionsByTenant` + `broadcast(tenantId, …)` |
+| H5 | Null tenantId NPE | ✅ | `WsEventBus` — `user.tenantId() == null` guarded before registration |
+| H6 | Hash-chain verification was a no-op | ✅ | `ScheduledJobs.verifyAuditLogHashChain()` — `@Transactional` + platform-admin GUC + per-tenant iteration |
+| H7 | Energy timezone bug | ✅ | `EnergyService` — all month/day boundaries use `ZoneId.of("Africa/Addis_Ababa")` |
+| H8 | `detectAnomalies` never ran (no GUCs) | ✅ | `EnergyService.detectAnomalies()` — `@Transactional` + `SET LOCAL app.is_platform_admin='true'` |
+| H9 | MQTT publish connection leak | ✅ | `MqttPublishService` — stale client closed before reconnect |
+| H10 | MQTT handlers never set RLS GUCs | ✅ | `MqttSubscriberService.processMessageWithRls()` — `@Transactional` wrapper + platform-admin GUC around the whole dispatch |
+| H11 | JWT filter unchecked exceptions → 500 | ✅ | `JwtAuthenticationFilter` — `catch (SheException)` + `catch (Exception)` |
+| H12 | Malformed JSON in error writer | ✅ | `GlobalExceptionHandler` — writes the envelope via `objectMapper.writeValue()`, no string interpolation |
+| H13 | JWT echoed in WS response header | ✅ | `WsAuthInterceptor` — responds `Sec-WebSocket-Protocol: bearer` (subprotocol only, never the token) |
+| H14 | `getTelemetry` ignored `bucket` | ✅ | `NodeServiceImpl.getTelemetry()` — TimescaleDB `time_bucket()` with 5m/1h/1d intervals |
+| H15 | `seq` from `System.currentTimeMillis()` | ✅ | `NodeServiceImpl` — per-node `AtomicLong` seeded from wall-clock, strictly increasing |
+
+### 4.2 Firmware — 12/12 resolved
+
+F1 (`httpd_ssl_start`), F2 (dead custom provisioning endpoint removed — standard app-claims flow),
+F3 (`FREE_BLE` on C3, not `FREE_BTDM`), F4 (target-conditional feedback pins),
+F5 (`profile_free` no longer frees static arrays), F6 (real 300 s OTA health check + rollback),
+F7 (bounded MQTT start retry), F8 (bogus `espressif/provisioning` dep removed),
+F9 (picovoice reference made conditional / stubbed), F10 (50 ms button debounce),
+F11 (real exponential backoff, 500 ms→10 s), F12 (FreeRTOS includes added).
+
+Also: `mqtt_client.c/.h` was replaced by `she_mqtt.c/.h`; `main/CMakeLists.txt` lists the new
+source and no file references the deleted API — the swap is complete, not a dangling deletion.
+
+### 4.3 Mobile — 12/12 resolved
+
+M1 (`AppLocalizations` wired on all screens, incl. device detail), M2 (real home id from
+`homesProvider`), M3 (WS events dispatched via `ref.invalidate`), M4 (`refreshListenable` reactive
+redirect), M5 (optimistic toggle with revert), M6 (SSID/password actually sent),
+M7 (chart uses real `energy_wh` data), M8 (flat request body — see §5), M9 (type-checked refresh
+response), M10 (scrollable empty/error states), M11 (9-digit numeric PoP validation),
+M12 (`await channel.ready` before marking connected + generation/dispose guards).
+
+---
+
+## 5. Defects found and fixed during this pass (not in the original §2 list)
+
+These were discovered while verifying the hardening work; all three were blocking CI or
+violating the canonical spec.
+
+| # | Defect | File | Fix |
+|---|---|---|---|
+| A | **`JwtServiceTest` hung the build forever.** `@BeforeAll` spawned `openssl` with `inheritIO()`, which steals Maven Surefire's stdin fork-communication channel → the forked VM never reports back ("terminated without properly saying goodbye", `Tests run: 0`), so the suite hung until killed. | `JwtServiceTest.java` | Replaced the subprocess with in-process JDK `KeyPairGenerator("Ed25519")` + PEM encoding. Test went from hanging to **5 tests in ~1 s**, and no longer depends on `openssl` being on `PATH`. |
+| B | **`AuthControllerWebTest`: all 6 tests errored** — the `@WebMvcTest` slice could not build `tenantContextFilter` (needed `SheProperties`) and `tenantContextInterceptor` (needed `EntityManager`), neither of which exists in a web slice. | `TenantContextFilter.java`, `TenantContextInterceptor.java` | Both dependencies were **dead**: the filter never used `SheProperties`, and the interceptor is no longer registered as a `HandlerInterceptor` (replaced by `TenantContextAspect`). Removed the unused dependency and the vestigial `implements HandlerInterceptor` / `preHandle`. Stale javadoc corrected. |
+| C | **M8 — param-write body contradicted the canonical spec.** `V3-API-SPECIFICATION.md` documents a FLAT body `{"Power": true}`; the backend DTO wrapped it as `{"params": {…}}` and the mobile client sent the wrapped form while its own comment said flat. | `NodeDtos.java`, `NodeController.java`, `node_service.dart` | Backend now binds the documented flat body via `WriteParamsRequest.of()` and still unwraps the legacy `{"params": {…}}` form, so no existing caller breaks. Mobile client switched to the flat body. Covered by 5 new unit tests. |
+
+### 5.1 Known remaining cruft (non-blocking)
+
+- `MqttSubscriberService.tenantContextInterceptor` is injected but unused (H10 is handled via
+  `jdbcTemplate` in `processMessageWithRls`). Harmless dead dependency.
+- `TenantContextInterceptor` is now a misnomer — it is an RLS-GUC helper, not an interceptor.
+  A rename would touch 8 call sites; deferred to avoid churn.
+- `mobile`: 19 remaining `flutter analyze` issues, all pre-existing lint info/warnings
+  (`avoid_print`, `withOpacity` deprecation, `prefer_const_constructors`, unused test imports).
+
+---
+
+## 6. Verification commands
+
+```bash
+# Backend: clean build + tests (26 tests, expect BUILD SUCCESS)
+cd backend && mvn -o test
+
+# Mobile: static analysis (expect 0 errors)
+cd mobile && flutter analyze
+```
+
+> Note: on this machine `mvn` fails from Git Bash (`ClassNotFoundException:
+> org.codehaus.plexus.classworlds.launcher.Launcher`) because the shell wrapper passes POSIX
+> paths to a Windows JVM, and `JAVA_HOME` is unset. Run Maven from PowerShell, or set
+> `JAVA_HOME=C:\Program Files\Zulu\zulu-21` and invoke `mvn.cmd`.
+
+---
+
+## 7. Track-1 end-to-end testing (2026-09-12)
+
+A device simulator (`scripts/she_e2e_track1.py`) drives the **real** stack — real step-ca,
+real EMQX mTLS + ACL, real Spring Boot, real TimescaleDB — and exercises the five Phase-1
+flows (BLE provisioning, telemetry + energy, param write, OTA, local control).
+
+Result: **27/27 hardware-independent checks pass** (Test 5.4, the LAN toggle latency
+measurement, needs a physical board).
+
+Running it surfaced **seven additional production defects**, all now fixed. Six of them were
+invisible to the unit tests and would have blocked Phase 1 exit criteria on real hardware.
+
+| # | Defect | Impact | File(s) | Fix |
+|---|---|---|---|---|
+| D | **MQTT ingestion subscription used a regex alternation.** The backend subscribed to `$share/she-backend/she/+/+/+/+/(telemetry\|status\|params/local\|energy\|ota/status\|ota/progress)`. MQTT topic filters support only `+`/`#` — `(`, `\|`, `)` are literal characters, so the filter was an 8-level topic that matched nothing. EMQX also **denied the SUBSCRIBE** (`AUTHZ … authorization_permission_denied … action: SUBSCRIBE(Q1)`). | **Severe.** No telemetry, energy, `status`, `params/local` or OTA progress was ever ingested from any device. Only `config` arrived (it uses a plain filter), which masked the failure — `is_online` still flipped true because the `config` handler also sets presence. | `MqttSubscriberService.java`, `infra/emqx-acl/acl.conf` | Subscribe once per direction with plain `+` wildcards (both in `connect()` and `connectComplete()`); ACL now lists every direction explicitly in both the plain and `$share/<group>/` forms. |
+| E | **`node_params.last_value` bound as SQL `boolean` against a `jsonb` column.** `NodeParamRepository.updateLastValue` was an HQL bulk update with `@Param("value") Object`. Hibernate resolves an HQL parameter's bind type from the *runtime* value class — a `Boolean` — and the entity's `@JdbcTypeCode(SqlTypes.JSON)` does **not** propagate to query parameters. | `PUT /nodes/{id}/devices/{did}/params` returned **HTTP 500** for every param write (`column "last_value" is of type jsonb but expression is of type boolean`). | `NodeParamRepository.java` | Native query with an explicit `CAST(:value AS jsonb)`, fed by a `default` method that serializes the value with Jackson. |
+| F | **`NodeParam.lastValue` was typed `Object` with `@JdbcTypeCode(SqlTypes.JSON)`.** Hibernate cannot resolve a concrete `JavaType` for `Object`, so its JSON mapper casts the value to `String`. | **Severe.** Any device whose `config` reports an initial param value (`"value": true` — which `V3-MQTT-STANDARDS §8.1` shows as the normal case) threw `ClassCastException: BooleanNode cannot be cast to String`, rolling back the whole self-description transaction. **No devices, params or services were ever registered** from a real device's `config`. | `NodeParam.java` | Field retyped to `JsonNode`, which Jackson's format mapper handles natively. |
+| G | **OTA authorization required `TENANT_ADMIN`.** `OtaService.requireTenantAdmin()` accepted only `TENANT_ADMIN` or a bypass-capable principal — but `V3-API-SPECIFICATION §9` specifies **home-level** roles (`POST batches` = OWNER, `start`/`approve` = ADMIN+, `abort` = OWNER). Registration sets `tenant_role = null` and only an admin can promote, so **no normally-registered user could ever create an OTA batch**. | OTA completely unusable (HTTP 403). | `OtaService.java`, `HomeService.java`, `HomeServiceImpl.java` | Added `HomeService.requireHomeAccess(homeId, minRole)` (delegating to the existing, already-correct `getAuthorizedHomeOrThrow`) and applied the spec's per-endpoint minimum roles. |
+| H | **`OtaBatch.createdAt` was null when the response was built.** `@CreationTimestamp` is applied when the INSERT executes; with `GenerationType.UUID` the id is generated in memory, so `save()` merely registers the entity and defers the INSERT to commit. | `POST /ota/batches` threw `NullPointerException` in `toBatchResponse` → **HTTP 500**. | `OtaService.java` | `saveAndFlush(...)` so generated columns are populated before the response is mapped. |
+| I | **step-ca serial/fingerprint were read from the `/sign` response, which does not return them.** `signDeviceCsr` used `resp.getOrDefault("serial", "")`, so every `device_certs` row got an **empty `cert_serial`**. | The second device ever provisioned failed with `409 CONFLICT_DEVICE_MAC_TAKEN: "Cert with serial  already exists"` — `cert_serial` has a UNIQUE constraint. Only one device could ever be provisioned. | `StepCaClient.java` | Derive serial and fingerprint from the issued certificate itself (`getSerialNumber()` / SHA-256 of the DER) — CA-shape independent and defense-in-depth. |
+| J | **step-ca `/revoke` authenticated with Basic auth.** Same root cause as the `/sign` bug fixed earlier in this pass: the JWK provisioner requires a one-time token. | `POST /internal/ca/revoke` → step-ca `400 Bad Request`. **Certificate revocation never reached the CA**, so the CRL stayed empty and a retired or compromised device cert kept validating. | `StepCaClient.java` | Mint an ott bound to the serial (`sha = hex(sha256(serial))`, `aud = …/1.0/revoke`, no SANs), send the serial in the `0x`-prefixed form step-ca requires, and post `{serial, reason, ott}`. Also added a `postToCa` helper that surfaces step-ca's error body — the previous opaque `400 Bad Request` is what made this hard to diagnose. |
+
+### 7.2 Revocation — RESOLVED (the root cause was not what this section first assumed)
+
+Defect **J** was fixed on the backend side, yet revocation still failed with:
+
+```
+501 NOT_IMPLEMENTED: The requested method is not implemented by the certificate authority.
+```
+
+That message is actively misleading, and untangling it produced three further defects (K, L, M),
+all now fixed.
+
+#### Defect K — step-ca 0.27.x implements **passive revocation only**; `passive: true` is mandatory
+
+`api/revoke.go` rejects every request that does not set the flag:
+
+```go
+func (r *RevokeRequest) Validate() (err error) {
+	...
+	if !r.Passive {
+		return errs.NotImplemented("non-passive revocation not implemented")
+	}
+```
+
+The backend never sent `passive`, so **every** revocation was rejected before the ott or the
+serial were even examined. Verified directly against the CA:
+
+| request body | result |
+|---|---|
+| `{serial, reason, ott}` — what the backend sent | **501** |
+| `{serial, reason, passive:false, ott}` | **501** |
+| `{serial, reason, passive:true, ott:"bogus"}` | **401** — `Validate()` passed, so it reached auth |
+
+**Why the message was useless.** `errs.Errorf` unconditionally appends the *NotImplemented*
+default message for **every** status code, overwriting the specific reason
+(`certificates v0.27.4`, `errs/error.go:288-294`):
+
+```go
+func Errorf(code int, format string, args ...interface{}) error {
+	as, opts := splitOptionArgs(args)
+	opts = append(opts, withDefaultMessage(NotImplementedDefaultMsg))   // <- always
+```
+
+So `NotImplemented("non-passive revocation not implemented")` reaches the client as the generic
+501 text. Diagnosing this required reading the step-ca source — the response alone is not
+actionable.
+
+**Fix:** `StepCaClient.revokeCert` now sends `"passive": true`.
+
+#### Defect L — the CA had no `db` and no `crl` block, because the bootstrap's `jq` patches never ran
+
+The live `ca.json` contained neither block. Root cause: `bootstrap-ca.sh` patched the config with
+`jq`, but **`jq` is not in the `smallstep/step-ca` image** (Alpine 3.20.3) and the container runs
+as uid 1000, so it cannot `apk add` one either. Under `set -e` the script aborted the instant
+`jq` was missing — immediately after `step ca init` — and the container then booted from the
+pristine `step ca init` config. (Corroborated by `"key"` still pointing at
+`secrets/intermediate_ca_key` instead of the `certs/` path the script would have patched it to.)
+
+Two more defects hid in that dead code path:
+
+- it wrote `generateOnRestart`, a field that **does not exist** in step-ca — the real name is
+  `generateOnRevoke` (`authority/config/config.go`, `CRLConfig`);
+- the "initial CRL" step fell through to `echo "placeholder CRL" > crl.pem`, so nginx served a
+  16-byte text file as `Content-Type: application/pkix-crl`.
+
+**Fixes:**
+
+- `bootstrap-ca.sh` no longer uses `jq` at all — a pure-shell `awk` patch rewrites
+  `root`/`crt`/`key` and inserts correct `db` and `crl` blocks, guarded by structural sanity
+  checks. Validated by running the script in a throwaway container and **booting step-ca with the
+  result** (Badger store opens, `Serving HTTPS on :9000`).
+- The misleading placeholder-CRL generation was removed; publication is `refresh-crl.sh`'s job.
+- The **live** CA was reconfigured (backup retained at `/home/step/config/ca.json.bak-<ts>`):
+
+  ```json
+  "db":  { "type": "badgerv2", "dataSource": "/home/step/db", "badgerFileLoadingMode": "" },
+  "crl": { "enabled": true, "generateOnRevoke": true, "cacheDuration": "6h",
+           "renewPeriod": "4h", "idpURL": "http://localhost:8088/ca/<id>/crl.pem" }
+  ```
+
+  Safe to restart: the named volume `she-stepca-data` keeps the same key material, so existing
+  device certs stay valid — verified by comparing the intermediate key's public key against
+  `certs/intermediate_ca.crt` (match) and `openssl verify` of the root→intermediate chain (OK).
+
+#### Defect M — `refresh-crl.sh` could not publish anything
+
+- It read `intermediate_id.txt` from `infra/.ca-certs/`, which **does not exist** — the file is
+  written to the `she-ca-certs` volume, so the script aborted at its own preflight.
+- It wrote to `/var/lib/docker/volumes/she-v3_she-ca-certs/_data`, unreachable from Docker
+  Desktop on Windows/macOS.
+- Its endpoint list was wrong: step-ca serves the CRL at **`GET /crl`** (and `/1.0/crl`);
+  `/crl/{id}` and `/1/crl` both return 404.
+
+**Fix:** it now resolves the intermediate id from the volume and publishes by fetching *inside*
+the step-ca container (`docker exec -u 0 …` — the volume's `ca/` directory is root-owned while
+the image user is uid 1000), with a host-volume fallback for bare-metal Linux.
+
+#### Verification — `scripts/she_e2e_revocation.py`, 13/13
+
+| check | result |
+|---|---|
+| `POST /internal/ca/sign-and-register` | HTTP 200, serial issued |
+| `POST /internal/ca/revoke` | **HTTP 200** `{"status":"revoked"}` |
+| `device_certs` row | `REVOKED` + `revoked_at` + `revoke_reason` |
+| step-ca CRL number | `0 → 1 → 2` |
+| revoked serial listed | yes — in step-ca's CRL **and** the nginx-published one |
+| published CRL number == CA's | yes |
+| CRL validity window | 6 h, matching `cacheDuration` |
+
+**Phase-1 exit criterion 2 is met**: the CA issues, revokes, and both CRL endpoints serve.
+
+> Note: EMQX does **not** consume a CRL — its TLS listener is configured with `verify_peer` +
+> `ca_bundle.pem` (chain validation only), and there is no CRL/OCSP setting anywhere in
+> `infra/`. Revocation is enforced by the HTTP auth callback
+> (`/internal/mqtt/auth` → `{"result":"deny","reason":"cert_revoked"}`), with a 300 s cache TTL.
+> The CRL is therefore a publication/compliance artifact, not the enforcement path.
+
+### 7.3 Test-harness defect (not a product bug)
+
+The simulator computed the firmware checksum with `sha256sum`. On Git Bash for Windows GNU
+coreutils prefixes the output line with a backslash when the filename contains backslashes,
+so `sha256sum "C:\…"` yielded a 65-character `\<hash>` that failed the backend's
+`@Size(max = 64)` on `firmware_checksum` — producing a spurious HTTP 400. Replaced with
+Python `hashlib.sha256`.
+
+### 7.4 Known remaining gap (needs physical hardware)
+
+- **ESP32-WROOM-32D not detectable.** The CH340 bridge enumerates on COM4 but esptool fails
+  in every reset mode and a raw serial read returns **0 bytes**, so the board is either not
+  powered, not in the right mode, or the cable is charge-only. Firmware-in-the-loop
+  validation (Test 1 BLE provisioning, Test 5.4 LAN toggle + <500 ms latency) is blocked
+  until it responds.
+- `infra/ca/step-ca-provisioner-password.txt` is **committed to git** (pre-existing). It
+  should be moved to a secret store and rotated.
+
+### 7.5 Row-Level Security was entirely inert — RESOLVED (2026-09-12)
+
+This section originally recorded a single defect, **N**: `she_app` is a superuser, so every RLS
+policy is bypassed. Pulling that thread uncovered **four** independent defects, each on its own
+sufficient to disable tenant isolation. All four are fixed, and isolation is now proven by a new
+test (`scripts/she_e2e_rls_isolation.py`, 10/10).
+
+| # | Defect | Evidence | Fix |
+|---|---|---|---|
+| **N1** | **`she_app` was the bootstrap superuser.** `infra/docker-compose.yml` set `POSTGRES_USER: ${POSTGRES_USER:-she_app}`, and the official image creates `POSTGRES_USER` as a superuser (OID 10). Superusers skip RLS unconditionally, so "not granting BYPASSRLS" in the init script changed nothing. Postgres additionally **refuses to demote** that role: `ERROR: The bootstrap user must have the SUPERUSER attribute.` | `SELECT oid, rolname, rolsuper FROM pg_roles` → `10 \| she_app \| t`; `ALTER ROLE she_app NOSUPERUSER` → permission denied. | Split the roles. OID 10 was renamed to `she_superuser` (bootstrap/ops) and `she_app` recreated as `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE` with explicit grants (only `flyway_schema_history` was ever missing one, and Flyway connects as `she_migrate`). `docker-compose.yml` now defaults `POSTGRES_USER` to `she_superuser`, and `01-bootstrap-roles.sql` creates `she_app` itself and **aborts the bootstrap** if it is OID 10 or still privileged. |
+| **N2** | **`TenantContextAspect` ran OUTSIDE the transaction.** It was pinned `@Order(HIGHEST_PRECEDENCE)`; Spring's transaction interceptor defaults to `LOWEST_PRECEDENCE`, and a *lower* order value wraps *outermost*. Its `SET LOCAL` therefore ran before `BEGIN` — Postgres logged `WARNING: SET LOCAL can only be used in transaction blocks` and discarded it. The class comment asserting this placed it "INSIDE the @Transactional proxy" had the ordering backwards. | With `log_statement=all`: `SET LOCAL app.tenant_id` → `WARNING` → `SET LOCAL app.is_platform_admin` → `WARNING` → **then** `BEGIN READ ONLY`. | `config/TransactionConfig` pins the transaction advisor to `HIGHEST_PRECEDENCE`; the aspect moved to `HIGHEST_PRECEDENCE + 10`, i.e. inside it. Re-measured: `BEGIN READ ONLY` → `SET LOCAL` (no warning) → `COMMIT`. |
+| **N3** | **The pointcut missed class-level `@Transactional`.** `@annotation(Transactional)` matches only an annotation written *on the method*, but most services declare it once per class. Those methods were still transactional, yet the aspect never ran for them, so their GUCs were never set. | After N2 was fixed, `PUT /nodes/{id}/devices/{id}/params` and `POST /ota/batches/{id}/start` still returned 404 (row invisible → "not found"), while methods carrying a *direct* `@Transactional` worked. | Pointcut is now `@annotation(…) \|\| @within(…)`. |
+| **N4** | **Policy text was not NULL-safe.** `current_setting('app.tenant_id', true)::uuid` returns `NULL` before the GUC is ever touched, but the **empty string** once it has been — and the placeholder then persists for the life of a pooled connection. `''::uuid` is a hard error, not a deny. | Fresh session: `current_setting('app.tenant_id', true)` → `NULL`. Same session after any `SET LOCAL` + `COMMIT` → `''` (length 0). Then `SELECT … FROM device_certs` → `ERROR: invalid input syntax for type uuid: ""` (22P02). | Migration **V30** rebuilds all 25 policies as `NULLIF(current_setting('app.tenant_id', true), '')::uuid OR COALESCE(NULLIF(current_setting('app.is_platform_admin', true), '')::boolean, false)`, preserving each table's `OR tenant_id IS NULL` allowance and the USING/WITH CHECK asymmetry on `nodes` / `node_devices` / `node_params`. |
+
+**Fallout fixed while switching enforcement on** — each was a latent production bug that the
+superuser bypass had concealed:
+
+- `AuthServiceImpl.register()` / `login()` read `tenants` *before* setting `app.tenant_id`, a
+  chicken-and-egg that made the lookup return zero rows ("Default B2C tenant not seeded"). Added
+  `TenantContextInterceptor#setRlsGucsForTenantLookup()` to open a platform-admin window for
+  that single read.
+- `MqttSubscriberService.processMessageWithRls()` was annotated `@Transactional` but called from
+  `messageArrived` **in the same class** — self-invocation bypasses the Spring proxy, so no
+  transaction existed and the GUC was discarded. Now driven by an explicit `TransactionTemplate`.
+  This was silently dropping **all** device telemetry and energy data (log filled with
+  "telemetry from unknown MAC").
+- `EnergyService` had no `@Transactional` at all, and `EnergyController` reads `nodeRepository`
+  directly (outside any transaction). Both now run inside one.
+
+**Verification** — every suite re-run with `she_app` as a non-superuser:
+
+| Suite | Result |
+|---|---|
+| `scripts/she_e2e_track1.py` | **27/27** |
+| `scripts/she_e2e_revocation.py` | **13/13** |
+| `scripts/she_e2e_rls_isolation.py` (new) | **10/10** |
+
+The isolation test proves both directions: as `she_app` with a tenant GUC, tenant B's rows are
+invisible (0); with the platform-admin GUC they are visible (1); and a warmed session no longer
+raises 22P02.
+
+> **Note:** both e2e harnesses previously verified their own DB assertions as `she_app`. Now that
+> the role is RLS-restricted they verify as `she_superuser` (a privileged observer) — otherwise
+> the harness would report 0 rows for data the application had written correctly.
+
+### 7.6 Fallout from N1 — the nightly retention job — RESOLVED (2026-09-12)
+
+Auditing every `@Scheduled` method against the now-enforced RLS turned up a defect that N1 had
+been masking.
+
+**Defect R — `ScheduledJobs.enforceRetention()` could not drop chunks, and never needed to.**
+
+It called `drop_chunks()` directly on `device_telemetry`, `device_energy_readings` and `audit_log`.
+Once `she_app` stopped being a superuser this failed immediately, because `drop_chunks()` requires
+hypertable **ownership** and all three hypertables are owned by `she_migrate`:
+
+```
+SELECT drop_chunks('device_telemetry', INTERVAL '36500 days');
+ERROR:  must be owner of hypertable "device_telemetry"
+```
+
+The `catch (Exception e)` around it swallowed the failure, so retention silently did nothing while
+the log looked busy — the same false-success shape as defect O. Granting `she_app` ownership would
+have been the wrong fix (the owner is exempt from policies unless `relforcerowsecurity` is on, and
+it would hand the app role DDL rights over the hypertables).
+
+**Retention was already fully handled elsewhere.** Migrations V18, V23 and V24 each call
+`add_retention_policy`, and all three TimescaleDB background jobs are present and scheduled:
+
+| job | hypertable | `drop_after` | owner |
+|---|---|---|---|
+| 1000 | `audit_log` | 730 days | `she_migrate` |
+| 1001 | `device_telemetry` | 30 days | `she_migrate` |
+| 1002 | `device_energy_readings` | 365 days | `she_migrate` |
+
+Those run inside the TimescaleDB background worker as the owner, which is exactly the role that is
+allowed to drop chunks. The application job was a redundant duplicate.
+
+**Fix — `enforceRetention()` is now an assertion, not a duplicate worker.** It no longer needs
+ownership or a GUC (it reads `timescaledb_information.jobs`, an unprotected view). It verifies a
+retention policy exists *and* is scheduled *and* carries the expected window for each table, and
+logs `ERROR` if any is missing — so a dropped retention policy is now a loud alarm instead of
+silent unbounded growth.
+
+**The other two scheduled jobs were already correct** and were left alone:
+`verifyAuditLogHashChain()` and `EnergyService.detectAnomalies()` both carry `@Transactional` plus
+an explicit `SET LOCAL app.is_platform_admin = 'true'`. `logCompressionStats()` reads
+`timescaledb_information.chunks`, which is not RLS-protected. Confirmed that no
+`SecurityContextHolder` strategy is overridden (default `MODE_THREADLOCAL`), so scheduler threads
+cannot inherit a request's tenant context.
+
+**Cleanup:** the diagnostic role `she_rls_probe` (login role, SELECT on `tenants`/`nodes`/`users`/
+`device_certs`, created while proving N1) was dropped from the local database.
+
+### 7.7 Defect O — `CaController.refreshCrl()` false success — RESOLVED (2026-09-12)
+
+The job *published* the CRL by stripping the scheme+host off `ca.crl-publish-base-url` and treating
+the remainder as a filesystem directory — conflating a URL with a path. With the default
+`http://localhost:8088/ca` it created `\ca\default\crl.pem` and logged `INFO CRL refreshed`. Note
+`default` rather than the real intermediate id: `readIntermediateId()` looked for
+`<intermediateCertPath>/../intermediate_id.txt`, missed, and returned the literal `"default"`. No
+topology mounts the ca-certs volume into the backend, so the write target was unreachable
+everywhere — a silent false success, plus litter on the host filesystem.
+
+**Key discovery — the intermediate id is derivable, so no new config is needed.** step-ca names the
+intermediate directory after the **first 16 hex chars of the SHA-256 of the DER-encoded intermediate
+certificate**. Verified against the live CA:
+
+```
+sha256(/home/step/certs/intermediate_ca.crt, DER) = 4746eb60a64abb7e7a66c68d390a58e…
+published path                                    = /ca-certs-output/ca/4746eb60a64abb7e/crl.pem
+```
+
+**Fix.** `refreshCrl()` no longer writes anywhere. Publication stays with `refresh-crl.sh`/cron —
+the documented mechanism and the only component that can write the root-owned volume. The job now
+**verifies**: it fetches step-ca's current CRL and the published copy at
+`<crl-publish-base-url>/<intermediate-id>/crl.pem`, and logs `INFO` on a byte-for-byte match or
+`WARN … CRL publication is STALE` when they diverge, so a stalled publisher is an alarm instead of
+silence. `readIntermediateId()` prefers `intermediate_id.txt`, then derives the fingerprint from the
+certificate, and now **throws** instead of returning `"default"` when neither is available.
+
+**Verified** before recompiling: `https://localhost:9002/crl` and
+`http://localhost:8088/ca/4746eb60a64abb7e/crl.pem` are byte-identical (491 bytes, both
+`sha256:84e950c4…`), so the new code path reaches the real published CRL.
+
+### 7.8 Still documented, NOT fixed
+
+| # | Defect | Evidence | Impact | Recommended fix |
+|---|---|---|---|---|
+| **P** | **A fresh CA bootstrap cannot write the shared volume.** `/ca-certs-output` is root-owned (`drwxr-xr-x root root`) while the step-ca container runs as `User=step` (uid 1000). | `docker exec she-step-ca touch /ca-certs-output/.write-probe` → **Permission denied**; `mkdir /ca-certs-output/ca/probe` → denied. On a brand-new volume the bootstrap fails at its first `/ca-certs-output` write, leaving EMQX with no `ca_bundle.pem`/`server.crt`. | **High (first install).** Masked today because the volume was populated on 2026-08-09 and its files are root-owned, so nothing has re-run the bootstrap since. | Add a one-shot init service that `chown -R 1000:1000 /ca-certs-output` before step-ca starts, or set `user: "0:0"` on the step-ca service (at the cost of running the CA as root). |
+
+
