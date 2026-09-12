@@ -557,7 +557,37 @@ is unsupported. They are not queried by application code today (`EnergyService` 
 hypertable, because the aggregate lags ~1h), so the exposure is latent rather than live. The
 stale javadoc claiming otherwise was corrected.
 
-### 7.10 Test-harness robustness
+### 7.10 `automation_rules` — inherited-scope RLS — RESOLVED (migration V32)
+
+The one tenant-scoped table left after V31 had no `tenant_id` of its own: it hangs off
+`automation_id → automations(id)`, and `automations` is already protected. V32 gives it an
+**inherited-scope** policy — a rule is visible iff its parent automation is:
+
+```sql
+automation_id IN (SELECT id FROM public.automations)
+OR COALESCE(NULLIF(current_setting('app.is_platform_admin', true), '')::boolean, false)
+```
+
+The subquery runs against `automations`, whose own `tenant_isolation` policy applies to it, so the
+two compose rather than duplicating the predicate: with no GUC the subquery matches nothing; with a
+tenant GUC only that tenant's rules; with platform-admin the `OR` branch passes. No recursion risk
+— the policy references `automations`, never itself.
+
+The table is unused by application code, so this is defence in depth, as with `node_group_members`
+and `scene_actions`.
+
+**Coverage sweep is now clean:**
+
+```sql
+SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity = false
+  AND EXISTS (SELECT 1 FROM information_schema.columns i
+              WHERE i.table_schema = 'public' AND i.table_name = c.relname
+                AND i.column_name = 'tenant_id');
+-- 0 rows
+```
+
+### 7.11 Test-harness robustness
 
 `scripts/she_e2e_revocation.py` produced one **11/13** run (R5.2 + R6.3) immediately after the
 volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cached
@@ -565,10 +595,28 @@ volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cach
 revoking can legitimately return the previous CRL. The harness now **polls for up to 20 s** for the
 serial to appear instead of racing it, so a real regression cannot be masked by a timing flake.
 
-### 7.11 Status
+### 7.12 Status
 
-All defects found during this pass are now resolved. Remaining work is outside the scope of this
-report: rotating the CA provisioner password (it remains in git history from the initial commit),
-and flashing the ESP32-WROOM-32D (blocked — COM4 reads 0 bytes).
+All defects found during this pass are now resolved, and every tenant-scoped table in `public` has
+row-level security enforced (V30 rebuilt the policies, V31 covered the four tables that had none,
+V32 covers `automation_rules` by inherited scope).
+
+**Verification snapshot** — all with `she_app` as a genuine non-superuser:
+
+| Suite | Result |
+|---|---|
+| `scripts/she_e2e_track1.py` | **27/27** |
+| `scripts/she_e2e_revocation.py` | **13/13** |
+| `scripts/she_e2e_rls_isolation.py` | **10/10** |
+
+**Remaining work, outside the scope of this report:**
+
+- Rotate the CA provisioner password — it is still in git history from the initial commit and must
+  be rotated before any real deployment.
+- Flash the ESP32-WROOM-32D. Not dead: it is a CH340 on COM4 and it emits the ROM banner at 115200
+  baud once EN is pulsed correctly. The link is intermittent, so it was not flashed — see §5b of the
+  local-verification skill for the probe recipe.
+- The continuous aggregates `energy_hourly` / `energy_daily` carry `tenant_id` but cannot carry RLS
+  (§7.9). Latent only — nothing queries them today.
 
 
