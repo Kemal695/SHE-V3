@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/she_theme.dart';
+import '../../l10n/app_localizations.dart';
 import 'node_service.dart';
 
 final nodeDetailProvider = FutureProvider.family<Map<String, dynamic>, String>(
@@ -26,32 +27,35 @@ class DeviceDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final deviceLabel = l10n?.device ?? 'Device';
+    final errorLabel = l10n?.error ?? 'Error';
     final nodeAsync = ref.watch(nodeDetailProvider(nodeId));
     final devicesAsync = ref.watch(nodeDevicesProvider(nodeId));
 
     return Scaffold(
       appBar: AppBar(
         title: nodeAsync.when(
-          loading: () => const Text('Device'),
-          error: (_, __) => const Text('Device'),
-          data: (node) => Text(node['name'] ?? node['node_id'] ?? 'Device'),
+          loading: () => Text(deviceLabel),
+          error: (_, __) => Text(deviceLabel),
+          data: (node) => Text(node['name'] ?? node['node_id'] ?? deviceLabel),
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.bolt),
             onPressed: () => context.push('/node/$nodeId/energy'),
-            tooltip: 'Energy',
+            tooltip: l10n?.energy ?? 'Energy',
           ),
         ],
       ),
       body: SafeArea(
         child: nodeAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, _) => Center(child: Text('Error: $err')),
+          error: (err, _) => Center(child: Text('$errorLabel: $err')),
           data: (node) {
             return devicesAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Center(child: Text('Error: $err')),
+              error: (err, _) => Center(child: Text('$errorLabel: $err')),
               data: (devices) {
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),

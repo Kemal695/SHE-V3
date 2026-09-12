@@ -85,4 +85,10 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get offline => 'መስመር ውጭ';
+
+  @override
+  String get device => 'መሣሪያ';
+
+  @override
+  String get error => 'ስህተት';
 }

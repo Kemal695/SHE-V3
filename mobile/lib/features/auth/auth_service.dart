@@ -32,7 +32,7 @@ class AuthService {
       'phone_number': phoneNumber,
       'language': language ?? 'am',
     });
-    final data = response.data['data'];
+    final data = _responseData(response);
     _saveTokens(data);
     return data;
   }
@@ -48,7 +48,7 @@ class AuthService {
       'password': password,
       'mfa_code': mfaCode,
     });
-    final data = response.data['data'];
+    final data = _responseData(response);
     _saveTokens(data);
     return data;
   }
@@ -71,12 +71,36 @@ class AuthService {
     return response.data['data'];
   }
 
+  /// Unwraps the canonical {data: {...}} envelope with safe casts (M9 fix).
+  Map<String, dynamic> _responseData(Response response) {
+    final body = response.data;
+    if (body is! Map<String, dynamic>) {
+      throw Exception('Invalid server response (expected JSON object)');
+    }
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) {
+      throw Exception('Invalid server response (missing data envelope)');
+    }
+    return data;
+  }
+
   void _saveTokens(Map<String, dynamic> data) {
-    ref.read(accessTokenProvider.notifier).state = data['access_token'];
-    SecureStorage.saveRefreshToken(data['refresh_token']);
+    // M9 fix: validate shapes instead of blind dynamic casts — a malformed
+    // auth response used to crash with an opaque TypeError.
+    final access = data['access_token'];
+    final refresh = data['refresh_token'];
+    if (access is! String || access.isEmpty) {
+      throw Exception('Invalid auth response (missing access_token)');
+    }
+    if (refresh is! String || refresh.isEmpty) {
+      throw Exception('Invalid auth response (missing refresh_token)');
+    }
+    ref.read(accessTokenProvider.notifier).state = access;
+    SecureStorage.saveRefreshToken(refresh);
     // Save expiry (expires_in seconds from now)
+    final expiresIn = data['expires_in'];
     SecureStorage.saveTokenExpiry(
-      DateTime.now().add(Duration(seconds: data['expires_in'] ?? 900)),
+      DateTime.now().add(Duration(seconds: expiresIn is int ? expiresIn : 900)),
     );
   }
 }

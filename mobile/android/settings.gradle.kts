@@ -23,4 +23,17 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.3.20" apply false
 }
 
+// The vendored flutter_esp_ble_prov plugin needs the Espressif provisioning
+// library from jitpack (com.github.espressif:esp-idf-provisioning-android).
+// PREFER_SETTINGS + explicit repo list (incl. Flutter's engine storage).
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://storage.googleapis.com/download.flutter.io")
+        maven("https://jitpack.io/")
+    }
+}
+
 include(":app")

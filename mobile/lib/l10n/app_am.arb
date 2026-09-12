@@ -25,5 +25,7 @@
   "wifiPassword": "የዋይፋይ የይለፍ ቃል",
   "startProvisioning": "ማዋቀር ይጀምሩ",
   "online": "መስመር ላይ",
-  "offline": "መስመር ውጭ"
+  "offline": "መስመር ውጭ",
+  "device": "መሣሪያ",
+  "error": "ስህተት"
 }

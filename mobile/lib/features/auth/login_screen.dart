@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/she_theme.dart';
 import '../../core/utils/validators.dart';
+import '../../l10n/app_localizations.dart';
 import 'auth_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -55,6 +56,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -69,7 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Icon(Icons.home, size: 64, color: SheTheme.brightSkyBlue),
                 const SizedBox(height: 16),
                 Text(
-                  'Smart Home Ethiopia',
+                  l10n?.appTitle ?? 'Smart Home Ethiopia',
                   style: Theme.of(context).textTheme.headlineMedium,
                   textAlign: TextAlign.center,
                 ),
@@ -78,7 +80,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 // ---- Email ----
                 TextFormField(
                   controller: _emailCtrl,
-                  decoration: const InputDecoration(labelText: 'Email'),
+                  decoration: InputDecoration(labelText: l10n?.email ?? 'Email'),
                   keyboardType: TextInputType.emailAddress,
                   validator: Validators.validateEmail,
                 ),
@@ -87,7 +89,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 // ---- Password ----
                 TextFormField(
                   controller: _passwordCtrl,
-                  decoration: const InputDecoration(labelText: 'Password'),
+                  decoration: InputDecoration(labelText: l10n?.password ?? 'Password'),
                   obscureText: true,
                   validator: (v) =>
                       v == null || v.isEmpty ? 'Password required' : null,
@@ -106,7 +108,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: _isLoading ? null : _submit,
                   child: _isLoading
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Login'),
+                      : Text(l10n?.login ?? 'Login'),
                 ),
                 const SizedBox(height: 16),
 

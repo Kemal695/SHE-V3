@@ -16,7 +16,6 @@ final accessTokenProvider = StateProvider<String?>((ref) => null);
 
 // ---- Token refresh mutex (prevents concurrent 401 refresh race) ----
 bool _isRefreshing = false;
-final _refreshCompleter = Completer<bool>();
 Completer<bool>? _activeRefreshCompleter;
 
 // ---- Dio provider ----

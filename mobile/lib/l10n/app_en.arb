@@ -25,5 +25,7 @@
   "wifiPassword": "Wi-Fi Password",
   "startProvisioning": "Start Provisioning",
   "online": "Online",
-  "offline": "Offline"
+  "offline": "Offline",
+  "device": "Device",
+  "error": "Error"
 }

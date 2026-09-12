@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/she_theme.dart';
 import '../../core/utils/validators.dart';
+import '../../l10n/app_localizations.dart';
 import 'auth_service.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -61,8 +62,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Account')),
+      appBar: AppBar(title: Text(l10n?.register ?? 'Register')),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -74,7 +76,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // ---- Full name (single field — Ethiopian names are first + father's name) ----
                 TextFormField(
                   controller: _fullNameCtrl,
-                  decoration: const InputDecoration(labelText: 'Full Name'),
+                  decoration: InputDecoration(labelText: l10n?.fullName ?? 'Full Name'),
                   validator: (v) =>
                       v == null || v.isEmpty ? 'Full name required' : null,
                 ),
@@ -83,7 +85,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // ---- Email ----
                 TextFormField(
                   controller: _emailCtrl,
-                  decoration: const InputDecoration(labelText: 'Email'),
+                  decoration: InputDecoration(labelText: l10n?.email ?? 'Email'),
                   keyboardType: TextInputType.emailAddress,
                   validator: Validators.validateEmail,
                 ),
@@ -92,8 +94,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // ---- Phone (Ethiopian: (+251|0)?9XXXXXXXX) ----
                 TextFormField(
                   controller: _phoneCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone',
+                  decoration: InputDecoration(
+                    labelText: l10n?.phone ?? 'Phone',
                     hintText: '+2519XXXXXXXX or 09XXXXXXXX',
                   ),
                   keyboardType: TextInputType.phone,
@@ -104,8 +106,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 // ---- Password ----
                 TextFormField(
                   controller: _passwordCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Password',
+                  decoration: InputDecoration(
+                    labelText: l10n?.password ?? 'Password',
                     hintText: 'Min 12 chars, 1 upper, 1 lower, 1 digit, 1 special',
                   ),
                   obscureText: true,
@@ -123,7 +125,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   onPressed: _isLoading ? null : _submit,
                   child: _isLoading
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Register'),
+                      : Text(l10n?.register ?? 'Register'),
                 ),
                 const SizedBox(height: 16),
 

@@ -55,6 +55,13 @@ dependencies:
   # ---- UI ----
   cupertino_icons: ^1.0.8
 
+  # ---- BLE provisioning (Espressif wifi_prov_mgr, Security 1 + PoP) ----
+  # Vendored from flutter_esp_ble_prov 0.1.7 + modernized Android build
+  # (AGP 8 / namespace) under plugins/. Upstream android/build.gradle
+  # (AGP 7.4, no namespace) no longer builds with Flutter 3.44.
+  flutter_esp_ble_prov:
+    path: plugins/flutter_esp_ble_prov
+
   # ---- Crash reporting (Phase 5) ----
   # firebase_core: ^3.3.0
   # firebase_crashlytics: ^4.0.0

@@ -23,6 +23,8 @@ class WsClient {
   final Ref ref;
   WebSocketChannel? _channel;
   bool _isConnected = false;
+  bool _disposed = false;
+  int _generation = 0;
 
   // Reconnect with exponential backoff (V3-MOBILE-APP §8)
   int _reconnectDelay = 1;
@@ -33,7 +35,10 @@ class WsClient {
   bool get isConnected => _isConnected;
 
   Future<void> connect() async {
-    if (_isConnected) return;
+    // M12 fix: never connect after dispose; only one live generation at a
+    // time so stale reconnect timers can't resurrect zombie sockets.
+    if (_isConnected || _disposed) return;
+    final generation = ++_generation;
 
     final accessToken = ref.read(accessTokenProvider);
     if (accessToken == null) return;
@@ -46,13 +51,35 @@ class WsClient {
       protocols: ['bearer.$accessToken'],
     );
 
+    // M12 fix (part 2): do NOT mark connected until the handshake actually
+    // completes. `WebSocketChannel.connect` returns synchronously, so setting
+    // _isConnected here would report a live socket before the server has
+    // accepted the upgrade — and `send()` would silently write into a channel
+    // that is about to fail. Await `ready` first, and bail out if we were
+    // disposed or superseded while waiting.
+    try {
+      await _channel!.ready;
+    } catch (e) {
+      if (_disposed || generation != _generation) return;
+      _onError(e, generation);
+      return;
+    }
+
+    if (_disposed || generation != _generation) {
+      // Superseded (dispose / newer generation) while awaiting the handshake.
+      try {
+        _channel?.sink.close();
+      } catch (_) {}
+      return;
+    }
+
     _isConnected = true;
     _reconnectDelay = 1;
 
     _channel!.stream.listen(
       (message) => _onMessage(message),
-      onError: (error) => _onError(error),
-      onDone: () => _onDone(),
+      onError: (error) => _onError(error, generation),
+      onDone: () => _onDone(generation),
     );
   }
 
@@ -60,41 +87,53 @@ class WsClient {
     try {
       final json = jsonDecode(message) as Map<String, dynamic>;
       final event = json['event'] as String?;
-      final data = json['data'] as Map<String, dynamic>?;
-      if (event == null || data == null) return;
+      final data = json['data'];
+      if (event == null || data is! Map<String, dynamic>) return;
 
-      if (event == 'node.state' || event == 'energy.update') {
-        final nodeId = data['nodeId'] as String?;
-        if (nodeId != null) {
-          ref.invalidate(nodeDevicesProvider(nodeId));
-        }
+      // M3 fix: dispatch WS events into Riverpod so the UI updates live.
+      final nodeId = data['nodeId'] as String?;
+      switch (event) {
+        case 'node.state':
+        case 'energy.update':
+          if (nodeId != null) ref.invalidate(nodeDevicesProvider(nodeId));
+          break;
+        case 'node.presence':
+        case 'node.telemetry':
+          if (nodeId != null) {
+            ref.invalidate(nodeDetailProvider(nodeId));
+            ref.invalidate(nodeDevicesProvider(nodeId));
+          }
+          break;
+        case 'ota.progress':
+          break;
       }
-      print('WS event: $event data: $data');
     } catch (e) {
       print('WS message parse error: $e');
     }
   }
 
-  void _onError(dynamic error) {
+  void _onError(dynamic error, int generation) {
     print('WS error: $error');
     _isConnected = false;
-    _scheduleReconnect();
+    _scheduleReconnect(generation);
   }
 
-  void _onDone() {
+  void _onDone(int generation) {
     _isConnected = false;
-    _scheduleReconnect();
+    _scheduleReconnect(generation);
   }
 
-  void _scheduleReconnect() {
+  void _scheduleReconnect(int generation) {
     Future.delayed(Duration(seconds: _reconnectDelay), () {
+      // Drop stale timers (dispose or newer generation superseded us).
+      if (_disposed || generation != _generation) return;
       _reconnectDelay = (_reconnectDelay * 2).clamp(1, _maxReconnectDelay);
       connect();
     });
   }
 
   void send(Map<String, dynamic> message) {
-    if (_channel != null && _isConnected) {
+    if (_channel != null && _isConnected && !_disposed) {
       _channel!.sink.add(jsonEncode(message));
     }
   }
@@ -112,7 +151,12 @@ class WsClient {
   }
 
   void dispose() {
-    _channel?.sink.close();
+    _disposed = true;
+    _generation++;
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
     _isConnected = false;
   }
 }

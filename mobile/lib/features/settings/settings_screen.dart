@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/storage/secure_storage.dart';
-import '../../core/network/dio_client.dart';
+import '../../l10n/app_localizations.dart';
 import '../../routing/app_router.dart';
 import '../auth/auth_service.dart';
 
@@ -18,16 +18,17 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(l10n?.settings ?? 'Settings')),
       body: SafeArea(
         child: ListView(
           children: [
             // ---- Language ----
             ListTile(
               leading: const Icon(Icons.language),
-              title: const Text('Language'),
-              subtitle: const Text('Amharic / English'),
+              title: Text(l10n?.language ?? 'Language'),
+              subtitle: const Text('አማርኛ / English'),
               onTap: () => _showLanguageDialog(context, ref),
             ),
             const Divider(),
@@ -45,7 +46,7 @@ class SettingsScreen extends ConsumerWidget {
             // ---- Logout ----
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text('Logout', style: TextStyle(color: Colors.red)),
+              title: Text(l10n?.logout ?? 'Logout', style: const TextStyle(color: Colors.red)),
               onTap: () async {
                 await ref.read(authServiceProvider).logout();
                 if (context.mounted) context.go('/login');

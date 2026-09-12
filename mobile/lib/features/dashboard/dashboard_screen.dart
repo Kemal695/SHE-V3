@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/she_theme.dart';
 import '../../core/network/ws_client.dart';
+import '../../l10n/app_localizations.dart';
 import '../device_detail/node_service.dart';
 import 'widgets/dynamic_device_widget.dart';
 import 'widgets/bento_grid.dart';
@@ -44,6 +45,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final homesAsync = ref.watch(homesProvider);
+    final l10n = AppLocalizations.of(context);
 
     return homesAsync.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -52,6 +54,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         if (homes.isEmpty) {
           return const Scaffold(body: Center(child: Text('No homes found')));
         }
+        final addDeviceTip = l10n?.addDevice ?? 'Add Device';
         final homeId = _selectedHomeId ?? homes.first['id'];
         final nodesAsync = ref.watch(homeNodesProvider(homeId));
 
@@ -73,11 +76,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               IconButton(
                 icon: const Icon(Icons.add),
                 onPressed: () => context.push('/provisioning'),
-                tooltip: 'Add Device',
+                tooltip: addDeviceTip,
               ),
               IconButton(
                 icon: const Icon(Icons.settings),
                 onPressed: () => context.push('/settings'),
+                tooltip: l10n?.settings ?? 'Settings',
               ),
             ],
           ),
@@ -86,8 +90,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               onRefresh: () => ref.refresh(homeNodesProvider(homeId).future),
           child: nodesAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(
-              child: Column(
+            // M10 fix: error/empty states must be scrollable or
+            // RefreshIndicator's pull-to-refresh never triggers.
+            error: (err, _) => _scrollable(
+              context,
+              Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.error_outline, size: 48, color: SheTheme.error),
@@ -105,7 +112,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
             data: (nodes) {
               if (nodes.isEmpty) {
-                return _emptyState(context);
+                return _scrollable(context, _emptyStateContent(context, l10n));
               }
               // ---- Bento grid of device cards ----
               return BentoGrid(
@@ -122,7 +129,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _emptyState(BuildContext context) {
+  /// Wraps non-scrollable states so RefreshIndicator can always trigger (M10).
+  Widget _scrollable(BuildContext context, Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyStateContent(BuildContext context, AppLocalizations? l10n) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -132,12 +152,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Icon(Icons.home_outlined, size: 64, color: SheTheme.textMuted),
             const SizedBox(height: 16),
             Text(
-              'No devices yet',
+              l10n?.noDevices ?? 'No devices yet',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 8),
             Text(
-              'Add your first SHE device to get started',
+              l10n?.addFirstDevice ?? 'Add your first SHE device to get started',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -145,7 +165,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ElevatedButton.icon(
               onPressed: () => context.push('/provisioning'),
               icon: const Icon(Icons.add),
-              label: const Text('Add Device'),
+              label: Text(l10n?.addDevice ?? 'Add Device'),
             ),
           ],
         ),

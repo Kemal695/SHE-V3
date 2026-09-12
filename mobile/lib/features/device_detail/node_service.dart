@@ -43,13 +43,14 @@ class NodeService {
     return List<Map<String, dynamic>>.from(response.data['data']);
   }
 
-  /// V3-MQTT-STANDARDS §3.4 — write parameter command.
-  /// Body: {"Power": true} or {"Brightness": 75}
+  /// V3-API-SPECIFICATION §6 — write parameter command.
+  /// Canonical body is FLAT: {"Power": true} or {"Brightness": 75}
+  /// (the backend also still tolerates the legacy {"params": {...}} wrapper).
   Future<Map<String, dynamic>> writeParams(
       String nodeId, String deviceId, Map<String, dynamic> params) async {
     final response = await _dio.put(
       ApiConstants.nodeParams(nodeId, deviceId),
-      data: {'params': params},
+      data: params,
     );
     return response.data['data'];
   }
@@ -69,6 +70,15 @@ class NodeService {
     return response.data['data'];
   }
 
+  Future<List<Map<String, dynamic>>> getEnergyDaily(String nodeId,
+      {int days = 7}) async {
+    final response = await _dio.get(
+      '${ApiConstants.nodeEnergy(nodeId)}/daily',
+      queryParameters: {'days': days},
+    );
+    return List<Map<String, dynamic>>.from(response.data['data']);
+  }
+
   Future<Map<String, dynamic>> getEnergy(
       String nodeId, {DateTime? from, DateTime? to}) async {
     final response = await _dio.get(ApiConstants.nodeEnergy(nodeId), queryParameters: {
@@ -76,6 +86,12 @@ class NodeService {
       'to': (to ?? DateTime.now()).toIso8601String(),
     });
     return response.data['data'];
+  }
+
+  /// POST /api/v3/auth/claim-token — 10-min TTL claim JWT (P1-3).
+  Future<String> claimToken() async {
+    final response = await _dio.post('/api/v3/auth/claim-token');
+    return response.data['data']['claim_token'] as String;
   }
 
   Future<Map<String, dynamic>> claim({

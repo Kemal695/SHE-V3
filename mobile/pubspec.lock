@@ -422,6 +422,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.2"
+  flutter_esp_ble_prov:
+    dependency: "direct main"
+    description:
+      path: "plugins/flutter_esp_ble_prov"
+      relative: true
+    source: path
+    version: "0.1.7"
   flutter_lints:
     dependency: "direct dev"
     description:

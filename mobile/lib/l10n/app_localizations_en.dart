@@ -85,4 +85,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get offline => 'Offline';
+
+  @override
+  String get device => 'Device';
+
+  @override
+  String get error => 'Error';
 }

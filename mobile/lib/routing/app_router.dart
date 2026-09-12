@@ -19,8 +19,15 @@ import '../core/storage/secure_storage.dart';
 import '../core/network/dio_client.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  // M4 fix: redirect must react to auth-state changes (login/logout/token
+  // expiry). GoRouter only re-evaluates redirect when refreshListenable fires,
+  // so bridge the Riverpod token provider into a Listenable.
+  final authListenable = ValueNotifier<String?>(ref.read(accessTokenProvider));
+  ref.listen(accessTokenProvider, (_, value) => authListenable.value = value);
+  ref.onDispose(authListenable.dispose);
   return GoRouter(
     initialLocation: '/login',
+    refreshListenable: authListenable,
     redirect: (context, state) {
       final isLoggedIn = ref.read(accessTokenProvider) != null;
       final isAuthRoute = state.matchedLocation == '/login' ||
