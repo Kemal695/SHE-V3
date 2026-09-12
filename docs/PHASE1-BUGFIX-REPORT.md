@@ -523,7 +523,41 @@ that must be world-readable already are (`0644`) — verified after the change: 
 Verified: `touch /ca-certs-output/.write-probe` as `step` went from **Permission denied** to
 **WRITABLE**; `docker compose config` clean; all three suites still green.
 
-### 7.9 Test-harness robustness
+### 7.9 Four tenant-scoped tables had no RLS at all — RESOLVED (migration V31)
+
+V30 could only rebuild policies on tables that already had RLS switched on. A catalogue sweep of
+every `public` table with a `tenant_id` column found four that did not:
+
+| table | `tenant_id` | rows | used by app code |
+|---|---|---|---|
+| `device_energy_readings` | NOT NULL | 43 | yes — raw SQL in `EnergyService` |
+| `blacklisted_tokens` | nullable | 0 | no |
+| `node_group_members` | NOT NULL | 0 | no |
+| `scene_actions` | NOT NULL | 0 | no |
+
+`device_energy_readings` is the material one: a hypertable of per-device energy/cost telemetry with
+**no JPA entity**, so RLS is the only thing that can constrain it. Every current query does remember
+`WHERE tenant_id = ?`, so this was **not an active leak** — but it was one forgotten predicate away
+from one, while the other 26 tenant tables were all protected. The other three are unused today and
+were included so a future repository cannot be written against an unprotected table.
+
+Migration **V31** enables + forces RLS on all four and creates the same NULL-safe `tenant_isolation`
+policy V30 uses. `blacklisted_tokens` keeps `OR tenant_id IS NULL` on the USING side (a global
+blacklist entry must be visible to everyone) but **not** on WITH CHECK, so minting a global entry
+requires the platform-admin GUC.
+
+Verified: as `she_app`, `device_energy_readings` returns **0** rows under a non-owner tenant GUC and
+**43** under the platform-admin GUC. Both continuous aggregates (`energy_hourly`, `energy_daily`)
+still refresh over the now-protected hypertable, and all three suites stayed green.
+
+**Residual, documented not fixed:** the continuous aggregates themselves
+(`energy_hourly`, `energy_daily`) carry `tenant_id`/`node_id` but are **not** RLS-protected —
+Postgres has no RLS on views, and enabling it on TimescaleDB's internal materialization hypertable
+is unsupported. They are not queried by application code today (`EnergyService` reads the raw
+hypertable, because the aggregate lags ~1h), so the exposure is latent rather than live. The
+stale javadoc claiming otherwise was corrected.
+
+### 7.10 Test-harness robustness
 
 `scripts/she_e2e_revocation.py` produced one **11/13** run (R5.2 + R6.3) immediately after the
 volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cached
@@ -531,7 +565,7 @@ volume work, then 13/13 on the next five runs. step-ca's `/crl` response is cach
 revoking can legitimately return the previous CRL. The harness now **polls for up to 20 s** for the
 serial to appear instead of racing it, so a real regression cannot be masked by a timing flake.
 
-### 7.10 Status
+### 7.11 Status
 
 All defects found during this pass are now resolved. Remaining work is outside the scope of this
 report: rotating the CA provisioner password (it remains in git history from the initial commit),

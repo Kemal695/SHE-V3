@@ -227,7 +227,10 @@ public class EnergyService {
 
     /**
      * Get energy + cost summary for a node over a time range.
-     * Uses energy_hourly continuous aggregate for ranges > 24h, raw for < 24h.
+     *
+     * Reads device_energy_readings directly rather than the energy_hourly
+     * continuous aggregate, which lags by ~1h. (An earlier version of this
+     * javadoc claimed the opposite; the aggregate is not queried at all here.)
      */
     public Map<String, Object> getEnergySummary(UUID tenantId, UUID nodeId, Instant from, Instant to) {
         // Always read from raw for accuracy (continuous aggregate lags by 1h)
