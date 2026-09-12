@@ -24,6 +24,7 @@ import java.util.Map;
  *   POST /api/v3/auth/refresh     — rotate refresh token
  *   POST /api/v3/auth/logout      — blacklist refresh token jti
  *   GET  /api/v3/auth/me          — current user profile
+ *   POST /api/v3/auth/claim-token — issue 10-min claim JWT for BLE provisioning
  *
  * All responses use the success envelope: {"data": ..., "meta": {...}}
  */
@@ -65,5 +66,10 @@ public class AuthController {
     public ResponseEntity<Map<String, Object>> me() {
         MeResponse me = authService.me();
         return ResponseEntity.ok(Map.of("data", me));
+    }
+
+    @PostMapping("/claim-token")
+    public ResponseEntity<Map<String, Object>> claimToken() {
+        return ResponseEntity.ok(Map.of("data", authService.claimToken()));
     }
 }

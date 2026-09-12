@@ -25,4 +25,11 @@ public interface HomeService {
     HomeDtos.MemberResponse addMember(UUID homeId, HomeDtos.AddMemberRequest req);
     HomeDtos.MemberResponse updateMember(UUID homeId, UUID userId, HomeDtos.UpdateMemberRequest req);
     void removeMember(UUID homeId, UUID userId);
+
+    /**
+     * Authorization chokepoint for cross-service callers (OTA, node groups, …).
+     * Allows super admins, tenant admins, and home members holding {@code minRole}
+     * or above (OWNER &gt; ADMIN &gt; MEMBER &gt; GUEST). Throws 403/404 otherwise.
+     */
+    void requireHomeAccess(UUID homeId, String minRole);
 }

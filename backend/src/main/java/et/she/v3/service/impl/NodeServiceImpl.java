@@ -9,6 +9,7 @@ import et.she.v3.errors.SheException;
 import et.she.v3.mqtt.MqttPublishService;
 import et.she.v3.repository.*;
 import et.she.v3.security.AuthenticatedUser;
+import et.she.v3.security.JwtService;
 import et.she.v3.security.TenantContextInterceptor;
 import et.she.v3.service.NodeService;
 import org.slf4j.Logger;
@@ -26,7 +27,9 @@ import java.util.*;
 public class NodeServiceImpl implements NodeService {
 
     private static final Logger log = LoggerFactory.getLogger(NodeServiceImpl.class);
-    private static final java.util.concurrent.atomic.AtomicLong SEQ_COUNTER = new java.util.concurrent.atomic.AtomicLong(0);
+    /** Per-node monotonic seq for params/remote replay protection (H15 fix). */
+    private static final java.util.concurrent.ConcurrentHashMap<UUID, java.util.concurrent.atomic.AtomicLong> SEQ_BY_NODE =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private final NodeRepository nodeRepository;
     private final NodeDeviceRepository nodeDeviceRepository;
@@ -38,6 +41,7 @@ public class NodeServiceImpl implements NodeService {
     private final ObjectMapper objectMapper;
     private final MqttPublishService mqttPublishService;
     private final TenantContextInterceptor tenantContextInterceptor;
+    private final JwtService jwtService;
     private final SheProperties props;
 
     public NodeServiceImpl(NodeRepository nodeRepository,
@@ -50,6 +54,7 @@ public class NodeServiceImpl implements NodeService {
                            ObjectMapper objectMapper,
                            MqttPublishService mqttPublishService,
                            TenantContextInterceptor tenantContextInterceptor,
+                           JwtService jwtService,
                            SheProperties props) {
         this.nodeRepository = nodeRepository;
         this.nodeDeviceRepository = nodeDeviceRepository;
@@ -61,6 +66,7 @@ public class NodeServiceImpl implements NodeService {
         this.objectMapper = objectMapper;
         this.mqttPublishService = mqttPublishService;
         this.tenantContextInterceptor = tenantContextInterceptor;
+        this.jwtService = jwtService;
         this.props = props;
     }
 
@@ -79,10 +85,19 @@ public class NodeServiceImpl implements NodeService {
         }
         String macAddress = normalizedMac.replaceAll("(.{2})", "$1:").replaceAll(":$", "").toUpperCase();
 
-        // Verify claim_token (10-min TTL JWT) — TODO: full verification in Phase 1C
-        // For Phase 1A: accept any non-empty claim_token, bind to current user's tenant
+        // Verify claim_token: 10-min TTL JWT from POST /api/v3/auth/claim-token.
+        // decode() validates EdDSA signature + exp + iss + aud (throws 401).
         if (req.claim_token() == null || req.claim_token().isBlank()) {
             throw new SheException("VALIDATION_FAILED", "claim_token required", 400);
+        }
+        Map<String, Object> claimClaims = jwtService.decode(req.claim_token());
+        if (!"claim".equals(claimClaims.get("type"))) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Not a claim token (type must be 'claim')", 401);
+        }
+        Object tokenTenant = claimClaims.get("tenant_id");
+        if (tokenTenant == null || !user.tenantId().toString().equals(tokenTenant.toString())) {
+            throw new SheException("RBAC_INSUFFICIENT_ROLE",
+                    "Claim token was issued for a different tenant", 403);
         }
 
         // Resolve the home: default to the user's most recent active home when home_id is
@@ -122,7 +137,7 @@ public class NodeServiceImpl implements NodeService {
             node = new Node();
             node.setTenantId(user.tenantId());
             node.setHomeId(homeId);
-            node.setNodeId("SHE-" + req.sku().substring(5) + "-" + normalizedMac.substring(6).toUpperCase());
+            node.setNodeId("SHE-" + req.sku().substring(4) + "-" + normalizedMac.substring(6).toUpperCase());
             node.setMacAddress(macAddress);
             node.setNormalizedMac(normalizedMac);
             node.setSku(req.sku());
@@ -210,6 +225,7 @@ public class NodeServiceImpl implements NodeService {
     @Transactional(readOnly = true)
     public List<NodeDtos.NodeResponse> listByHome(UUID homeId) {
         AuthenticatedUser user = currentUser();
+        requireHomeMembership(homeId, user, "GUEST");
         List<Node> nodes = nodeRepository.findAllByTenantAndHome(user.tenantId(), homeId);
         return nodes.stream().map(this::toResponse).toList();
     }
@@ -221,9 +237,13 @@ public class NodeServiceImpl implements NodeService {
     @Override
     @Transactional(readOnly = true)
     public NodeDtos.NodeResponse getById(UUID id) {
-        return nodeRepository.findActiveById(id)
-                .map(this::toResponse)
-                .orElseThrow(() -> new SheException("NODE_NOT_FOUND", "Node " + id + " does not exist", 404));
+        return toResponse(getAuthorizedNodeOrThrow(id, "GUEST"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void requireNodeAccess(UUID nodeId, String minRole) {
+        getAuthorizedNodeOrThrow(nodeId, minRole);
     }
 
     // =========================================================================
@@ -232,8 +252,7 @@ public class NodeServiceImpl implements NodeService {
 
     @Override
     public NodeDtos.NodeResponse update(UUID id, String name, UUID roomId) {
-        Node node = nodeRepository.findActiveById(id)
-                .orElseThrow(() -> new SheException("NODE_NOT_FOUND", "Node " + id + " does not exist", 404));
+        Node node = getAuthorizedNodeOrThrow(id, "MEMBER");
         if (name != null && !name.isBlank()) node.setName(name);
         if (roomId != null) node.setRoomId(roomId);
         nodeRepository.save(node);
@@ -246,8 +265,7 @@ public class NodeServiceImpl implements NodeService {
 
     @Override
     public void delete(UUID id) {
-        Node node = nodeRepository.findActiveById(id)
-                .orElseThrow(() -> new SheException("NODE_NOT_FOUND", "Node " + id + " does not exist", 404));
+        Node node = getAuthorizedNodeOrThrow(id, "OWNER");
         node.setDeletedAt(Instant.now());
         nodeRepository.save(node);
         // TODO: revoke cert via step-ca + disconnect from EMQX
@@ -261,7 +279,7 @@ public class NodeServiceImpl implements NodeService {
     @Override
     @Transactional(readOnly = true)
     public List<NodeDtos.DeviceResponse> listDevices(UUID nodeId) {
-        verifyNodeExists(nodeId);
+        getAuthorizedNodeOrThrow(nodeId, "GUEST");
         return nodeDeviceRepository.findAllByNodeId(nodeId).stream()
                 .map(this::toDeviceResponse)
                 .toList();
@@ -274,7 +292,12 @@ public class NodeServiceImpl implements NodeService {
     @Override
     @Transactional(readOnly = true)
     public List<NodeDtos.ParamResponse> listParams(UUID nodeId, UUID deviceId) {
-        verifyNodeExists(nodeId);
+        getAuthorizedNodeOrThrow(nodeId, "GUEST");
+        NodeDevice device = nodeDeviceRepository.findById(deviceId)
+                .orElseThrow(() -> new SheException("NODE_DEVICE_NOT_FOUND", "Device " + deviceId + " not found", 404));
+        if (!device.getNodeId().equals(nodeId)) {
+            throw new SheException("NODE_DEVICE_NOT_FOUND", "Device does not belong to node", 404);
+        }
         return nodeParamRepository.findAllByDeviceId(deviceId).stream()
                 .map(this::toParamResponse)
                 .toList();
@@ -286,7 +309,7 @@ public class NodeServiceImpl implements NodeService {
 
     @Override
     public NodeDtos.WriteParamsResponse writeParams(UUID nodeId, UUID deviceId, NodeDtos.WriteParamsRequest req) {
-        Node node = verifyNodeExists(nodeId);
+        Node node = getAuthorizedNodeOrThrow(nodeId, "MEMBER");
         NodeDevice device = nodeDeviceRepository.findById(deviceId)
                 .orElseThrow(() -> new SheException("NODE_DEVICE_NOT_FOUND", "Device " + deviceId + " not found", 404));
 
@@ -296,7 +319,11 @@ public class NodeServiceImpl implements NodeService {
 
         // Update last_value in DB (desired state) + last_commanded_at
         Map<String, NodeDtos.ParamAck> acks = new LinkedHashMap<>();
-        long seq = Math.max(System.currentTimeMillis(), SEQ_COUNTER.incrementAndGet());
+        // Per-node monotonic seq for params/remote replay protection (H15 fix):
+        // strictly increasing within this JVM; seeded from wall-clock so restarts move forward.
+        long seq = SEQ_BY_NODE.computeIfAbsent(nodeId,
+                        k -> new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis()))
+                .updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
         // Accumulate params per device — V3-MQTT-STANDARDS §3.4 payload: {"Relay 1":{"Power":true,"Brightness":75}}
         Map<String, Map<String, Object>> deviceParams = new LinkedHashMap<>();
 
@@ -349,12 +376,20 @@ public class NodeServiceImpl implements NodeService {
     @Override
     @Transactional(readOnly = true)
     public NodeDtos.TelemetryResponse getTelemetry(UUID nodeId, Instant from, Instant to, String param, String bucket) {
-        verifyNodeExists(nodeId);
+        getAuthorizedNodeOrThrow(nodeId, "GUEST");
         if (bucket == null || bucket.isBlank()) bucket = "5m";
         if (from == null) from = Instant.now().minusSeconds(86400);   // default: last 24h
         if (to == null) to = Instant.now();
 
-        // Query device_telemetry hypertable
+        // Bucketed aggregation via TimescaleDB time_bucket (H14 fix — bucket is honored).
+        // Interval literal comes from a whitelist, never from user input.
+        String interval = switch (bucket) {
+            case "1h" -> "1 hour";
+            case "1d" -> "1 day";
+            default -> "5 minutes";
+        };
+        String effectiveBucket = ("1 hour".equals(interval)) ? "1h" : ("1 day".equals(interval) ? "1d" : "5m");
+
         String sql;
         List<Object> args = new ArrayList<>();
         args.add(nodeId);
@@ -363,32 +398,34 @@ public class NodeServiceImpl implements NodeService {
 
         if (param != null && !param.isBlank()) {
             sql = """
-                SELECT time, param_name, value, unit FROM device_telemetry
+                SELECT time_bucket('%s', time) AS bucket, param_name, AVG(value) AS value, MAX(unit) AS unit
+                FROM device_telemetry
                 WHERE node_id = ? AND time >= ? AND time <= ? AND param_name = ?
-                ORDER BY time ASC
+                GROUP BY 1, 2 ORDER BY 1 ASC
                 LIMIT 10000
-                """;
+                """.formatted(interval);
             args.add(param);
         } else {
             sql = """
-                SELECT time, param_name, value, unit FROM device_telemetry
+                SELECT time_bucket('%s', time) AS bucket, param_name, AVG(value) AS value, MAX(unit) AS unit
+                FROM device_telemetry
                 WHERE node_id = ? AND time >= ? AND time <= ?
-                ORDER BY time ASC
+                GROUP BY 1, 2 ORDER BY 1 ASC
                 LIMIT 10000
-                """;
+                """.formatted(interval);
         }
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
         List<NodeDtos.TelemetryPoint> points = rows.stream()
                 .map(r -> new NodeDtos.TelemetryPoint(
-                        r.get("time").toString(),
+                        r.get("bucket").toString(),
                         (String) r.get("param_name"),
                         ((Number) r.get("value")).doubleValue(),
                         (String) r.get("unit")
                 ))
                 .toList();
 
-        return new NodeDtos.TelemetryResponse(nodeId, bucket, points);
+        return new NodeDtos.TelemetryResponse(nodeId, effectiveBucket, points);
     }
 
     // =========================================================================
@@ -398,6 +435,47 @@ public class NodeServiceImpl implements NodeService {
     private Node verifyNodeExists(UUID nodeId) {
         return nodeRepository.findActiveById(nodeId)
                 .orElseThrow(() -> new SheException("NODE_NOT_FOUND", "Node " + nodeId + " does not exist", 404));
+    }
+
+    /**
+     * Home-membership authorization for node access (H1/H3 fix).
+     * B2C users share the default tenant, so tenant-scoping alone does NOT
+     * isolate users — the home membership (OWNER/ADMIN/MEMBER/GUEST) is the
+     * real boundary. Unclaimed nodes (home_id=NULL) are invisible to regular
+     * users (404 — don't leak existence); platform admins bypass.
+     */
+    private Node getAuthorizedNodeOrThrow(UUID nodeId, String minRole) {
+        AuthenticatedUser user = currentUser();
+        Node node = verifyNodeExists(nodeId);
+        if (node.getHomeId() == null) {
+            if (user.isSuperAdmin() || user.isBypassCapable()) return node;
+            throw new SheException("NODE_NOT_FOUND", "Node " + nodeId + " does not exist", 404);
+        }
+        requireHomeMembership(node.getHomeId(), user, minRole);
+        return node;
+    }
+
+    private void requireHomeMembership(UUID homeId, AuthenticatedUser user, String minRole) {
+        if (user.isSuperAdmin() || user.isBypassCapable()
+                || "TENANT_ADMIN".equals(user.tenantRole())) {
+            return;
+        }
+        HomeMember membership = homeMemberRepository.findActiveByHomeAndUser(homeId, user.userId())
+                .orElseThrow(() -> new SheException("RBAC_INSUFFICIENT_ROLE",
+                        "User is not a member of this home", 403));
+        if (minRole != null && roleLevel(membership.getRole()) < roleLevel(minRole)) {
+            throw new SheException("RBAC_INSUFFICIENT_ROLE", "Required home role: " + minRole, 403);
+        }
+    }
+
+    private int roleLevel(String role) {
+        return switch (role != null ? role.toUpperCase() : "") {
+            case "OWNER" -> 4;
+            case "ADMIN" -> 3;
+            case "MEMBER" -> 2;
+            case "GUEST" -> 1;
+            default -> 0;
+        };
     }
 
     private NodeDtos.NodeResponse toResponse(Node n) {

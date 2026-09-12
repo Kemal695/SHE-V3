@@ -198,6 +198,9 @@ she:
     url: ${STEP_CA_CLIENT_URL:http://step-ca:9000}
     provisioner-name: ${STEP_CA_CLIENT_PROVISIONER_NAME:she-device-provisioner}
     provisioner-password-file: ${STEP_CA_CLIENT_PROVISIONER_PASSWORD_FILE:/provisioner-password.txt}
+    # Provisioner JWK (encrypted at rest) — required to mint the one-time token
+    # that step-ca's /sign endpoint demands for JWK provisioners.
+    provisioner-key-path: ${STEP_CA_PROVISIONER_KEY_PATH:}
     intermediate-cert-path: ${CA_INTERMEDIATE_CERT_PATH:/etc/she/ca/intermediate.crt}
     ca-bundle-path: ${CA_BUNDLE_PATH:/etc/she/ca/ca_bundle.pem}
     crl-publish-base-url: ${CRL_PUBLISH_BASE_URL:http://localhost:8088/ca}

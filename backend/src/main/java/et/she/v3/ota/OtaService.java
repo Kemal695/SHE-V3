@@ -10,6 +10,7 @@ import et.she.v3.repository.NodeRepository;
 import et.she.v3.repository.OtaApprovalRepository;
 import et.she.v3.repository.OtaBatchRepository;
 import et.she.v3.security.AuthenticatedUser;
+import et.she.v3.service.HomeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -45,17 +46,24 @@ public class OtaService {
     private final OtaApprovalRepository approvalRepository;
     private final NodeRepository nodeRepository;
     private final MqttPublishService mqttPublishService;
+    private final HomeService homeService;
 
     public OtaService(OtaBatchRepository batchRepository, OtaApprovalRepository approvalRepository,
-                      NodeRepository nodeRepository, MqttPublishService mqttPublishService) {
+                      NodeRepository nodeRepository,
+                      MqttPublishService mqttPublishService, HomeService homeService) {
         this.batchRepository = batchRepository;
         this.approvalRepository = approvalRepository;
         this.nodeRepository = nodeRepository;
         this.mqttPublishService = mqttPublishService;
+        this.homeService = homeService;
     }
 
     public OtaDtos.BatchResponse createBatch(UUID homeId, OtaDtos.CreateBatchRequest req) {
-        requireTenantAdmin();
+        // V3-API-SPECIFICATION §9: POST /homes/{homeId}/ota/batches requires home OWNER.
+        // (Previously required TENANT_ADMIN, which no normally-registered user can ever
+        // hold — registration leaves tenant_role null and only an admin can promote —
+        // so OTA was unusable for every real user.)
+        homeService.requireHomeAccess(homeId, "OWNER");
         AuthenticatedUser user = currentUser();
         OtaBatch batch = new OtaBatch();
         batch.setTenantId(user.tenantId());
@@ -69,13 +77,19 @@ public class OtaService {
         batch.setAutoApprove(req.auto_approve() != null && req.auto_approve());
         batch.setStatus("DRAFT");
         batch.setCreatedByUserId(user.userId());
-        batch = batchRepository.save(batch);
+        // saveAndFlush, not save: @CreationTimestamp / @UpdateTimestamp are applied when
+        // the INSERT executes. With GenerationType.UUID the id is generated in memory, so
+        // save() merely registers the entity and defers the INSERT to commit — leaving
+        // createdAt null while toBatchResponse() runs and NPE-ing the whole request.
+        batch = batchRepository.saveAndFlush(batch);
         log.info("OTA batch created: id={} version={} sku={}", batch.getId(), batch.getFirmwareVersion(), batch.getTargetSku());
         return toBatchResponse(batch, 0);
     }
 
     @Transactional(readOnly = true)
     public List<OtaDtos.BatchResponse> listBatches(UUID homeId) {
+        // V3-API-SPECIFICATION §9: GET /homes/{homeId}/ota/batches requires MEMBER+.
+        homeService.requireHomeAccess(homeId, "MEMBER");
         AuthenticatedUser user = currentUser();
         return batchRepository.findAllByTenantAndHome(user.tenantId(), homeId).stream()
                 .map(b -> toBatchResponse(b, approvalRepository.findAllByBatchId(b.getId()).size()))
@@ -84,8 +98,8 @@ public class OtaService {
 
     @Transactional(readOnly = true)
     public OtaDtos.BatchResponse getBatch(UUID batchId) {
-        OtaBatch batch = batchRepository.findById(batchId)
-                .orElseThrow(() -> new SheException("OTA_BATCH_NOT_FOUND", "Batch " + batchId + " not found", 404));
+        OtaBatch batch = getOwnedBatchOrThrow(batchId);
+        homeService.requireHomeAccess(batch.getHomeId(), "MEMBER");
         return toBatchResponse(batch, approvalRepository.findAllByBatchId(batchId).size());
     }
 
@@ -93,10 +107,10 @@ public class OtaService {
      * Start batch — creates PENDING approvals for matching nodes + publishes ota/url via MQTT.
      */
     public OtaDtos.BatchActionResponse startBatch(UUID batchId) {
-        requireTenantAdmin();
         AuthenticatedUser user = currentUser();
-        OtaBatch batch = batchRepository.findById(batchId)
-                .orElseThrow(() -> new SheException("OTA_BATCH_NOT_FOUND", "Batch " + batchId + " not found", 404));
+        OtaBatch batch = getOwnedBatchOrThrow(batchId);
+        // V3-API-SPECIFICATION §9: POST /ota/batches/{id}/start requires ADMIN+.
+        homeService.requireHomeAccess(batch.getHomeId(), "ADMIN");
 
         batch.setStatus("ROLLING");
         batchRepository.save(batch);
@@ -148,9 +162,9 @@ public class OtaService {
     }
 
     public OtaDtos.BatchActionResponse abortBatch(UUID batchId) {
-        requireTenantAdmin();
-        OtaBatch batch = batchRepository.findById(batchId)
-                .orElseThrow(() -> new SheException("OTA_BATCH_NOT_FOUND", "Batch " + batchId + " not found", 404));
+        OtaBatch batch = getOwnedBatchOrThrow(batchId);
+        // V3-API-SPECIFICATION §9: POST /ota/batches/{id}/abort requires OWNER.
+        homeService.requireHomeAccess(batch.getHomeId(), "OWNER");
         batch.setStatus("ABORTED");
         batchRepository.save(batch);
 
@@ -170,17 +184,18 @@ public class OtaService {
     }
 
     public OtaDtos.ApprovalResponse approveApproval(UUID approvalId) {
-        requireTenantAdmin();
         AuthenticatedUser user = currentUser();
         OtaApproval approval = approvalRepository.findById(approvalId)
                 .orElseThrow(() -> new SheException("OTA_APPROVAL_NOT_FOUND", "Approval " + approvalId + " not found", 404));
+        // V3-API-SPECIFICATION §9: approve requires ADMIN+.
+        OtaBatch batch = getOwnedBatchOrThrow(approval.getBatchId());
+        homeService.requireHomeAccess(batch.getHomeId(), "ADMIN");
         approval.setStatus("APPROVED");
         approval.setApprovedByUserId(user.userId());
         approval.setApprovedAt(Instant.now());
         approvalRepository.save(approval);
 
         // Publish ota/url to the device
-        OtaBatch batch = batchRepository.findById(approval.getBatchId()).orElseThrow();
         Node node = nodeRepository.findById(approval.getNodeId()).orElseThrow();
         publishOtaUrlToNode(node, batch);
         approval.setDeploymentStatus("DOWNLOADING");
@@ -190,9 +205,11 @@ public class OtaService {
     }
 
     public OtaDtos.ApprovalResponse declineApproval(UUID approvalId) {
-        requireTenantAdmin();
         OtaApproval approval = approvalRepository.findById(approvalId)
                 .orElseThrow(() -> new SheException("OTA_APPROVAL_NOT_FOUND", "Approval " + approvalId + " not found", 404));
+        // V3-API-SPECIFICATION §9: decline requires ADMIN+.
+        OtaBatch batch = getOwnedBatchOrThrow(approval.getBatchId());
+        homeService.requireHomeAccess(batch.getHomeId(), "ADMIN");
         approval.setStatus("DECLINED");
         approvalRepository.save(approval);
         return toApprovalResponse(approval);
@@ -243,12 +260,18 @@ public class OtaService {
         return id.toString().replace("-", "").substring(0, 8);
     }
 
-    private void requireTenantAdmin() {
+    /**
+     * Cross-tenant guard (H2 fix) — batches are tenant-scoped; touching another
+     * tenant's batch returns 404 so batch IDs can't be probed across tenants.
+     */
+    private OtaBatch getOwnedBatchOrThrow(UUID batchId) {
         AuthenticatedUser user = currentUser();
-        boolean isTenantAdmin = "TENANT_ADMIN".equals(user.tenantRole()) || user.isBypassCapable();
-        if (!isTenantAdmin) {
-            throw new SheException("RBAC_INSUFFICIENT_ROLE", "Tenant admin role required for OTA operations", 403);
+        OtaBatch batch = batchRepository.findById(batchId)
+                .orElseThrow(() -> new SheException("OTA_BATCH_NOT_FOUND", "Batch " + batchId + " not found", 404));
+        if (batch.getTenantId() == null || !batch.getTenantId().equals(user.tenantId())) {
+            throw new SheException("OTA_BATCH_NOT_FOUND", "Batch " + batchId + " not found", 404);
         }
+        return batch;
     }
 
     private AuthenticatedUser currentUser() {

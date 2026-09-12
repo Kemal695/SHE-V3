@@ -82,7 +82,30 @@ public class NodeDtos {
      * V3-MQTT-STANDARDS §3.4 — write parameter command.
      * Body: {"Power": true} or {"Brightness": 75}
      */
-    public record WriteParamsRequest(Map<String, Object> params) {}
+    public record WriteParamsRequest(Map<String, Object> params) {
+
+        /**
+         * Normalize a raw request body into the canonical params map.
+         *
+         * Canonical contract (V3-API-SPECIFICATION §6) is a FLAT body:
+         *   {"Power": true}   or   {"Power": true, "Brightness": 75}
+         *
+         * Early clients instead sent a WRAPPED body:
+         *   {"params": {"Power": true}}
+         *
+         * Both are accepted so the documented contract works without breaking
+         * existing callers. The wrapped form is deprecated — remove it once all
+         * clients send the flat shape.
+         */
+        public static WriteParamsRequest of(Map<String, Object> body) {
+            if (body != null && body.size() == 1 && body.get("params") instanceof Map<?, ?> nested) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> unwrapped = (Map<String, Object>) nested;
+                return new WriteParamsRequest(unwrapped);
+            }
+            return new WriteParamsRequest(body);
+        }
+    }
 
     public record WriteParamsResponse(
             UUID nodeId,

@@ -128,7 +128,7 @@ public class WsEventBus extends TextWebSocketHandler {
     // Event publishers (called by MqttSubscriberService + services)
     // =========================================================================
 
-    public void publishNodeState(UUID tenantId, UUID nodeId, UUID deviceId,
+    public void publishNodeState(UUID tenantId, UUID homeId, UUID nodeId, UUID deviceId,
                                  String deviceName, String paramName, JsonNode value) {
         broadcast(tenantId, Map.of(
                 "event", "node.state",
@@ -140,10 +140,10 @@ public class WsEventBus extends TextWebSocketHandler {
                         "value", value,
                         "timestamp", Instant.now().toString()
                 )
-        ));
+        ), homeId, nodeId);
     }
 
-    public void publishNodeTelemetry(UUID tenantId, UUID nodeId, JsonNode telemetry) {
+    public void publishNodeTelemetry(UUID tenantId, UUID homeId, UUID nodeId, JsonNode telemetry) {
         broadcast(tenantId, Map.of(
                 "event", "node.telemetry",
                 "data", Map.of(
@@ -151,10 +151,10 @@ public class WsEventBus extends TextWebSocketHandler {
                         "telemetry", telemetry,
                         "timestamp", Instant.now().toString()
                 )
-        ));
+        ), homeId, nodeId);
     }
 
-    public void publishNodePresence(UUID tenantId, UUID nodeId, boolean isOnline, Instant lastSeenAt) {
+    public void publishNodePresence(UUID tenantId, UUID homeId, UUID nodeId, boolean isOnline, Instant lastSeenAt) {
         broadcast(tenantId, Map.of(
                 "event", "node.presence",
                 "data", Map.of(
@@ -162,10 +162,10 @@ public class WsEventBus extends TextWebSocketHandler {
                         "isOnline", isOnline,
                         "lastSeenAt", lastSeenAt != null ? lastSeenAt.toString() : null
                 )
-        ));
+        ), homeId, nodeId);
     }
 
-    public void publishEnergyUpdate(UUID tenantId, UUID nodeId, double powerW, double energyWh) {
+    public void publishEnergyUpdate(UUID tenantId, UUID homeId, UUID nodeId, double powerW, double energyWh) {
         broadcast(tenantId, Map.of(
                 "event", "energy.update",
                 "data", Map.of(
@@ -174,7 +174,7 @@ public class WsEventBus extends TextWebSocketHandler {
                         "energyWh", energyWh,
                         "timestamp", Instant.now().toString()
                 )
-        ));
+        ), homeId, nodeId);
     }
 
     public void publishOtaProgress(UUID tenantId, String normalizedMac, String status, Integer progress, String version) {
@@ -200,6 +200,17 @@ public class WsEventBus extends TextWebSocketHandler {
     // =========================================================================
 
     private void broadcast(UUID tenantId, Map<String, Object> event) {
+        broadcast(tenantId, event, null, null);
+    }
+
+    /**
+     * Tenant-scoped fan-out with per-session subscription filtering (H4 fix).
+     * Sessions with no subscriptions receive everything in their tenant
+     * (backward compatible); subscribed sessions only receive matching
+     * home/node events — so users sharing the B2C tenant don't see each
+     * other's devices.
+     */
+    private void broadcast(UUID tenantId, Map<String, Object> event, UUID homeId, UUID nodeId) {
         Set<String> sessionIds = sessionsByTenant.get(tenantId);
         if (sessionIds == null || sessionIds.isEmpty()) return;
 
@@ -214,7 +225,7 @@ public class WsEventBus extends TextWebSocketHandler {
         TextMessage msg = new TextMessage(json);
         for (String sessionId : sessionIds) {
             WsSession ws = sessions.get(sessionId);
-            if (ws != null && ws.session.isOpen()) {
+            if (ws != null && ws.session.isOpen() && isSubscribed(ws, homeId, nodeId)) {
                 try {
                     ws.session.sendMessage(msg);
                 } catch (Exception e) {
@@ -222,6 +233,16 @@ public class WsEventBus extends TextWebSocketHandler {
                 }
             }
         }
+    }
+
+    private boolean isSubscribed(WsSession ws, UUID homeId, UUID nodeId) {
+        if (ws.subscribedHomeIds.isEmpty() && ws.subscribedNodeIds.isEmpty()) {
+            return true;
+        }
+        if (nodeId != null && ws.subscribedNodeIds.contains(nodeId)) {
+            return true;
+        }
+        return homeId != null && ws.subscribedHomeIds.contains(homeId);
     }
 
     private void broadcastToAll(Map<String, Object> event) {

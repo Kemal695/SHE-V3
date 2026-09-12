@@ -69,8 +69,9 @@ public class NodeController {
     @PutMapping("/nodes/{id}/devices/{deviceId}/params")
     public ResponseEntity<Map<String, Object>> writeParams(@PathVariable UUID id,
                                                            @PathVariable UUID deviceId,
-                                                           @Valid @RequestBody NodeDtos.WriteParamsRequest req) {
-        return ResponseEntity.ok(Map.of("data", nodeService.writeParams(id, deviceId, req)));
+                                                           @RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(Map.of("data", nodeService.writeParams(id, deviceId,
+                NodeDtos.WriteParamsRequest.of(body))));
     }
 
     // ─── Telemetry time-series query ─────────────────────────────────────────

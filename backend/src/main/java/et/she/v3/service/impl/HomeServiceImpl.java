@@ -181,16 +181,16 @@ public class HomeServiceImpl implements HomeService {
     @Override
     public HomeDtos.MemberResponse addMember(UUID homeId, HomeDtos.AddMemberRequest req) {
         AuthenticatedUser user = currentUser();
-        getAuthorizedHomeOrThrow(homeId, "ADMIN");
+        if (!req.role().matches("^(OWNER|ADMIN|MEMBER|GUEST)$")) {
+            throw new SheException("VALIDATION_FAILED", "role must be OWNER|ADMIN|MEMBER|GUEST", 400);
+        }
+        // Privilege-escalation guard: only an OWNER can grant the OWNER role.
+        getAuthorizedHomeOrThrow(homeId, "OWNER".equals(req.role()) ? "OWNER" : "ADMIN");
 
         // Look up user by email within the tenant
         User invitee = userRepository.findActiveByEmail(user.tenantId(), req.email())
                 .orElseThrow(() -> new SheException("USER_NOT_FOUND",
                         "User " + req.email() + " not found in this tenant", 404));
-
-        if (!req.role().matches("^(OWNER|ADMIN|MEMBER|GUEST)$")) {
-            throw new SheException("VALIDATION_FAILED", "role must be OWNER|ADMIN|MEMBER|GUEST", 400);
-        }
 
         HomeMember member = new HomeMember();
         member.setTenantId(user.tenantId());
@@ -206,11 +206,17 @@ public class HomeServiceImpl implements HomeService {
 
     @Override
     public HomeDtos.MemberResponse updateMember(UUID homeId, UUID userId, HomeDtos.UpdateMemberRequest req) {
-        getAuthorizedHomeOrThrow(homeId, "ADMIN");
-        HomeMember member = homeMemberRepository.findActiveByHomeAndUser(homeId, userId)
-                .orElseThrow(() -> new SheException("USER_NOT_FOUND", "Member not found", 404));
         if (!req.role().matches("^(OWNER|ADMIN|MEMBER|GUEST)$")) {
             throw new SheException("VALIDATION_FAILED", "role must be OWNER|ADMIN|MEMBER|GUEST", 400);
+        }
+        // Privilege-escalation guard: only an OWNER can grant the OWNER role.
+        // Demoting the last OWNER is also blocked (use removeMember checks below).
+        getAuthorizedHomeOrThrow(homeId, "OWNER".equals(req.role()) ? "OWNER" : "ADMIN");
+        HomeMember member = homeMemberRepository.findActiveByHomeAndUser(homeId, userId)
+                .orElseThrow(() -> new SheException("USER_NOT_FOUND", "Member not found", 404));
+        if ("OWNER".equals(member.getRole()) && !"OWNER".equals(req.role()) && countActiveOwners(homeId) <= 1) {
+            throw new SheException("RBAC_LAST_OWNER_CANNOT_LEAVE",
+                    "Cannot demote the last owner — transfer ownership first", 409);
         }
         member.setRole(req.role());
         homeMemberRepository.save(member);
@@ -224,17 +230,35 @@ public class HomeServiceImpl implements HomeService {
         getAuthorizedHomeOrThrow(homeId, "ADMIN");
         HomeMember member = homeMemberRepository.findActiveByHomeAndUser(homeId, userId)
                 .orElseThrow(() -> new SheException("USER_NOT_FOUND", "Member not found", 404));
-        if ("OWNER".equals(member.getRole())) {
+        // Only the last OWNER is protected — co-owners can be removed by an ADMIN+.
+        if ("OWNER".equals(member.getRole()) && countActiveOwners(homeId) <= 1) {
             throw new SheException("RBAC_LAST_OWNER_CANNOT_LEAVE",
-                    "Owner cannot be removed — transfer ownership first", 409);
+                    "Last owner cannot be removed — transfer ownership first", 409);
         }
         member.setRevokedAt(Instant.now());
         homeMemberRepository.save(member);
     }
 
+    private long countActiveOwners(UUID homeId) {
+        return homeMemberRepository.findActiveByHomeId(homeId).stream()
+                .filter(m -> "OWNER".equals(m.getRole()))
+                .count();
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /**
+     * Public authorization chokepoint for other services (e.g. OtaService).
+     * Delegates to the same logic every home-scoped endpoint uses, so role rules
+     * stay in exactly one place.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public void requireHomeAccess(UUID homeId, String minRole) {
+        getAuthorizedHomeOrThrow(homeId, minRole);
+    }
 
     private Home getAuthorizedHomeOrThrow(UUID homeId, String minRole) {
         AuthenticatedUser user = currentUser();

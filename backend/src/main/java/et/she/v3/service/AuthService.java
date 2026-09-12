@@ -6,6 +6,8 @@ import et.she.v3.dto.MeResponse;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
 
+import java.util.Map;
+
 /**
  * Authentication service — login, register, refresh, logout, me.
  *
@@ -43,4 +45,12 @@ public interface AuthService {
      * Returns the authenticated user's profile + tenant + branding.
      */
     MeResponse me();
+
+    /**
+     * POST /api/v3/auth/claim-token
+     * Issues a 10-min TTL claim JWT (type=claim) bound to the caller's
+     * tenant. The mobile app fetches one right before calling
+     * POST /api/v3/nodes/claim (P1-3). Verified by NodeServiceImpl.claim().
+     */
+    Map<String, Object> claimToken();
 }

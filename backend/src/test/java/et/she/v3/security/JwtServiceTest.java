@@ -7,14 +7,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.util.Base64;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class JwtServiceTest {
 
     static Path keysDir;
-    static String privateKeyPem;
     static String publicKeyPem;
     static String otherPublicKeyPem;
 
@@ -40,36 +39,37 @@ class JwtServiceTest {
     static void generateKeys() throws Exception {
         keysDir = Files.createTempDirectory("she-jwt-keys");
 
-        // Generate Ed25519 keypair via openssl
+        // Generate Ed25519 keypairs with the JDK — no external `openssl` process.
+        //
+        // Why: this test used to shell out to `openssl` via ProcessBuilder with
+        // inheritIO(). Under Maven Surefire the forked JVM's stdin is the
+        // plugin<->fork communication channel; a child inheriting it consumes
+        // bytes from that channel, so the fork never reports back and the build
+        // hangs until killed ("forked VM terminated without properly saying
+        // goodbye", Tests run: 0). Generating keys in-process removes the
+        // subprocess entirely, making the test hermetic and CI-safe.
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("Ed25519");
+        KeyPair signingKeyPair = kpg.generateKeyPair();
+
+        // Private key: PKCS#8 DER, PEM-wrapped — exactly what JwtService.loadSigningKey() parses.
         Path priv = keysDir.resolve("jwt_ed25519.pem");
-        Path pub  = keysDir.resolve("jwt_ed25519.pub");
-        ProcessBuilder pb = new ProcessBuilder(
-                "openssl", "genpkey", "-algorithm", "ed25519", "-out", priv.toString()
-        );
-        pb.inheritIO().start().waitFor();
-        new ProcessBuilder(
-                "openssl", "pkey", "-in", priv.toString(), "-pubout", "-out", pub.toString()
-        ).inheritIO().start().waitFor();
+        Files.writeString(priv, toPem("PRIVATE KEY", signingKeyPair.getPrivate().getEncoded()),
+                StandardCharsets.UTF_8);
 
-        privateKeyPem = Files.readString(priv);
+        // Public key: X.509/SPKI DER, PEM-wrapped — what JwtService.loadVerificationKeys() parses.
+        publicKeyPem = toPem("PUBLIC KEY", signingKeyPair.getPublic().getEncoded());
 
-        // For the JSON array of public keys, we read the PEM and escape newlines
-        String pubContent = Files.readString(pub);
-        publicKeyPem = pubContent.replaceAll("\\s+", " ").trim();
-        // Actually we need the raw PEM with newlines preserved — use a JSON-friendly form
-        // The JwtService.extractDerFromPem strips all whitespace, so we can pass the raw PEM.
-        publicKeyPem = pubContent;
+        // A second, unrelated keypair — used to prove multi-key rotation accepts
+        // a kid whose public key is listed but which never signed this token.
+        KeyPair otherKeyPair = kpg.generateKeyPair();
+        otherPublicKeyPem = toPem("PUBLIC KEY", otherKeyPair.getPublic().getEncoded());
+    }
 
-        // Generate a second keypair for multi-key rotation test
-        Path otherPriv = keysDir.resolve("jwt_ed25519_other.pem");
-        Path otherPub  = keysDir.resolve("jwt_ed25519_other.pub");
-        new ProcessBuilder(
-                "openssl", "genpkey", "-algorithm", "ed25519", "-out", otherPriv.toString()
-        ).inheritIO().start().waitFor();
-        new ProcessBuilder(
-                "openssl", "pkey", "-in", otherPriv.toString(), "-pubout", "-out", otherPub.toString()
-        ).inheritIO().start().waitFor();
-        otherPublicKeyPem = Files.readString(otherPub);
+    /** PEM-wrap DER bytes with 64-column base64 body. */
+    private static String toPem(String type, byte[] der) {
+        String b64 = Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII))
+                .encodeToString(der);
+        return "-----BEGIN " + type + "-----\n" + b64 + "\n-----END " + type + "-----\n";
     }
 
     private JwtService jwtService;
@@ -113,6 +113,8 @@ class JwtServiceTest {
         claims.put("jti", java.util.UUID.randomUUID().toString());
         claims.put("iat", System.currentTimeMillis() / 1000);
         claims.put("exp", System.currentTimeMillis() / 1000 + 900);
+        claims.put("iss", "she.et");
+        claims.put("aud", "she-api");
 
         String token = jwtService.encode(claims);
         assertNotNull(token);

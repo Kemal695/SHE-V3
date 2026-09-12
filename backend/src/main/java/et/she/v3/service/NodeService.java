@@ -24,7 +24,15 @@ public interface NodeService {
      * Called by ESP32 during BLE provisioning. P0-1: does NOT issue cert (factory-issued).
      * Creates/updates the nodes row with tenant_id + home_id + config from device.
      */
-    NodeDtos.ClaimResponse claim(NodeDtos.ClaimRequest req);
+     NodeDtos.ClaimResponse claim(NodeDtos.ClaimRequest req);
+
+     /**
+      * Throws 403/404 unless the caller may access the node with at least
+      * {@code minRole} home membership (OWNER/ADMIN/MEMBER/GUEST).
+      * Used by controllers that don't go through the other NodeService methods
+      * (e.g. EnergyController).
+      */
+     void requireNodeAccess(java.util.UUID nodeId, String minRole);
 
     /**
      * GET /api/v3/homes/{homeId}/nodes

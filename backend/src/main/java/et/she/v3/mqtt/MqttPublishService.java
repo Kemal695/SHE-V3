@@ -118,14 +118,21 @@ public class MqttPublishService {
     // Internals
     // =========================================================================
 
+    /**
+     * Reuse the connected client (H9 fix). The old code tore down + rebuilt
+     * the mTLS connection on EVERY publish (slow, and a leak on failure paths).
+     * Now: return fast when connected; otherwise close the stale client first
+     * so no orphaned connections accumulate.
+     */
     private synchronized void ensureConnected() throws Exception {
+        if (publishClient != null && publishClient.isConnected()) {
+            return;
+        }
         if (publishClient != null) {
             try {
-                if (publishClient.isConnected()) {
-                    publishClient.disconnect().waitForCompletion(2000);
-                }
                 publishClient.close();
             } catch (Exception ignored) {}
+            publishClient = null;
         }
 
         String brokerUrl = props.mqtt().brokerUrl();

@@ -1,5 +1,6 @@
 package et.she.v3.entity;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -50,9 +51,23 @@ public class NodeParam {
     @Column(name = "max_value")
     private Double maxValue;
 
+    /**
+     * Cached last-known value: {@code true} | {@code 75} | {@code "2024-12-01T..."}.
+     *
+     * <p>Declared as {@link JsonNode} rather than {@code Object} on purpose: with
+     * {@code Object}, Hibernate's {@code @JdbcTypeCode(SqlTypes.JSON)} mapper cannot
+     * resolve a concrete {@code JavaType} and ends up casting the value to
+     * {@code String}, throwing
+     * {@code ClassCastException: BooleanNode cannot be cast to java.lang.String}
+     * on flush. Because that happens inside the `config` MQTT handler, the whole
+     * self-description transaction rolled back — no devices, params or services
+     * were ever registered for a device that reports an initial param value
+     * (which V3-MQTT-STANDARDS §8.1 shows as {@code "value": true}).
+     * Jackson's format mapper handles {@code JsonNode} natively.
+     */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "last_value", columnDefinition = "jsonb")
-    private Object lastValue;           // cached: true | 75 | "2024-12-01T..."
+    private JsonNode lastValue;
 
     @Column(name = "last_reported_at")
     private Instant lastReportedAt;
@@ -82,8 +97,8 @@ public class NodeParam {
     public void setMinValue(Double minValue) { this.minValue = minValue; }
     public Double getMaxValue() { return maxValue; }
     public void setMaxValue(Double maxValue) { this.maxValue = maxValue; }
-    public Object getLastValue() { return lastValue; }
-    public void setLastValue(Object lastValue) { this.lastValue = lastValue; }
+    public JsonNode getLastValue() { return lastValue; }
+    public void setLastValue(JsonNode lastValue) { this.lastValue = lastValue; }
     public Instant getLastReportedAt() { return lastReportedAt; }
     public void setLastReportedAt(Instant lastReportedAt) { this.lastReportedAt = lastReportedAt; }
     public Instant getCreatedAt() { return createdAt; }
