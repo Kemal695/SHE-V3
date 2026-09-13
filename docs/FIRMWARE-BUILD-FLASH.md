@@ -202,18 +202,36 @@ The chip is an **ESP32-D0WD** (the silicon inside WROOM-32D) with **8 MB** of
 flash — exactly what the build assumed, so no partition-table change is
 needed. `partitions_esp32_4mb.csv` is therefore not required.
 
-**⚠️ Caveat: the auto-reset circuit on this board does not work.** esptool's
-`--before default_reset` / `--after hard_reset` drive EN via the modem-control
-lines, and no combination of DTR/RTS polarity (DTR-as-EN, RTS-as-EN, either
-sense) pulses the chip. So immediately after flashing you will see **no boot
-log** — the board is most likely still sitting in the ROM download mode it was
-in. Power-cycle the board or press **EN** by hand, then:
+**The auto-reset circuit works** — it was initially misdiagnosed. The proof is
+a two-way test run right after flashing:
 
-```bash
-"C:/Espressif/python_env/idf5.1_py3.11_env/Scripts/python.exe" scripts/esp32-listen.py COM4 115200 30
+```
+esptool --before no_reset      chip_id  -> FAILS ("No serial data received")
+esptool --before default_reset chip_id  -> SUCCEEDS (Chip is ESP32-D0WD)
 ```
 
-This is board wiring, not firmware: the images were written and hash-verified.
+`no_reset` only connects when the chip is *already* parked in the ROM download
+mode. It failed, so the chip was not in download mode — esptool's reset had
+put it there and the application then booted from flash. The modem-control
+lines do reach EN/IO0.
+
+**The real problem is that the serial link is intermittent.** It works, then
+goes completely dead (0 bytes at every baud, sync frames sent with nothing
+returned) until the cable is re-seated. That is why no boot log was captured:
+the link died right after the flash. Suspect the cable or a loose USB socket.
+
+Once the link is alive, capture the boot with esptool's own known-working
+reset sequence:
+
+```bash
+"C:/Espressif/python_env/idf5.1_py3.11_env/Scripts/python.exe" \
+  scripts/esp32-boot-capture.py COM4 115200 25
+```
+
+`scripts/esp32-listen.py` is a passive alternative for when you press EN by
+hand. Note that opening a port **without** `dsrdtr=False, rtscts=False` will
+assert the control lines and can hold the chip in reset — which looks exactly
+like a dead link.
 
 ### Earlier symptom, kept for reference
 
