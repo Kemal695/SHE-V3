@@ -24,7 +24,10 @@ import subprocess
 import sys
 
 ESPRESSIF = r"C:\Espressif"
-IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.2_py3.11_env\Scripts\python.exe"
+# Match the toolchain the image was built with: the project targets ESP-IDF
+# v5.1.x (LTS), so use the 5.1 python env — it carries pyserial + esptool.
+# (esptool works from the 5.2 env too; this just keeps one story.)
+IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env\Scripts\python.exe"
 BUILD_DIR = r"D:\she-v3\firmware\v3\build-esp32d"
 
 # Flash chip is written at 40m/dio per sdkconfig; the *serial* baud is ours.

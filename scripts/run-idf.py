@@ -19,9 +19,16 @@ import subprocess
 import sys
 
 ESPRESSIF = r"C:\Espressif"
-IDF_VERSION = os.environ.get("IDF_VERSION", "esp-idf-v5.2.7")
+# The project targets ESP-IDF v5.1.x (LTS) — firmware/v3/README.md and the
+# v3 specs pin 5.1. Do NOT default to 5.2.7: build-esp32d's bootloader
+# sub-build cache was generated against 5.1.4, and cmake aborts with
+# "The source .../esp-idf-v5.2.7/components/bootloader/subproject/CMakeLists.txt
+# does not match the source .../esp-idf-v5.1.4/... used to generate cache".
+# Override with the IDF_VERSION env var if you really want another one, and
+# wipe the build dir when you do.
+IDF_VERSION = os.environ.get("IDF_VERSION", "esp-idf-v5.1.4")
 IDF_PATH = rf"{ESPRESSIF}\frameworks\{IDF_VERSION}"
-IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.2_py3.11_env\Scripts\python.exe"
+IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env\Scripts\python.exe"
 
 TOOL_DIRS = [
     # 3.30.2 MUST come before 3.24.0: the 3.24.0 binary in this install dies
@@ -70,7 +77,7 @@ def main() -> int:
     env.setdefault("PROCESSOR_IDENTIFIER", "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel")
     # idf.py re-execs itself via this env; without it the re-exec loses PATH and
     # reports 'cmake must be available on the PATH'.
-    env["IDF_PYTHON_ENV_PATH"] = rf"{ESPRESSIF}\python_env\idf5.2_py3.11_env"
+    env["IDF_PYTHON_ENV_PATH"] = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env"
     env.setdefault("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.WSH;.MSC")
     env["PATH"] = os.pathsep.join([d for d in TOOL_DIRS if os.path.isdir(d)] + [env.get("PATH", "")])
 

@@ -7,11 +7,20 @@ CH340 USB-serial bridge, plus a relay module.
 
 ## 1. Toolchain state
 
-ESP-IDF **v5.2.7** at `C:\Espressif`, framework `esp-idf-v5.2.7`,
-python env `C:\Espressif\python_env\idf5.2_py3.11_env`.
+**ESP-IDF v5.1.4 (LTS)** — the version the project targets
+(`firmware/v3/README.md` §1, `firmware/v3/CMakeLists.txt`, and the v3 specs
+all pin v5.1.x). Framework `C:\Espressif\frameworks\esp-idf-v5.1.4`,
+python env `C:\Espressif\python_env\idf5.1_py3.11_env`.
 
-Total build dir: `firmware/v3/build-esp32d`
-Config: `sdkconfig` (+ `sdkconfig.defaults`, `sdkconfig.esp32`)
+⚠️ `C:\Espressif` also has **v5.2.7** installed. Do not build with it: the
+build dir's bootloader sub-cache was generated against 5.1.4 and cmake aborts
+with `The source .../esp-idf-v5.2.7/components/bootloader/subproject/CMakeLists.txt
+does not match the source .../esp-idf-v5.1.4/... used to generate cache`.
+`scripts/run-idf.py` defaults to 5.1.4 for this reason; override only with
+`IDF_VERSION=` **and a wiped build dir**.
+
+Build dir: `firmware/v3/build-esp32d-clean` (clean, correctly configured)
+Config chain: `sdkconfig.defaults` → `sdkconfig.esp32` → `sdkconfig.dev`
 Partition table: `partitions_esp32.csv`
 
 | Setting | Value |
@@ -66,10 +75,40 @@ next build is a **full** ~1191-target rebuild, not incremental.
 ## 2. Build
 
 ```bash
-python scripts/run-idf.py -B build-esp32d build
+DEFAULTS="sdkconfig.defaults;sdkconfig.esp32;sdkconfig.dev"
+
+python scripts/run-idf.py -B build-esp32d-clean -DSDKCONFIG_DEFAULTS="$DEFAULTS" set-target esp32
+python scripts/run-idf.py -B build-esp32d-clean -DSDKCONFIG_DEFAULTS="$DEFAULTS" build
 ```
 
-Successful build produces, in `build-esp32d/`:
+`sdkconfig` is **gitignored**, so it is regenerated from that defaults chain
+every time — always pass `-DSDKCONFIG_DEFAULTS`, or the build silently
+defaults to the ESP32-**S3** R8 profile in `sdkconfig.defaults`
+(`CONFIG_IDF_TARGET="esp32s3"`, `CONFIG_SPIRAM=y`).
+
+A full build is ~1191 targets and takes roughly 40 minutes.
+
+Verified result of a correct configure:
+
+```
+CONFIG_IDF_TARGET              = "esp32"     CONFIG_IDF_TARGET_ESP32 = 1
+CONFIG_ESPTOOLPY_FLASHSIZE     = "8MB"       CONFIG_ESPTOOLPY_FLASHSIZE_8MB = 1
+CONFIG_LOG_DEFAULT_LEVEL       = 4 (DEBUG)
+CONFIG_SPIRAM                  = (absent -> n)
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME = "partitions_esp32.csv"
+CONFIG_SHE_DEVKIT_ESP32        = 1
+CONFIG_SHE_RELAY_COUNT         = 4
+CONFIG_SHE_FIRMWARE_VERSION    = "3.0.0"
+CONFIG_ESP_CONSOLE_UART_BAUDRATE = 115200
+```
+
+⚠️ Changing `sdkconfig.defaults` is **not** enough: idf.py only applies the
+defaults chain when `sdkconfig` does not already exist. If you edit a
+defaults file you must delete `firmware/v3/sdkconfig` (it is gitignored and
+fully regenerated) and re-run `reconfigure`, or your change is silently
+ignored and you will chase a build error you believe you already fixed.
+
+Successful build produces, in `build-esp32d-clean/`:
 
 | Offset | File | Purpose |
 |---|---|---|
@@ -80,13 +119,49 @@ Successful build produces, in `build-esp32d/`:
 
 Plus `she-firmware.elf` and `.map` for debugging.
 
-Sanity check on the app image:
+Verified result of a successful build:
 
 ```
-ELF magic: b'\x7fELF'
-class: 32-bit | endian: LE
-machine: 0x005e -> Xtensa      # correct for ESP32-WROOM-32D
+0x1000   bootloader/bootloader.bin            26,720 B
+0x8000   partition_table/partition-table.bin   3,072 B
+0x10000  she-firmware.bin                  1,767,696 B
+0x5b0000 ota_data_initial.bin                  8,192 B
+
+ELF: magic b'\x7fELF' | 32-bit | machine 0x005e -> Xtensa   (correct for ESP32-WROOM-32D)
+
+she-firmware.bin binary size 0x1af910 bytes.
+Smallest app partition is 0x1e0000 bytes. 0x306f0 bytes (10%) free.
 ```
+
+## 2b. Fixed defect: local control could not compile
+
+`main/local_ctrl.c` calls `httpd_ssl_start()` — the F1 fix that gives local
+control real TLS using the same device identity as MQTT mTLS — and includes
+`esp_https_server.h` unconditionally. But **no sdkconfig ever enabled the
+component**, and in IDF 5.1.x it only exports its include dir when it is set:
+
+```cmake
+# components/esp_https_server/CMakeLists.txt
+if(CONFIG_ESP_HTTPS_SERVER_ENABLE)
+    set(inc "include")
+endif()
+idf_component_register(... INCLUDE_DIRS ${inc} ...)
+```
+
+So the header was invisible even though `esp_https_server` was already listed
+in `main/CMakeLists.txt` `REQUIRES`, and the build died near the end:
+
+```
+main/local_ctrl.c:12:10: fatal error: esp_https_server.h: No such file or directory
+```
+
+Fixed by setting `CONFIG_ESP_HTTPS_SERVER_ENABLE=y` (and `CONFIG_ESP_TLS_SERVER=y`)
+in `sdkconfig.defaults`. Its Kconfig dependencies
+(`ESP_TLS_USING_MBEDTLS && MBEDTLS_TLS_SERVER`) were already satisfied.
+
+Note the DevKit path in `start_https_server()` still falls back to **plain
+HTTP** when no device cert is present in `fctry` NVS
+(`#ifdef CONFIG_SHE_DEVKIT_ESP32`), so bring-up works before provisioning.
 
 ---
 
@@ -97,9 +172,10 @@ python scripts/flash-esp32.py                     # COM4 @ 460800
 python scripts/flash-esp32.py --port COM7 --erase # different port, full erase
 python scripts/flash-esp32.py --check             # link test only
 python scripts/flash-esp32.py --baud 115200       # marginal cable
+python scripts/flash-esp32.py --build-dir D:/she-v3/firmware/v3/build-esp32d-clean
 ```
 
-The script reads `build-esp32d/flasher_args.json` for the exact offsets,
+The script reads `flasher_args.json` from the build dir for the exact offsets,
 verifies every image exists before touching the chip, runs a `chip_id` link
 test first, and only then flashes.
 
@@ -107,10 +183,41 @@ It passes `--flash_size detect` by default — see §5.
 
 ---
 
-## 4. ⚠ Open hardware blocker — the board does not respond
+## 4. Flash result — and the auto-reset caveat
 
-As of this writing the firmware **builds cleanly** but **cannot be flashed**:
-the serial link is dead. Evidence:
+**The flash succeeded.** The dead link was a cabling/reseat problem; once the
+board answered, esptool identified it and wrote all four images with hash
+verification:
+
+```
+Chip is ESP32-D0WD (revision v1.1)
+Features: WiFi, BT, Dual Core, 240MHz, Crystal 40MHz
+MAC: 10:06:1c:ae:53:28
+Manufacturer: c8   Device: 4017   Detected flash size: 8MB
+Wrote 1767696 bytes (1060225 compressed) at 0x00010000 in 24.4s
+  (effective 578.4 kbit/s) — Hash of data verified.
+```
+
+The chip is an **ESP32-D0WD** (the silicon inside WROOM-32D) with **8 MB** of
+flash — exactly what the build assumed, so no partition-table change is
+needed. `partitions_esp32_4mb.csv` is therefore not required.
+
+**⚠️ Caveat: the auto-reset circuit on this board does not work.** esptool's
+`--before default_reset` / `--after hard_reset` drive EN via the modem-control
+lines, and no combination of DTR/RTS polarity (DTR-as-EN, RTS-as-EN, either
+sense) pulses the chip. So immediately after flashing you will see **no boot
+log** — the board is most likely still sitting in the ROM download mode it was
+in. Power-cycle the board or press **EN** by hand, then:
+
+```bash
+"C:/Espressif/python_env/idf5.1_py3.11_env/Scripts/python.exe" scripts/esp32-listen.py COM4 115200 30
+```
+
+This is board wiring, not firmware: the images were written and hash-verified.
+
+### Earlier symptom, kept for reference
+
+When the link was fully dead, the evidence looked like this:
 
 ```
 COM port enumeration:  COM4 = USB-SERIAL CH340, VID:PID 1A86:7523, status OK
@@ -169,13 +276,19 @@ Some clones wire it the other way; the probe script tries both.
 
 ---
 
-## 5. ⚠ Flash size: 8MB build vs possibly 4MB part
+## 5. Flash size: 8MB assumed — verify before flashing
 
 `CONFIG_ESPTOOLPY_FLASHSIZE` is **8MB** and the partition table puts `otadata`
-at `0x5B0000` (~5.7 MB). That does not fit in 4 MB.
+at `0x5B0000` (~5.7 MB). That layout does **not** fit in 4 MB.
 
-An ESP32-WROOM-32D ships as `-N4` (4 MB), `-N8` (8 MB) or `-N16` (16 MB);
-the most common devkit module is **4 MB**.
+This is deliberate: `sdkconfig.esp32` states *"The connected board has 8 MB of
+flash"*, and the enlarged slots exist because the dev-profile binary
+(~1.8 MB) overflows the 1.5 MB slots in `partitions.csv`. So 8 MB is the
+intended configuration — but it has never been confirmed against the actual
+chip, because the board has not answered yet.
+
+An ESP32-WROOM-32D ships as `-N4` (4 MB), `-N8` (8 MB) or `-N16` (16 MB), so
+a 4 MB part is still possible.
 
 Two counter-forces:
 
