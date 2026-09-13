@@ -24,8 +24,13 @@ IDF_PATH = rf"{ESPRESSIF}\frameworks\{IDF_VERSION}"
 IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.2_py3.11_env\Scripts\python.exe"
 
 TOOL_DIRS = [
-    rf"{ESPRESSIF}\tools\cmake\3.24.0\bin",
-    rf"{ESPRESSIF}\tools\ninja\1.10.2",
+    # 3.30.2 MUST come before 3.24.0: the 3.24.0 binary in this install dies
+    # with 0xC0000005 (access violation) before printing anything, so idf.py's
+    # shutil.which() finds it, runs it, gets a crash, and reports
+    # '"cmake" must be available on the PATH'. Confirmed by running both
+    # directly and comparing return codes.
+    rf"{ESPRESSIF}\tools\cmake\3.30.2\bin",
+    rf"{ESPRESSIF}\tools\ninja\1.12.1",
     rf"{ESPRESSIF}\tools\ccache\4.6.1",
     rf"{ESPRESSIF}\tools\idf-git\2.44.0\cmd",
     rf"{ESPRESSIF}\tools\idf-python\3.11.2",
@@ -50,6 +55,23 @@ def main() -> int:
 
     env = os.environ.copy()
     env["IDF_PATH"] = IDF_PATH
+    # Tools live in C:\Espressif here, not the default %USERPROFILE%\.espressif.
+    env["IDF_TOOLS_PATH"] = ESPRESSIF
+    # ESP-IDF refuses to run under MSys/Mingw ("MSys/Mingw is no longer
+    # supported") and it detects that purely from MSYSTEM, which Git Bash sets.
+    # Clearing it makes idf.py treat this as a native Windows environment.
+    for k in ("MSYSTEM", "MSYSCON", "MSYS2_ARG_CONV_EXCL"):
+        env.pop(k, None)
+    # idf_tools.py identifies the host as platform.system() + '-' + platform.machine().
+    # platform.machine() is EMPTY in this shell (PROCESSOR_ARCHITECTURE is not
+    # inherited), which makes idf.py die with "unknown platform: Windows-".
+    # Supplying it restores 'Windows-AMD64'.
+    env.setdefault("PROCESSOR_ARCHITECTURE", "AMD64")
+    env.setdefault("PROCESSOR_IDENTIFIER", "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel")
+    # idf.py re-execs itself via this env; without it the re-exec loses PATH and
+    # reports 'cmake must be available on the PATH'.
+    env["IDF_PYTHON_ENV_PATH"] = rf"{ESPRESSIF}\python_env\idf5.2_py3.11_env"
+    env.setdefault("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.WSH;.MSC")
     env["PATH"] = os.pathsep.join([d for d in TOOL_DIRS if os.path.isdir(d)] + [env.get("PATH", "")])
 
     cmd = [IDF_PYTHON, rf"{IDF_PATH}\tools\idf.py"] + args
