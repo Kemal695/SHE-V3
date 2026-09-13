@@ -91,4 +91,71 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get error => 'ስህተት';
+
+  @override
+  String get members => 'አባላት';
+
+  @override
+  String get membersSubtitle => 'ይህንን ቤት መቆጣጠር የሚችሉ ሰዎች';
+
+  @override
+  String get noMembers => 'እስካሁን ምንም አባል የለም';
+
+  @override
+  String get noMembersHint => 'የዚህን ቤት ቁጥጥር ለማጋራት ሰው በኢሜይል ይጋብዙ።';
+
+  @override
+  String get addMember => 'አባል ጨምር';
+
+  @override
+  String get memberEmailHint => 'member@example.com';
+
+  @override
+  String get role => 'ሚና';
+
+  @override
+  String get remove => 'አስወግድ';
+
+  @override
+  String get cancel => 'ሰርዝ';
+
+  @override
+  String get save => 'አስቀምጥ';
+
+  @override
+  String get removeMemberTitle => 'አባል አስወግድ';
+
+  @override
+  String removeMemberConfirm(String email) {
+    return '$email ከዚህ ቤት ይወገድ?';
+  }
+
+  @override
+  String get roleOwner => 'ባለቤት';
+
+  @override
+  String get roleAdmin => 'አስተዳዳሪ';
+
+  @override
+  String get roleMember => 'አባል';
+
+  @override
+  String get roleGuest => 'እንግዳ';
+
+  @override
+  String memberAdded(String email) {
+    return '$email ተጨምሯል';
+  }
+
+  @override
+  String get memberRemoved => 'አባል ተወግዷል';
+
+  @override
+  String get memberRoleUpdated => 'ሚና ተዘምኗል';
+
+  @override
+  String get emailRequired => 'ኢሜይል ያስፈልጋል';
+
+  @override
+  String get emailInvalid => 'ትክክለኛ የኢሜይል አድራሻ ያስገቡ';
 }

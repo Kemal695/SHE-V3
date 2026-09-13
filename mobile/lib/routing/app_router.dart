@@ -13,6 +13,7 @@ import '../features/auth/register_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/device_detail/device_detail_screen.dart';
 import '../features/energy/energy_screen.dart';
+import '../features/home/members_screen.dart';
 import '../features/provisioning/provisioning_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../core/storage/secure_storage.dart';
@@ -63,6 +64,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/node/:id/energy',
         builder: (context, state) =>
             EnergyScreen(nodeId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/home/:homeId/members',
+        builder: (context, state) =>
+            MembersScreen(homeId: state.pathParameters['homeId']!),
       ),
       GoRoute(
         path: '/settings',

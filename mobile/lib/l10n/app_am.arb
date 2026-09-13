@@ -27,5 +27,47 @@
   "online": "መስመር ላይ",
   "offline": "መስመር ውጭ",
   "device": "መሣሪያ",
-  "error": "ስህተት"
+  "error": "ስህተት",
+
+  "members": "አባላት",
+  "membersSubtitle": "ይህንን ቤት መቆጣጠር የሚችሉ ሰዎች",
+  "noMembers": "እስካሁን ምንም አባል የለም",
+  "noMembersHint": "የዚህን ቤት ቁጥጥር ለማጋራት ሰው በኢሜይል ይጋብዙ።",
+  "addMember": "አባል ጨምር",
+  "memberEmailHint": "member@example.com",
+  "role": "ሚና",
+  "remove": "አስወግድ",
+  "cancel": "ሰርዝ",
+  "save": "አስቀምጥ",
+  "removeMemberTitle": "አባል አስወግድ",
+  "@removeMemberTitle": {
+    "description": "Title of the confirm dialog when removing a home member"
+  },
+  "removeMemberConfirm": "{email} ከዚህ ቤት ይወገድ?",
+  "@removeMemberConfirm": {
+    "description": "Confirmation body when removing a home member",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "member@example.com"
+      }
+    }
+  },
+  "roleOwner": "ባለቤት",
+  "roleAdmin": "አስተዳዳሪ",
+  "roleMember": "አባል",
+  "roleGuest": "እንግዳ",
+  "memberAdded": "{email} ተጨምሯል",
+  "@memberAdded": {
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "member@example.com"
+      }
+    }
+  },
+  "memberRemoved": "አባል ተወግዷል",
+  "memberRoleUpdated": "ሚና ተዘምኗል",
+  "emailRequired": "ኢሜይል ያስፈልጋል",
+  "emailInvalid": "ትክክለኛ የኢሜይል አድራሻ ያስገቡ"
 }

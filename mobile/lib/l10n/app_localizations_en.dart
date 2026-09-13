@@ -91,4 +91,72 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get error => 'Error';
+
+  @override
+  String get members => 'Members';
+
+  @override
+  String get membersSubtitle => 'People who can control this home';
+
+  @override
+  String get noMembers => 'No members yet';
+
+  @override
+  String get noMembersHint =>
+      'Invite someone by email to share control of this home.';
+
+  @override
+  String get addMember => 'Add Member';
+
+  @override
+  String get memberEmailHint => 'member@example.com';
+
+  @override
+  String get role => 'Role';
+
+  @override
+  String get remove => 'Remove';
+
+  @override
+  String get cancel => 'Cancel';
+
+  @override
+  String get save => 'Save';
+
+  @override
+  String get removeMemberTitle => 'Remove member';
+
+  @override
+  String removeMemberConfirm(String email) {
+    return 'Remove $email from this home?';
+  }
+
+  @override
+  String get roleOwner => 'Owner';
+
+  @override
+  String get roleAdmin => 'Admin';
+
+  @override
+  String get roleMember => 'Member';
+
+  @override
+  String get roleGuest => 'Guest';
+
+  @override
+  String memberAdded(String email) {
+    return '$email added';
+  }
+
+  @override
+  String get memberRemoved => 'Member removed';
+
+  @override
+  String get memberRoleUpdated => 'Role updated';
+
+  @override
+  String get emailRequired => 'Email is required';
+
+  @override
+  String get emailInvalid => 'Enter a valid email address';
 }

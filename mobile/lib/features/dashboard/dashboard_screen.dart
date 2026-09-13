@@ -79,6 +79,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 tooltip: addDeviceTip,
               ),
               IconButton(
+                icon: const Icon(Icons.group_outlined),
+                onPressed: () => context.push('/home/$homeId/members'),
+                tooltip: l10n?.members ?? 'Members',
+              ),
+              IconButton(
                 icon: const Icon(Icons.settings),
                 onPressed: () => context.push('/settings'),
                 tooltip: l10n?.settings ?? 'Settings',

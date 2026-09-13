@@ -27,5 +27,47 @@
   "online": "Online",
   "offline": "Offline",
   "device": "Device",
-  "error": "Error"
+  "error": "Error",
+
+  "members": "Members",
+  "membersSubtitle": "People who can control this home",
+  "noMembers": "No members yet",
+  "noMembersHint": "Invite someone by email to share control of this home.",
+  "addMember": "Add Member",
+  "memberEmailHint": "member@example.com",
+  "role": "Role",
+  "remove": "Remove",
+  "cancel": "Cancel",
+  "save": "Save",
+  "removeMemberTitle": "Remove member",
+  "@removeMemberTitle": {
+    "description": "Title of the confirm dialog when removing a home member"
+  },
+  "removeMemberConfirm": "Remove {email} from this home?",
+  "@removeMemberConfirm": {
+    "description": "Confirmation body when removing a home member",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "member@example.com"
+      }
+    }
+  },
+  "roleOwner": "Owner",
+  "roleAdmin": "Admin",
+  "roleMember": "Member",
+  "roleGuest": "Guest",
+  "memberAdded": "{email} added",
+  "@memberAdded": {
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "member@example.com"
+      }
+    }
+  },
+  "memberRemoved": "Member removed",
+  "memberRoleUpdated": "Role updated",
+  "emailRequired": "Email is required",
+  "emailInvalid": "Enter a valid email address"
 }

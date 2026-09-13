@@ -265,6 +265,132 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Error'**
   String get error;
+
+  /// No description provided for @members.
+  ///
+  /// In en, this message translates to:
+  /// **'Members'**
+  String get members;
+
+  /// No description provided for @membersSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'People who can control this home'**
+  String get membersSubtitle;
+
+  /// No description provided for @noMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'No members yet'**
+  String get noMembers;
+
+  /// No description provided for @noMembersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite someone by email to share control of this home.'**
+  String get noMembersHint;
+
+  /// No description provided for @addMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Member'**
+  String get addMember;
+
+  /// No description provided for @memberEmailHint.
+  ///
+  /// In en, this message translates to:
+  /// **'member@example.com'**
+  String get memberEmailHint;
+
+  /// No description provided for @role.
+  ///
+  /// In en, this message translates to:
+  /// **'Role'**
+  String get role;
+
+  /// No description provided for @remove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get remove;
+
+  /// No description provided for @cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancel;
+
+  /// No description provided for @save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get save;
+
+  /// Title of the confirm dialog when removing a home member
+  ///
+  /// In en, this message translates to:
+  /// **'Remove member'**
+  String get removeMemberTitle;
+
+  /// Confirmation body when removing a home member
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {email} from this home?'**
+  String removeMemberConfirm(String email);
+
+  /// No description provided for @roleOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get roleOwner;
+
+  /// No description provided for @roleAdmin.
+  ///
+  /// In en, this message translates to:
+  /// **'Admin'**
+  String get roleAdmin;
+
+  /// No description provided for @roleMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Member'**
+  String get roleMember;
+
+  /// No description provided for @roleGuest.
+  ///
+  /// In en, this message translates to:
+  /// **'Guest'**
+  String get roleGuest;
+
+  /// No description provided for @memberAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'{email} added'**
+  String memberAdded(String email);
+
+  /// No description provided for @memberRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Member removed'**
+  String get memberRemoved;
+
+  /// No description provided for @memberRoleUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Role updated'**
+  String get memberRoleUpdated;
+
+  /// No description provided for @emailRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Email is required'**
+  String get emailRequired;
+
+  /// No description provided for @emailInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid email address'**
+  String get emailInvalid;
 }
 
 class _AppLocalizationsDelegate
