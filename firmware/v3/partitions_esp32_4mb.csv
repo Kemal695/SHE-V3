@@ -1,0 +1,27 @@
+﻿# SHE ESP32-WROOM-32D partition table — 4 MB flash variant.
+#
+# Use ONLY if `esptool flash_id` reports 4 MB. The default build uses
+# partitions_esp32.csv, which is an 8 MB layout (otadata at 0x5B0000) and
+# does not fit in 4 MB.
+#
+# Why factory + ONE ota slot instead of two:
+#   the dev-profile app image is ~1,779,632 B (~1.70 MiB). Two 1.75 MiB
+#   slots plus the partition table will not fit in 4 MB, so this drops
+#   ota_1. OTA still works (factory -> ota_0), it just cannot fall back a
+#   second time. Headroom is ~54 KB per slot — if the app grows past
+#   1,835,008 B the build will fail with a section-overflow error.
+#
+# Status: NOT yet built or verified. Verify sizes before relying on it.
+#
+# Name,   Type, SubType, Offset,  Size,    Flags
+# -----------------------------------------------------------------------------
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xF000,  0x1000,
+factory,  app,  factory, 0x10000, 0x1C0000,
+ota_0,    app,  ota_0,   0x1D0000,0x1C0000,
+otadata,  data, ota,     0x390000,0x2000,
+# Factory cert + key + PoP (read-only in production)
+fctry,    data, nvs,     0x392000,0x10000,
+# NVS encryption keys (Flash Encryption scope)
+nvs.keys, data, nvs,     0x3A2000,0x1000,
+# Ends at 0x3A3000 — inside 4 MB (0x400000).

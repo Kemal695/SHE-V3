@@ -42,6 +42,19 @@ CONFIG_MDNS_TASK_STACK_SIZE=4096
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=512
 
+# main/local_ctrl.c calls httpd_ssl_start() (the F1 fix: real TLS for local
+# control) and includes esp_https_server.h unconditionally, so the component
+# must be enabled or the build dies with
+#   fatal error: esp_https_server.h: No such file or directory
+# In IDF 5.1.x the component only exports its include dir when this is set:
+#   if(CONFIG_ESP_HTTPS_SERVER_ENABLE) set(inc "include") endif()
+# Left unset, the header was invisible even though `esp_https_server` was
+# already listed in main/CMakeLists.txt REQUIRES.
+CONFIG_ESP_HTTPS_SERVER_ENABLE=y
+# Implicitly selected by the above; keep it explicit so a Kconfig change
+# cannot silently drop TLS server support.
+CONFIG_ESP_TLS_SERVER=y
+
 # ---- HTTPS OTA ----
 CONFIG_OTA_ALLOW_HTTP=n
 
