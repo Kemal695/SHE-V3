@@ -138,18 +138,46 @@ public class AuthServiceImpl implements AuthService {
     }
 
     // =========================================================================
+    // LOGIN RATE LIMITING
+    // =========================================================================
+
+    /** Current number of failed login attempts for this key (0 if unset/invalid). */
+    private long failedLoginAttempts(String rateKey) {
+        String raw = redis.opsForValue().get(rateKey);
+        if (raw == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * Record one failed login attempt, starting the window on the first failure.
+     * Called only from paths that actually rejected the credentials — see login().
+     */
+    private void recordFailedLogin(String rateKey) {
+        Long attempts = redis.opsForValue().increment(rateKey);
+        if (attempts != null && attempts == 1L) {
+            redis.expire(rateKey, props.security().loginRateLimit().windowMinutes(), TimeUnit.MINUTES);
+        }
+    }
+
+    // =========================================================================
     // LOGIN
     // =========================================================================
 
     @Override
     public AuthResponse login(LoginRequest req) {
-        // Rate limit: 5 attempts per 15 min per email (V3-SECURITY-MODEL §10.3)
+        // Rate limit: 5 attempts per 15 min per email (V3-SECURITY-MODEL §10.3).
+        // Only FAILED attempts are counted. Previously the counter was incremented on
+        // every call before authenticating, so legitimate repeated logins (app restart,
+        // re-opening the app, token refresh) consumed the budget and locked the user out
+        // with 429 even though every attempt succeeded.
         String rateKey = REDIS_LOGIN_ATTEMPT_PREFIX + req.email();
-        Long attempts = redis.opsForValue().increment(rateKey);
-        if (attempts != null && attempts == 1L) {
-            redis.expire(rateKey, props.security().loginRateLimit().windowMinutes(), TimeUnit.MINUTES);
-        }
-        if (attempts != null && attempts > props.security().loginRateLimit().maxAttempts()) {
+        if (failedLoginAttempts(rateKey) >= props.security().loginRateLimit().maxAttempts()) {
             throw new SheException("RATE_LIMIT_LOGIN",
                     "Too many login attempts. Try again in "
                             + props.security().loginRateLimit().lockoutMinutes() + " minutes", 429);
@@ -171,6 +199,7 @@ public class AuthServiceImpl implements AuthService {
                         "Invalid email or password", 401));
 
         if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
+            recordFailedLogin(rateKey);
             auditService.record(tenant.getId(), "USER", user.getId(), "auth.login.failed",
                     "user", user.getId(), Map.of("email", req.email()), null, null, null);
             throw new SheException("AUTH_INVALID_CREDENTIALS",
@@ -186,6 +215,9 @@ public class AuthServiceImpl implements AuthService {
             // TOTP verification stub — full implementation in Phase 5B
             // For Phase 0: accept any 6-digit code (test mode)
             if (!req.mfa_code().matches("^\\d{6}$")) {
+                // A wrong code is a failed authentication attempt — count it, but a
+                // missing code (AUTH_MFA_REQUIRED above) is not.
+                recordFailedLogin(rateKey);
                 throw new SheException("AUTH_MFA_INVALID",
                         "Invalid MFA code", 401);
             }

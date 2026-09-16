@@ -5,6 +5,7 @@ import et.she.v3.entity.Node;
 import et.she.v3.errors.SheException;
 import et.she.v3.repository.NodeRepository;
 import et.she.v3.service.NodeService;
+import et.she.v3.util.IsoTime;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -51,8 +52,8 @@ public class EnergyController {
                 .orElseThrow(() -> new SheException("NODE_NOT_FOUND", "Node " + id + " not found", 404));
         nodeService.requireNodeAccess(id, "GUEST");
 
-        Instant fromInstant = from != null ? Instant.parse(from) : Instant.now().minusSeconds(86400);
-        Instant toInstant = to != null ? Instant.parse(to) : Instant.now();
+        Instant fromInstant = from != null ? IsoTime.parse(from) : Instant.now().minusSeconds(86400);
+        Instant toInstant = to != null ? IsoTime.parse(to) : Instant.now();
 
         Map<String, Object> summary = energyService.getEnergySummary(node.getTenantId(), node.getId(), fromInstant, toInstant);
         return ResponseEntity.ok(Map.of("data", summary));
@@ -86,8 +87,8 @@ public class EnergyController {
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
 
-        Instant fromInstant = from != null ? Instant.parse(from) : Instant.now().minusSeconds(86400);
-        Instant toInstant = to != null ? Instant.parse(to) : Instant.now();
+        Instant fromInstant = from != null ? IsoTime.parse(from) : Instant.now().minusSeconds(86400);
+        Instant toInstant = to != null ? IsoTime.parse(to) : Instant.now();
 
         // For Phase 1: return a per-node breakdown
         // TODO: aggregate query across all nodes in the home

@@ -240,7 +240,13 @@ public class OtaService {
                     "version", batch.getFirmwareVersion(),
                     "url", batch.getFirmwareUrl(),
                     "sig", batch.getSignatureEd25519(),
-                    "size", 0,    // TODO: compute from MinIO HEAD
+                    // Not a quick fix: there is no MinIO client in this codebase and no
+                    // size column on OtaBatch, so supplying a real value needs both a
+                    // dependency and a migration. Harmless in the meantime — the device
+                    // ignores this and uses the byte count it actually downloaded
+                    // (see ota_handler.c, esp_https_ota_get_image_len_read), so it only
+                    // affects the denominator in progress reporting.
+                    "size", 0,
                     "min_hw_rev", "rev-a",
                     "checksum", batch.getFirmwareChecksum()
             );

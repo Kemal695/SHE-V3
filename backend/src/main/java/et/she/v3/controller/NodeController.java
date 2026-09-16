@@ -2,6 +2,7 @@ package et.she.v3.controller;
 
 import et.she.v3.dto.NodeDtos;
 import et.she.v3.service.NodeService;
+import et.she.v3.util.IsoTime;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -83,8 +84,8 @@ public class NodeController {
             @RequestParam(required = false) String param,
             @RequestParam(required = false, defaultValue = "5m") String bucket) {
 
-        Instant fromInstant = from != null ? Instant.parse(from) : Instant.now().minusSeconds(86400);
-        Instant toInstant = to != null ? Instant.parse(to) : Instant.now();
+        Instant fromInstant = from != null ? IsoTime.parse(from) : Instant.now().minusSeconds(86400);
+        Instant toInstant = to != null ? IsoTime.parse(to) : Instant.now();
         return ResponseEntity.ok(Map.of("data", nodeService.getTelemetry(id, fromInstant, toInstant, param, bucket)));
     }
 

@@ -30,6 +30,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Map;
@@ -63,6 +64,9 @@ import java.util.UUID;
 public class StepCaClient {
 
     private static final Logger log = LoggerFactory.getLogger(StepCaClient.class);
+
+    /** Device cert lifetime — 5 years per P0-2. Must match CaController.expires_at. */
+    private static final long DEVICE_CERT_VALIDITY_DAYS = 5L * 365L;
 
     private final SheProperties props;
     private WebClient webClient;
@@ -230,9 +234,20 @@ public class StepCaClient {
         // method used to do — is rejected with HTTP 400 "missing ott".
         String ott = mintProvisionerToken(cn, csrPemToDer(csrPem), "sign");
 
+        // P0-2: device certs live 5 years. This MUST be sent explicitly — step-ca's
+        // JWK provisioner defaults to a 24h leaf when notAfter is omitted, which
+        // produced certs that expired a day after issue while device_certs.expires_at
+        // (written by CaController) claimed 5 years. The mismatch is silent: mTLS keeps
+        // working until the leaf expires, then the device simply drops offline.
+        String notAfter = Instant.now()
+                .plus(DEVICE_CERT_VALIDITY_DAYS, ChronoUnit.DAYS)
+                .truncatedTo(ChronoUnit.SECONDS)
+                .toString();
+
         Map<String, Object> body = Map.of(
                 "csr", csrPem,
-                "ott", ott
+                "ott", ott,
+                "notAfter", notAfter
         );
         Map<String, Object> resp = postToCa("/sign?format=pem", body);
         if (resp == null) {

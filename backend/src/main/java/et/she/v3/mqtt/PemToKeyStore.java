@@ -126,8 +126,19 @@ public final class PemToKeyStore {
     }
 
     private static String resolveKeyPassword() {
+        // The MQTT backend key is its own credential — it is NOT the step-ca provisioner
+        // key, and the two passwords differ. Looking up the step-ca password first meant
+        // the backend silently failed to decrypt she-backend.key (BadPaddingException) as
+        // soon as the provisioner password was rotated, which killed the backend's own
+        // MQTT subscriber while everything else looked healthy.
+        for (String var : new String[]{"MQTT_KEY_PASSWORD", "EMQX_KEY_PASSWORD"}) {
+            String direct = System.getenv(var);
+            if (direct != null && !direct.isBlank()) return direct;
+        }
+
         // Try env var pointing to password file
-        String pwFile = System.getenv("STEP_CA_CLIENT_PROVISIONER_PASSWORD_FILE");
+        String pwFile = System.getenv("MQTT_KEY_PASSWORD_FILE");
+        if (pwFile == null) pwFile = System.getenv("STEP_CA_CLIENT_PROVISIONER_PASSWORD_FILE");
         if (pwFile == null) pwFile = System.getenv("STEP_CA_PROVISIONER_PASSWORD_FILE");
         if (pwFile == null) {
             // Fallback to common dev paths

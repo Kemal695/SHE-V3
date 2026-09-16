@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.List;
@@ -29,6 +30,51 @@ public class ScheduledJobs {
     public ScheduledJobs(JdbcTemplate jdbcTemplate, AuditService auditService) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+    }
+
+    // =========================================================================
+    // Presence timeout — clear stale is_online flags
+    // =========================================================================
+
+    // nodes.is_online is otherwise ONLY ever written by an MQTT status message
+    // (the device's LWT). If a device drops without the broker processing that
+    // LWT — an EMQX restart, a device that cannot reconnect, a power cut — the
+    // flag stays true forever and the app shows a phantom "online" tile.
+    //
+    // Observed exactly that on 2026-09-15: after the host IP changed the device
+    // could not reach the broker at all, yet the app reported it online because
+    // a single successful connection 7 minutes earlier had set the flag.
+    //
+    // The device heartbeat is ~60 s, so 3 minutes gives ample headroom without
+    // leaving a stale flag on screen for long.
+    private static final int PRESENCE_TIMEOUT_MINUTES = 3;
+
+    @Scheduled(fixedRate = 60_000, initialDelay = 90_000)
+    @Transactional
+    public void expireStalePresence() {
+        try {
+            // RLS on `nodes` is ENABLED + FORCED, so an unqualified sweep would
+            // silently match zero rows. Run as platform admin; `true` scopes the
+            // setting to this transaction only.
+            jdbcTemplate.execute("SELECT set_config('app.is_platform_admin', 'on', true)");
+
+            int updated = jdbcTemplate.update(
+                    """
+                    UPDATE nodes
+                       SET is_online = false
+                     WHERE is_online = true
+                       AND (last_seen_at IS NULL
+                            OR last_seen_at < now() - (? * interval '1 minute'))
+                    """,
+                    PRESENCE_TIMEOUT_MINUTES);
+
+            if (updated > 0) {
+                log.info("Presence sweep: marked {} node(s) offline (no heartbeat for >{} min)",
+                        updated, PRESENCE_TIMEOUT_MINUTES);
+            }
+        } catch (Exception e) {
+            log.error("Presence sweep failed: {}", e.getMessage());
+        }
     }
 
     // =========================================================================

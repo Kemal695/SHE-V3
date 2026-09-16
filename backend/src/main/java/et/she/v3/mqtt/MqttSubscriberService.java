@@ -30,8 +30,10 @@ import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -368,7 +370,15 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         }
         Node node = nodeOpt.get();
 
-        // Update firmware_version + hardware_revision
+        // Update sku + firmware_version + hardware_revision
+        //
+        // sku was previously parsed and then discarded, so a node kept whatever the
+        // claim wrote at provisioning time. When the relay driver fell back to direct
+        // GPIO the device became a 4-relay SHE-R4 while the cloud still advertised
+        // SHE-R8 — the app showed a model that did not match the hardware.
+        if (!sku.isEmpty()) {
+            node.setSku(sku);
+        }
         node.setFirmwareVersion(firmwareVersion);
         node.setHardwareRevision(hwRev);
         node.setOnline(true);
@@ -423,8 +433,19 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                     param.setLastValue(paramNode.path("value"));
                     param.setLastReportedAt(Instant.now());
                 }
+                // Derive a UI hint when the device doesn't send one. The firmware's
+                // config payload has NO ui_hint field, so without this every param is
+                // stored NULL and the mobile app renders no control at all — a writable
+                // bool shows as plain text instead of a switch, so relays could not be
+                // operated from the app despite the backend and firmware both working.
+                if (param.getUiHint() == null) {
+                    param.setUiHint(defaultUiHint(dataType, param.getProperties()));
+                }
                 nodeParamRepository.save(param);
             }
+
+            // Params the firmware no longer declares must not linger — see pruneStaleParams.
+            pruneStaleParams(device, paramsNode);
         }
 
         // Upsert services (same table, is_service=true via trigger)
@@ -466,6 +487,29 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                 }
                 nodeParamRepository.save(param);
             }
+
+            pruneStaleParams(svc, svcParams);
+        }
+
+        // Converge: drop devices the node no longer reports.
+        //
+        // Everything above only ever inserts or updates, so a device that disappears from
+        // the firmware config lingers forever. Concretely: when the relay driver falls back
+        // to direct GPIO the profile shrinks from 8 relays to 4, but the cloud kept all 8
+        // rows — so the app showed four switches wired to hardware that no longer existed.
+        // Reconciling here means the cloud always mirrors the device's real capability.
+        Set<String> reportedNames = new HashSet<>();
+        devicesNode.forEach(d -> reportedNames.add(d.path("name").asText()));
+        servicesNode.forEach(s -> reportedNames.add(s.path("name").asText()));
+
+        for (NodeDevice existing : nodeDeviceRepository.findAllByNodeId(node.getId())) {
+            if (reportedNames.contains(existing.getDeviceName())) {
+                continue;
+            }
+            nodeParamRepository.deleteAll(nodeParamRepository.findAllByDeviceId(existing.getId()));
+            nodeDeviceRepository.delete(existing);
+            log.info("Config converge: removed stale device '{}' from node {}",
+                    existing.getDeviceName(), node.getNodeId());
         }
 
         log.info("Config upserted for node {} (mac={}, {} devices, {} services)",
@@ -473,6 +517,29 @@ public class MqttSubscriberService implements MqttCallbackExtended {
 
         // Push WebSocket node.presence (online)
         wsEventBus.publishNodePresence(node.getTenantId(), node.getHomeId(), node.getId(), true, node.getLastSeenAt());
+    }
+
+    /**
+     * Delete params a device no longer declares in its config payload.
+     *
+     * <p>The upsert above only ever inserts or updates, so a param that disappears from
+     * the firmware profile stays in the cloud forever. Real case: an earlier dimmer
+     * profile declared {@code Brightness} on {@code Relay 1}; the switch profile dropped
+     * it, but the stale row survived and the app rendered a slider on a plain relay.
+     * Devices are already reconciled by the converge pass below — params need the same.
+     */
+    private void pruneStaleParams(NodeDevice device, JsonNode reportedParams) {
+        Set<String> reported = new HashSet<>();
+        reportedParams.forEach(p -> reported.add(p.path("name").asText()));
+
+        for (NodeParam existing : nodeParamRepository.findAllByDeviceId(device.getId())) {
+            if (reported.contains(existing.getParamName())) {
+                continue;
+            }
+            nodeParamRepository.delete(existing);
+            log.info("Config converge: removed stale param '{}.{}' from node {}",
+                    device.getDeviceName(), existing.getParamName(), device.getNodeId());
+        }
     }
 
     /**
@@ -639,5 +706,25 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         UUID tenantId = nodeOpt.map(Node::getTenantId).orElse(null);
 
         wsEventBus.publishOtaProgress(tenantId, mac, "IN_PROGRESS", percent, null);
+    }
+
+    /**
+     * Fallback UI hint for params whose device config carries none.
+     *
+     * The firmware's config payload has no ui_hint field, so every param used to be
+     * stored NULL. The mobile app only renders a control when the hint is known
+     * (`bool` + `toggle` → Switch), so writable params appeared as inert text and
+     * relays could not be operated from the app — even though the whole backend and
+     * firmware chain worked.
+     */
+    private static String defaultUiHint(String dataType, List<String> properties) {
+        final boolean writable = properties != null && properties.contains("write");
+        if ("bool".equals(dataType)) {
+            return writable ? "toggle" : "read_only";
+        }
+        if (("int".equals(dataType) || "float".equals(dataType)) && writable) {
+            return "slider";
+        }
+        return "read_only";
     }
 }
