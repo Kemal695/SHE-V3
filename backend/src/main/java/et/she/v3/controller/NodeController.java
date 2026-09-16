@@ -75,6 +75,23 @@ public class NodeController {
                 NodeDtos.WriteParamsRequest.of(body))));
     }
 
+    // ─── Out-of-band system commands (V3-MQTT-STANDARDS §3.2) ────────────────
+
+    /**
+     * POST /api/v3/nodes/{id}/commands
+     *
+     * Body: {"cmd":"reboot"|"factory_reset"|"sync_time"|"ping","reason":"..."}
+     *
+     * Fire-and-forget over MQTT — the response means "queued", not "done". The device
+     * answers a `ping` by republishing its status, which is how you confirm it is
+     * listening; reboot and factory_reset simply drop the connection.
+     */
+    @PostMapping("/nodes/{id}/commands")
+    public ResponseEntity<Map<String, Object>> executeCommand(@PathVariable UUID id,
+                                                             @RequestBody NodeDtos.CommandRequest body) {
+        return ResponseEntity.ok(Map.of("data", nodeService.executeCommand(id, body)));
+    }
+
     // ─── Telemetry time-series query ─────────────────────────────────────────
     @GetMapping("/nodes/{id}/telemetry")
     public ResponseEntity<Map<String, Object>> getTelemetry(

@@ -10,6 +10,7 @@
 #include "relay_driver.h"    /* relay_set()/relay_save_state() for params/remote commands */
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
+#include "system_service.h"  /* system_service_execute() for the command direction */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -278,6 +279,58 @@ static void handle_params_remote(const char *data, size_t len) {
     }
 }
 
+/* ---- Out-of-band system commands (V3-MQTT-STANDARDS §3.2) ----
+ *
+ * Payload: {"cmd":"reboot"|"factory_reset"|"sync_time"|"ping", "reason":"...", "seq":N, "ts":"..."}
+ *
+ * Flat JSON with seq/ts, matching the other server→device directions (ota/url, params/remote).
+ * The spec names the topic and the four commands but does not fix a schema, so this is the
+ * contract — if the backend's publisher changes shape, change both together.
+ *
+ * Note there is deliberately NO `reason`-less path to factory_reset: an unknown or malformed
+ * `cmd` is logged and ignored rather than guessed at. Silently defaulting would turn a typo
+ * into a wiped device.
+ */
+static void handle_command(const char *data, size_t len) {
+    cJSON *root = cJSON_ParseWithLength(data, len);
+    if (!root) {
+        ESP_LOGE(TAG, "command: malformed JSON payload");
+        return;
+    }
+
+    const cJSON *cmd = cJSON_GetObjectItem(root, "cmd");
+    const cJSON *reason = cJSON_GetObjectItem(root, "reason");
+
+    if (!cJSON_IsString(cmd)) {
+        ESP_LOGE(TAG, "command: missing or non-string 'cmd' field");
+        cJSON_Delete(root);
+        return;
+    }
+
+    const char *reason_str = cJSON_IsString(reason) ? reason->valuestring : NULL;
+
+    if (strcmp(cmd->valuestring, "reboot") == 0) {
+        ESP_LOGW(TAG, "command: reboot requested (reason=%s)", reason_str ? reason_str : "none");
+        system_service_execute(SHE_CMD_REBOOT, reason_str);      /* does not return */
+    } else if (strcmp(cmd->valuestring, "factory_reset") == 0) {
+        ESP_LOGW(TAG, "command: FACTORY RESET requested (reason=%s)",
+                 reason_str ? reason_str : "none");
+        system_service_execute(SHE_CMD_FACTORY_RESET, reason_str); /* does not return */
+    } else if (strcmp(cmd->valuestring, "sync_time") == 0) {
+        system_service_execute(SHE_CMD_SYNC_TIME, reason_str);
+    } else if (strcmp(cmd->valuestring, "ping") == 0) {
+        /* Answer with a status publish so the operator can confirm the device is
+         * listening, rather than just trusting that the message arrived. */
+        ESP_LOGI(TAG, "command: ping received — replying with status");
+        system_service_execute(SHE_CMD_PING, reason_str);
+        mqtt_publish_status(true);
+    } else {
+        ESP_LOGW(TAG, "command: unknown cmd '%s' — ignored", cmd->valuestring);
+    }
+
+    cJSON_Delete(root);
+}
+
 /* ---- OTA task ----
  *
  * ota_handler_start() downloads ~1.5 MB, verifies the signature and reboots — minutes
@@ -377,9 +430,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                 ESP_LOGE(TAG, "Failed to allocate OTA payload (%d bytes)", event->data_len);
             }
         } else if (strcmp(direction, "command") == 0) {
-            /* System command (reboot, factory_reset, sync_time, ping) */
-            ESP_LOGI(TAG, "Received command: %.*s", event->data_len, event->data);
-            /* TODO: parse JSON cmd field + dispatch */
+            /* Out-of-band system command — see handle_command(). Called inline rather
+             * than in a task: reboot/factory_reset end in esp_restart(), and blocking
+             * the MQTT task for their 1 s delay is irrelevant when the device is
+             * about to reboot anyway. */
+            handle_command(event->data, event->data_len);
         }
         break;
     }

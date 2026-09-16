@@ -381,6 +381,58 @@ public class NodeServiceImpl implements NodeService {
     }
 
     // =========================================================================
+    // POST /api/v3/nodes/{id}/commands
+    // =========================================================================
+
+    /** The only commands a device will act on. Kept in step with handle_command() in
+     *  firmware/v3/main/she_mqtt.c — an unknown value must be refused here, not published. */
+    private static final Set<String> ALLOWED_COMMANDS =
+            Set.of("reboot", "factory_reset", "sync_time", "ping");
+
+    @Override
+    public NodeDtos.CommandResponse executeCommand(UUID nodeId, NodeDtos.CommandRequest req) {
+        // ADMIN, not MEMBER: factory_reset wipes the device and reboot drops every session.
+        Node node = getAuthorizedNodeOrThrow(nodeId, "ADMIN");
+
+        String cmd = req.cmd() == null ? "" : req.cmd().trim().toLowerCase();
+        if (!ALLOWED_COMMANDS.contains(cmd)) {
+            throw new SheException("NODE_COMMAND_UNKNOWN",
+                    "Unknown command '" + req.cmd() + "'. Allowed: " + ALLOWED_COMMANDS, 422);
+        }
+
+        String reason = (req.reason() == null || req.reason().isBlank())
+                ? "api_request" : req.reason().trim();
+
+        String tenantShort = shortId(node.getTenantId());
+        String homeShort = node.getHomeId() != null ? shortId(node.getHomeId()) : "00000000";
+        String roomShort = node.getRoomId() != null ? shortId(node.getRoomId()) : "unassigned";
+
+        long seq = SEQ_BY_NODE.computeIfAbsent(nodeId,
+                        k -> new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis()))
+                .updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
+
+        try {
+            mqttPublishService.publishCommand(tenantShort, homeShort, roomShort,
+                    node.getNormalizedMac(), cmd, reason, seq);
+        } catch (Exception e) {
+            log.error("Failed to publish command {} to node {}: {}", cmd, node.getNodeId(), e.getMessage());
+            throw new SheException("MQTT_PUBLISH_FAILED", "Failed to publish command to device", 502, e);
+        }
+
+        // P1-19: a system command is a privileged action. Record which one and why —
+        // "someone rebooted the device" is exactly the kind of thing an audit log exists for.
+        auditService.record(node.getTenantId(), "USER", currentUserIdOrNull(), "node.command",
+                "node", nodeId,
+                Map.of("cmd", cmd, "reason", reason),
+                null, null, null);
+
+        String topic = String.format("she/%s/%s/%s/%s/command",
+                tenantShort, homeShort, roomShort, node.getNormalizedMac());
+        log.info("Command {} queued for node {} (seq={})", cmd, node.getNodeId(), seq);
+        return new NodeDtos.CommandResponse(nodeId, cmd, true, topic);
+    }
+
+    // =========================================================================
     // GET /api/v3/nodes/{id}/telemetry
     // =========================================================================
 

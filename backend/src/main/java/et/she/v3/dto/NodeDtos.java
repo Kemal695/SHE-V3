@@ -136,4 +136,16 @@ public class NodeDtos {
     public record TriggerOtaRequest(@NotBlank String version) {}
 
     public record TriggerOtaResponse(UUID batch_id, UUID approval_id, boolean accepted) {}
+
+    // ─── POST /api/v3/nodes/{id}/commands ────────────────────────────────────
+    /**
+     * Out-of-band system command (V3-MQTT-STANDARDS §3.2).
+     *
+     * `cmd` is validated against a fixed set before publishing. Deliberately NOT free-form:
+     * an unrecognised value must be rejected here rather than published for the device to
+     * guess at, because one of these commands wipes the device.
+     */
+    public record CommandRequest(@NotBlank String cmd, String reason) {}
+
+    public record CommandResponse(UUID nodeId, String cmd, boolean accepted, String topic) {}
 }

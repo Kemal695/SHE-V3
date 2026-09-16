@@ -74,4 +74,10 @@ public interface NodeService {
      * GET /api/v3/nodes/{id}/telemetry?from=&to=&param=&bucket=
      */
     NodeDtos.TelemetryResponse getTelemetry(UUID nodeId, Instant from, Instant to, String param, String bucket);
+
+    /**
+     * POST /api/v3/nodes/{id}/commands — out-of-band system command
+     * (reboot / factory_reset / sync_time / ping). V3-MQTT-STANDARDS §3.2.
+     */
+    NodeDtos.CommandResponse executeCommand(UUID nodeId, NodeDtos.CommandRequest req);
 }
