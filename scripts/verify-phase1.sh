@@ -43,6 +43,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CA_DIR="${PROJECT_ROOT}/infra/ca"
 
+# Fallback for the two checks whose CLI tooling (mosquitto_pub, websocat) is normally
+# absent here — without it, 2 of the 5 exit criteria were never actually verified.
+# scripts/phase1_probe.py is stdlib-only, so any python will do.
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [ -z "${PYTHON_BIN}" ]; then
+    for c in python python3 \
+             "C:/Users/kemal/.workbuddy-ai/binaries/python/versions/3.13.12/python.exe"; do
+        if command -v "$c" >/dev/null 2>&1; then PYTHON_BIN="$c"; break; fi
+    done
+fi
+# MSYS hands POSIX paths to a native Windows python, which then resolves
+# /d/she-v3/... as a relative path ("D:\d\she-v3\...") and the probe is never found.
+# Note `command -v python` returns a POSIX path here (/c/Users/...), so detecting a
+# Windows interpreter needs the /<drive>/ form as well as a drive letter.
+IS_WIN_PY=0
+case "$(command -v "${PYTHON_BIN}" 2>/dev/null || echo "${PYTHON_BIN}")" in
+    [A-Za-z]:[\\/]*|/[A-Za-z]/*) IS_WIN_PY=1 ;;
+esac
+win_path() {
+    if [ "${IS_WIN_PY}" = "1" ] && command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+PROBE="$(win_path "${SCRIPT_DIR}/phase1_probe.py")"
+
 # =============================================================================
 # Criterion 5: Cert-based MQTT auth enforced (no anonymous connections)
 # =============================================================================
@@ -61,8 +88,26 @@ if command -v mosquitto_pub >/dev/null 2>&1; then
     else
         fail "Anonymous MQTT connect was NOT rejected — mTLS not enforced (exit=0, check EMQX_LISTENERS__SSL__VERIFY=verify_peer)"
     fi
+elif [ -n "${PYTHON_BIN}" ] && [ -f "${PROBE}" ]; then
+    info "Testing anonymous MQTT connect (should fail) [python fallback]..."
+    set +e
+    "$PYTHON_BIN" "${PROBE}" mqtt-anon \
+        --host "${MQTT_HOST}" --port "${MQTT_PORT}" \
+        --cafile "$(win_path "${CA_DIR}/ca_bundle.pem")" 2>&1 | sed 's/^/    /'
+    ANON_EXIT=${PIPESTATUS[0]}
+    set -e
+    # 0 = rejected (good) | 1 = accepted (mTLS broken) | 2 = inconclusive (broker down,
+    # probe failed to launch). Only 0 is a pass — treating "could not run" as
+    # "rejected" would silently certify mTLS that was never tested.
+    if [ "${ANON_EXIT}" -eq 0 ]; then
+        pass "Anonymous MQTT connect rejected (mTLS enforced)"
+    elif [ "${ANON_EXIT}" -eq 1 ]; then
+        fail "Anonymous MQTT connect was NOT rejected — mTLS not enforced (check EMQX_LISTENERS__SSL__VERIFY=verify_peer)"
+    else
+        fail "Anonymous MQTT test INCONCLUSIVE (exit=${ANON_EXIT}) — broker unreachable or probe failed to run"
+    fi
 else
-    skip "Anonymous MQTT test" "mosquitto_pub not installed"
+    skip "Anonymous MQTT test" "mosquitto_pub not installed and no python available"
 fi
 
 # Test: MQTT with valid device cert should succeed
@@ -196,15 +241,27 @@ section "Criterion 2: OTA batch management"
 
 if [ -n "${ACCESS_TOKEN:-}" ]; then
     # Test: GET /api/v3/homes/{homeId}/ota/batches endpoint
-    HOME_ID="00000000-0000-0000-0000-000000000001"
-    OTA_RESP=$(curl -s -m 5 -w "\n%{http_code}" -X GET \
-        "${BACKEND_URL}/api/v3/homes/${HOME_ID}/ota/batches" \
-        -H "Authorization: Bearer ${ACCESS_TOKEN}")
-    OTA_CODE=$(echo "${OTA_RESP}" | tail -1)
-    if [ "${OTA_CODE}" = "200" ]; then
-        pass "GET /api/v3/homes/{id}/ota/batches returns 200"
+    #
+    # Look the home up for real. This used to hardcode
+    # 00000000-0000-0000-0000-000000000001, which is the TENANT id, not a home id —
+    # so the request 404'd and the criterion was reported as failed even though the
+    # endpoint works. A verification script that cries wolf is worse than none.
+    HOME_ID=$(curl -s -m 5 -X GET "${BACKEND_URL}/api/v3/homes" \
+        -H "Authorization: Bearer ${ACCESS_TOKEN}" | jq -r '.data[0].id // empty')
+
+    if [ -z "${HOME_ID}" ]; then
+        skip "OTA batch endpoint test" "no home exists for this user"
+        HOME_ID=""
     else
-        fail "GET /api/v3/homes/{id}/ota/batches returned ${OTA_CODE}"
+        OTA_RESP=$(curl -s -m 5 -w "\n%{http_code}" -X GET \
+            "${BACKEND_URL}/api/v3/homes/${HOME_ID}/ota/batches" \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}")
+        OTA_CODE=$(echo "${OTA_RESP}" | tail -1)
+        if [ "${OTA_CODE}" = "200" ]; then
+            pass "GET /api/v3/homes/{id}/ota/batches returns 200"
+        else
+            fail "GET /api/v3/homes/{id}/ota/batches returned ${OTA_CODE}"
+        fi
     fi
 else
     skip "OTA batch endpoint test" "no authenticated user"
@@ -229,8 +286,26 @@ if command -v websocat >/dev/null 2>&1; then
     else
         skip "WebSocket test" "no access token"
     fi
+elif [ -n "${PYTHON_BIN}" ] && [ -f "${PROBE}" ]; then
+    if [ -n "${ACCESS_TOKEN:-}" ]; then
+        info "Testing WebSocket handshake [python fallback]..."
+        set +e
+        "$PYTHON_BIN" "${PROBE}" ws \
+            --host "${MQTT_HOST}" --port 8080 --token "${ACCESS_TOKEN}" 2>&1 | sed 's/^/    /'
+        WS_EXIT=${PIPESTATUS[0]}
+        set -e
+        if [ "${WS_EXIT}" -eq 0 ]; then
+            pass "WebSocket /ws/v3 accepts bearer.<jwt> subprotocol"
+        elif [ "${WS_EXIT}" -eq 2 ]; then
+            fail "WebSocket test INCONCLUSIVE (exit=2) — probe failed to run"
+        else
+            fail "WebSocket handshake failed"
+        fi
+    else
+        skip "WebSocket test" "no access token"
+    fi
 else
-    skip "WebSocket test" "websocat not installed (install: cargo install websocat)"
+    skip "WebSocket test" "websocat not installed and no python available"
 fi
 
 # =============================================================================
@@ -275,7 +350,9 @@ else
 fi
 
 # Check all required firmware modules exist
-for module in device_profiles.c mqtt_client.c ble_provisioning.c ota_handler.c local_ctrl.c \
+# NOTE: the MQTT client is she_mqtt.c, not mqtt_client.c (the spec doc still uses the
+# old name, so this check used to report a permanent false failure).
+for module in device_profiles.c she_mqtt.c ble_provisioning.c ota_handler.c local_ctrl.c \
               relay_driver.c feedback_monitor.c energy_monitor.c system_service.c button_task.c; do
     if [ -f "${FIRMWARE_DIR}/main/${module}" ]; then
         pass "  ${module} exists"
