@@ -23,6 +23,25 @@ PASSWORD_FILE="${STEP_CA_PROVISIONER_PASSWORD_FILE:-/provisioner-password.txt}"
 CA_URL="https://localhost:9000"
 DNS_NAME="step-ca.internal.she.et"
 
+# Host/IP that devices use to reach the MQTT broker. This MUST appear in the server
+# certificate's SAN: mbedtls on the ESP32 always verifies CN/SAN against the host it
+# connects to, so a mismatch fails every handshake with
+#   x509_verify_cert() = -0x2700 / "CN does not match with the expected CN"
+#   (MBEDTLS_X509_BADCERT_CN_MISMATCH)
+# OpenSSL does NOT catch this unless you pass -verify_hostname, which is why a
+# PC-side test can pass while every real device fails.
+# Keep in sync with the device's `mqtt_broker` value in she_nvs/fctry.
+MQTT_BROKER_HOSTS="${MQTT_BROKER_HOSTS:-192.168.1.7 192.168.1.10 192.168.1.24}"
+
+# Expand the host list into --san flags. Covering several addresses means a DHCP
+# lease change between them does NOT invalidate the certificate — important because
+# mbedtls rejects a SAN mismatch outright (-0x2700 / CN mismatch) and every device
+# would go offline until re-flashed.
+MQTT_BROKER_SAN_ARGS=""
+for _host in ${MQTT_BROKER_HOSTS}; do
+    MQTT_BROKER_SAN_ARGS="${MQTT_BROKER_SAN_ARGS} --san ${_host}"
+done
+
 echo "== SHE V3 step-ca bootstrap =="
 echo "STEPPATH=${STEPPATH}"
 echo "PROVISIONER=${PROVISIONER}"
@@ -282,6 +301,7 @@ step certificate create "emqx.she.internal" \
   --san "emqx-1" --san "emqx-2" --san "emqx-3" \
   --san "localhost" --san "127.0.0.1" \
   --san "she.et" --san "*.she.et" \
+  ${MQTT_BROKER_SAN_ARGS} \
   --password-file "${PASSWORD_FILE}" \
   --force
 chmod 0644 "${SERVER_CRT}"

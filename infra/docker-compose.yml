@@ -145,7 +145,11 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: /etc/emqx/certs/ca_bundle.pem
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
-      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
+      # TLS 1.2 only. ESP-IDF 5.1's mbedtls fails TLS 1.3 client-cert auth with
+      # MBEDTLS_ERR_SSL_INTERNAL_ERROR (-0x6C00): in 1.3 the client cert is sent
+      # post-handshake, which this mbedtls/esp-tls combination does not complete.
+      # TLS 1.2 sends the client cert during the handshake and works.
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.2]"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
       # Disable plain TCP (1883) — devices MUST use 8883 with mTLS per V3-SECURITY-MODEL §3.4
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
@@ -196,7 +200,11 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: /etc/emqx/certs/ca_bundle.pem
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
-      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
+      # TLS 1.2 only. ESP-IDF 5.1's mbedtls fails TLS 1.3 client-cert auth with
+      # MBEDTLS_ERR_SSL_INTERNAL_ERROR (-0x6C00): in 1.3 the client cert is sent
+      # post-handshake, which this mbedtls/esp-tls combination does not complete.
+      # TLS 1.2 sends the client cert during the handshake and works.
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.2]"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
       EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
@@ -239,7 +247,11 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: /etc/emqx/certs/ca_bundle.pem
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: verify_peer
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
-      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.3,tlsv1.2]"
+      # TLS 1.2 only. ESP-IDF 5.1's mbedtls fails TLS 1.3 client-cert auth with
+      # MBEDTLS_ERR_SSL_INTERNAL_ERROR (-0x6C00): in 1.3 the client cert is sent
+      # post-handshake, which this mbedtls/esp-tls combination does not complete.
+      # TLS 1.2 sends the client cert during the handshake and works.
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.2]"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
       EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
