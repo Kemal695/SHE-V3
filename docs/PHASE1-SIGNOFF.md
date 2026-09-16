@@ -221,3 +221,104 @@ Per `V3-ROADMAP.md §4`, Phase 2 has 3 streams:
 **Phase 1 sign-off:** Lead Engineer — 2025-08-11
 
 Phase 1 is complete. Phase 2 can begin.
+
+---
+
+# Addendum — independent verification (2026-09-16)
+
+The sign-off above records *implementation intent*. This addendum records what was
+**independently verified on hardware**, and corrects two claims that were not true at the time
+they were signed.
+
+## Corrections to the table in §1
+
+| Criterion | Sign-off said | Actual state found | Now |
+|---|---|---|---|
+| 2 — OTA end-to-end, **signed + verified** | ✅ | **Not implemented.** `ota_handler_start()` was never called (the only call site was commented out at `she_mqtt.c:349`), and signature verification was skipped outright (`"SKIPPED (Phase 1 stub)"`). `ota_batches` had **0 rows** — no batch had ever been created. | ✅ genuinely met — see below |
+| 3 — Local control when internet is down | ✅ | **Stub.** `handler_ctrl()` verified the PoP, parsed the body, logged, then returned `{"accepted":true}` **without touching the relay**. A client would show the switch as changed. | ✅ genuinely met — see below |
+
+Both are now implemented and verified. The lesson worth carrying: a criterion marked ✅ without a
+reproducible test is a claim, not evidence. Criterion 2 in particular asserted "signed + verified"
+while the device would have accepted an **unsigned image**.
+
+## What was verified, and how
+
+### Criterion 2 — OTA (three consecutive updates)
+
+Device `SHE-8-AE5328` (ESP32-D0WD), image 1,584,384 bytes, Ed25519 signed.
+
+| # | delivered | boot partition after |
+|---|---|---|
+| 1 | 3.0.0-ota-test | `0x1f0000` = ota_0 |
+| 2 | 3.0.0-ota-test2 | `0x3d0000` = ota_1 |
+| 3 | 3.0.0-ota-test3 | `0x1f0000` = ota_0 |
+
+```
+I she_ota: Ed25519 signature verified over 1584384 bytes (sha256=6ef3ddda...)
+I she_ota: OTA complete — rebooting in 2s
+I boot:    Loaded app from partition at offset 0x1f0000
+```
+
+A/B alternation confirmed, so a failed update has a rollback path. Verification runs **before**
+`esp_https_ota_finish()` — the call that marks a partition bootable — so a rejected image is
+never selected for boot. Signing was cross-checked with openssl: valid signature accepted, one
+flipped bit in the digest rejected.
+
+Ed25519 is **vendored** (TweetNaCl), because ESP-IDF 5.1.4's mbedtls has no Ed25519 support. See
+`firmware/v3/main/third_party/README.md` for provenance and checksums.
+
+### Criterion 3 — local control, broker unreachable
+
+With MQTT completely unavailable, over the LAN:
+
+```
+GET  /she/info  -> node SHE-8-AE5328, sku SHE-R4, 4 relays
+POST /she/ctrl  {"device_name":"Relay 1","params":{"Power":true}}
+                -> 200 {"accepted":true,"device":"Relay 1","applied":1}
+GET  /she/info  -> Relay 1 = true
+```
+
+It now reports honestly: `404` unknown device, `400` nothing applicable, `503` profile not ready.
+An endpoint that returns `accepted:true` unconditionally is worse than one that returns `501` —
+it moves the bug from the device into the UI, where it reads as a hardware fault.
+
+### Automated check
+
+`./scripts/verify-phase1.sh local` → **41 PASS / 0 FAIL / 0 SKIP** (previously 37/2/2). Four of
+the non-passes were bugs **in the script**, not the product: a stale `mqtt_client.c` filename
+(the file is `she_mqtt.c`), a hardcoded tenant id used as a home id, and two criteria that were
+**skipped entirely** because `mosquitto_pub`/`websocat` were absent — meaning Criterion 5 (mTLS)
+and Criterion 3 had never actually been checked. `scripts/phase1_probe.py` replaces both with
+stdlib-only equivalents.
+
+## Remaining caveats (not blockers, but do not treat as done)
+
+- **Anti-rollback is advisory.** `CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK` is not set; enabling it
+  burns eFuse. The app refuses to install a downgrade; the bootloader would not stop a manual
+  flash.
+- **OTA public key is compiled-in for all targets**, not eFuse as P1-27 specifies — an
+  irreversible burn belongs on production silicon, not a dev board. Contained change later.
+- **OTA TLS server authentication is configured but untested.** The backend cert carries only
+  `DNS:she-backend` (no IP SAN), so the test ran over plain HTTP. The signature protects image
+  integrity; TLS only protects transport.
+- **No OTA key rotation story.** Rotation means regenerating, re-embedding the key array, and
+  reflashing — schedule it with a release.
+- **Remote `command` (reboot / factory_reset / sync_time / ping) is still unwired.**
+  `she_mqtt.c:350-353` logs and hits a TODO, and `system_service.c` is dead code.
+
+## §5 action items — updated status
+
+| # | Action | Status |
+|---|---|---|
+| 1 | Run `verify-phase1.sh local` | ✅ done — 41/41 |
+| 3 | Flash firmware + BLE provisioning e2e | ✅ done |
+| 4 | Flutter on device, dashboard + control | ✅ done |
+| 5 | OTA end-to-end | ✅ done (this addendum) |
+| 6 | Local control with internet down | ✅ done (this addendum) |
+| 7 | Telemetry → TimescaleDB → chart | ✅ done |
+| 2 | Apply V4–V29 migrations on **staging** | ⏳ deployment task, not code |
+| 8–10 | PCB order, factory partner, contractor | ⏳ Phase 2 business work |
+
+**Conclusion:** all five exit criteria are now genuinely met and independently verified. Phase 2
+may begin — but see the caveats above before running the 50-unit pilot, since the pilot is the
+first point at which these devices are unreachable for a physical reflash.

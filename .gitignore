@@ -22,6 +22,17 @@
 .step-ca-data/
 infra/ca/out/
 
+# Generated NVS provisioning images.
+# fctry.bin EMBEDS THE DEVICE PRIVATE KEY — nvs_partition_gen inlines the *contents*
+# of the device_cert / device_key files listed in fctry.csv, so the key is inside the
+# binary (verify with: strings scripts/nvs-build/fctry.bin | grep PRIVATE). The CSVs
+# also carry the device PoP. Regenerate with scripts/build-device-nvs.py — never commit.
+scripts/nvs-build/
+
+# OTA signing keys. The public half is already embedded in
+# firmware/v3/main/ota_handler.c, so committing this directory adds nothing but risk.
+ota-keys/
+
 # Build outputs
 backend/target/
 **/*.class
@@ -68,12 +79,23 @@ firmware/v3/sdkconfig.*
 .flutter_tool_state
 mobile/.flutter_tool_state
 mobile/.flutter
-mobile/plugins/
 .freebuff/
+
+# NOTE: mobile/plugins/ is deliberately NOT ignored.
+# It holds flutter_esp_ble_prov, vendored on purpose because upstream 0.1.7 targets AGP 7.4
+# with no namespace and no longer builds under Flutter 3.44 (see mobile/pubspec.yaml).
+# pubspec.yaml depends on it by path, so ignoring it means `flutter pub get` fails and a
+# fresh clone cannot build the app at all.
+
+# Gradle build output
+mobile/android/build/
+mobile/android/app/build/
+mobile/build/
 
 # Local scratch / one-off artifacts
 _backup_*.dump
 _hw.txt
+scripts/_screen.png
 backend/test*.sh
 backend/final-5.sh
 
