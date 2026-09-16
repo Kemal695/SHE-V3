@@ -20,8 +20,12 @@ idf_component_register(
         "device_profiles.c"
         "system_service.c"
         "button_task.c"
+        # Vendored Ed25519 verifier (see third_party/README.md for why and for checksums)
+        "third_party/tweetnacl.c"
+        "third_party/tweetnacl_port.c"
     INCLUDE_DIRS
         "."
+        "third_party"
     REQUIRES
         nvs_flash
         esp_wifi
@@ -39,6 +43,10 @@ idf_component_register(
         driver
         app_update
         bt
+        # esp_random.h for tweetnacl_port.c (hardware RNG backing randombytes)
+        esp_hw_support
+        # esp_efuse.h for the OTA anti-rollback SECURE_VERSION read
+        efuse
         # mdns moved to espressif/mdns component manager (v5.2) — handled via idf_component.yml
         # fallback: if mdns not found, local_ctrl will stub mDNS (see local_ctrl.c)
 )

@@ -59,6 +59,21 @@ static void button_task(void *arg) {
 }
 
 esp_err_t button_task_start(void) {
+#ifdef CONFIG_SHE_DEVKIT_ESP32
+    /* On the ESP32-DevKit the only button wired up is GPIO0 — the BOOT/flash strap.
+     * Using it as a user button is actively harmful:
+     *   - holding it to enter download mode for flashing wipes the device
+     *   - so does simply leaning on it for LONG_PRESS_MS (5 s)
+     * because a long press fires SHE_CMD_FACTORY_RESET, which calls nvs_flash_erase().
+     * That made the board impossible to reflash safely and kept resetting it in the field.
+     *
+     * Production hardware wires a dedicated button to a different GPIO; this task
+     * remains enabled for those builds.
+     */
+    ESP_LOGW(TAG, "Button task DISABLED on DevKit build — GPIO0 is the BOOT/flash strap, "
+                  "not a user button (see button_task.c)");
+    return ESP_OK;
+#else
     /* Configure BOOT button as input */
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << BOOT_BUTTON_GPIO),
@@ -77,4 +92,5 @@ esp_err_t button_task_start(void) {
     }
     ESP_LOGI(TAG, "Button task started (priority 2, 2048 stack, core 0)");
     return ESP_OK;
+#endif
 }

@@ -9,6 +9,7 @@
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "driver/i2c.h"
+#include "driver/gpio.h"     /* direct-GPIO fallback when no PCF8574 is present */
 #include "nvs_flash.h"
 #include <string.h>
 
@@ -38,6 +39,48 @@ static uint8_t g_chip0_state = 0xFF;   /* PCF8574 powers up high (relays off) */
 static uint8_t g_chip1_state = 0xFF;
 static bool g_pcf8574_present = false; /* set by probe in relay_driver_init */
 
+/* ---- Direct-GPIO fallback -------------------------------------------------
+ *
+ * When no PCF8574 is on the bus we drive these pins straight from the SoC so a
+ * bare DevKit can still be exercised (e.g. metering the pins with a multimeter)
+ * instead of relay writes silently doing nothing.
+ *
+ * ACTIVE-HIGH here, unlike the PCF8574 path: ON = 3.3 V, OFF = 0 V. That is the
+ * intuitive reading for a probe and avoids the inverted-logic confusion the
+ * active-low expander causes.
+ *
+ * GPIO 18 is normally the CD4051 mux select C for the feedback monitor, so
+ * feedback_monitor_init() MUST be skipped while direct mode is active — see
+ * relay_driver_is_direct_gpio() and its call site in main.c.
+ */
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+#define DIRECT_RELAY_COUNT 4
+static const int DIRECT_RELAY_PINS[DIRECT_RELAY_COUNT] = { 21, 22, 18, 19 };
+static bool g_direct_gpio = false;
+
+/* Shadow of the levels we last drove.
+ *
+ * relay_get() used to read the pin back with gpio_get_level(). The pins are
+ * configured GPIO_MODE_OUTPUT, which leaves the pad's input path disabled, so
+ * the read-back returned 0 even while the relay was energised. relay_get_all()
+ * is what relay_save_state() persists, so every save wrote "all off" and a
+ * reboot always came back with every relay de-energised. The shadow is the
+ * authoritative intent; it is seeded from NVS by relay_restore_state(). */
+static uint16_t g_direct_state = 0;
+
+/* Set to 1 if the driven stage inverts (ON must pull the pin LOW).
+ * Default 0 = active-HIGH: ON = 3.3 V, OFF = 0 V. */
+#define DIRECT_RELAY_ACTIVE_LOW 0
+#endif
+
+bool relay_driver_is_direct_gpio(void) {
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    return g_direct_gpio;
+#else
+    return false;
+#endif
+}
+
 /* Forward declaration (defined below) */
 static esp_err_t pcf8574_write_raw(uint8_t addr, uint8_t data);
 
@@ -60,6 +103,46 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
     /* Probe the expander — tolerate a missing chip (dev bring-up without
      * peripherals, loose wiring). Boot must continue; writes become no-ops. */
     g_pcf8574_present = (pcf8574_write_raw(PCF8574_ADDR_CHIP0, 0xFF) == ESP_OK);
+
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    if (!g_pcf8574_present) {
+        /* No expander: take the I2C pins back and drive relays directly, so the
+         * app's toggles produce a measurable pin change instead of a silent
+         * no-op. Requires releasing the I2C driver first — it owns 21/22. */
+        ESP_LOGW(TAG, "PCF8574 NOT FOUND at 0x%02X — falling back to DIRECT GPIO on "
+                      "21/22/18/19 (active-HIGH: ON = 3.3V)",
+                 PCF8574_ADDR_CHIP0);
+        i2c_driver_delete(I2C_MASTER_NUM);
+
+        gpio_config_t io_conf = {
+            .pin_bit_mask = 0,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        for (int i = 0; i < DIRECT_RELAY_COUNT; i++) {
+            /* gpio_reset_pin() first: 21/22 were driven by the I2C peripheral, and
+             * gpio_config() alone does not necessarily detach the IO-matrix routing —
+             * leaving the pin controlled by I2C instead of our output register. */
+            gpio_reset_pin(DIRECT_RELAY_PINS[i]);
+            io_conf.pin_bit_mask |= (1ULL << DIRECT_RELAY_PINS[i]);
+        }
+        gpio_config(&io_conf);
+        for (int i = 0; i < DIRECT_RELAY_COUNT; i++) {
+            gpio_set_level(DIRECT_RELAY_PINS[i], 0);   /* all off */
+        }
+
+        g_direct_gpio = true;
+        g_relay_count = DIRECT_RELAY_COUNT;
+        ESP_LOGI(TAG, "Direct GPIO relay mode: %d channels on GPIO %d/%d/%d/%d",
+                 DIRECT_RELAY_COUNT,
+                 DIRECT_RELAY_PINS[0], DIRECT_RELAY_PINS[1],
+                 DIRECT_RELAY_PINS[2], DIRECT_RELAY_PINS[3]);
+        return ESP_OK;
+    }
+#endif
+
     if (!g_pcf8574_present) {
         ESP_LOGW(TAG, "PCF8574 NOT FOUND at 0x%02X on SDA=%d SCL=%d — "
                  "relay writes disabled, boot continues",
@@ -101,6 +184,25 @@ static esp_err_t pcf8574_write(uint8_t addr, uint8_t data) {
 esp_err_t relay_set(uint8_t channel, bool on) {
     if (channel >= g_relay_count) return ESP_ERR_INVALID_ARG;
 
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    if (g_direct_gpio) {
+#if DIRECT_RELAY_ACTIVE_LOW
+        const int level = on ? 0 : 1;   /* inverting stage */
+#else
+        const int level = on ? 1 : 0;   /* active-HIGH: ON = 3.3 V */
+#endif
+        esp_err_t e = gpio_set_level(DIRECT_RELAY_PINS[channel], level);
+        if (on) g_direct_state |=  (1u << channel);
+        else    g_direct_state &= ~(1u << channel);
+        /* Log the level actually driven — the only way to tell a firmware polarity
+         * mistake apart from an inverting stage on the PCB. */
+        ESP_LOGI(TAG, "direct ch=%u pin=%d on=%d level=%d mask=0x%04X",
+                 (unsigned)channel, DIRECT_RELAY_PINS[channel], (int)on, level,
+                 (unsigned)g_direct_state);
+        return e;
+    }
+#endif
+
     /* PCF8574 is active-low: bit = 0 → relay ON */
     uint8_t bit = 1 << (channel % 8);
     if (channel < 8) {
@@ -114,6 +216,15 @@ esp_err_t relay_set(uint8_t channel, bool on) {
 
 bool relay_get(uint8_t channel) {
     if (channel >= g_relay_count) return false;
+
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    if (g_direct_gpio) {
+        /* Shadow, not pin read-back: the input path is disabled in
+         * GPIO_MODE_OUTPUT, so gpio_get_level() always reported 0. */
+        return (g_direct_state >> channel) & 1u;
+    }
+#endif
+
     uint8_t bit = 1 << (channel % 8);
     uint8_t state = (channel < 8) ? g_chip0_state : g_chip1_state;
     /* Active-low: bit=0 means relay ON */
@@ -121,6 +232,22 @@ bool relay_get(uint8_t channel) {
 }
 
 esp_err_t relay_set_all(uint16_t bitmask) {
+#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    if (g_direct_gpio) {
+        g_direct_state = (uint16_t)bitmask;
+        for (int i = 0; i < g_relay_count && i < DIRECT_RELAY_COUNT; i++) {
+            const int on = (bitmask & (1u << i)) ? 1 : 0;
+#if DIRECT_RELAY_ACTIVE_LOW
+            gpio_set_level(DIRECT_RELAY_PINS[i], on ? 0 : 1);
+#else
+            gpio_set_level(DIRECT_RELAY_PINS[i], on);
+#endif
+        }
+        ESP_LOGI(TAG, "direct set_all mask=0x%04X", (unsigned)g_direct_state);
+        return ESP_OK;
+    }
+#endif
+
     g_chip0_state = 0xFF;   /* All off (active-low: bit=1 = relay OFF) */
     g_chip1_state = 0xFF;
     for (int i = 0; i < g_relay_count && i < 16; i++) {
@@ -165,5 +292,6 @@ esp_err_t relay_save_state(void) {
     nvs_set_u16(h, SHE_NVS_KEY_RELAY_STATE, state);
     nvs_commit(h);
     nvs_close(h);
+    ESP_LOGI(TAG, "Saved relay state mask=0x%04X", (unsigned)state);
     return ESP_OK;
 }

@@ -10,6 +10,7 @@
 
 #include "esp_err.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,12 @@ esp_err_t app_wifi_connect(void);
  * Check if Wi-Fi is currently connected.
  */
 bool app_wifi_is_connected(void);
+
+/**
+ * Cumulative STA disconnects since boot (never reset). Reported as
+ * `wifi_disconnects` on the telemetry topic.
+ */
+uint32_t app_wifi_disconnect_count(void);
 
 #ifdef __cplusplus
 }

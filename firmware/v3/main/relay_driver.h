@@ -24,6 +24,16 @@ extern "C" {
 esp_err_t relay_driver_init(uint8_t relay_count);
 
 /**
+ * True when no PCF8574 was found and the driver fell back to driving
+ * GPIO 21/22/18/19 directly (DevKit builds only).
+ *
+ * Callers that would otherwise claim those pins MUST check this: the feedback
+ * monitor uses GPIO 18 as its CD4051 mux-select C, which would fight the relay
+ * output. See the call site in main.c.
+ */
+bool relay_driver_is_direct_gpio(void);
+
+/**
  * Set a single relay channel state.
  * @param channel 0-15
  * @param on true = relay energized, false = de-energized

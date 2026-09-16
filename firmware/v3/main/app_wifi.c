@@ -22,12 +22,22 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_count = 0;
 static bool s_connected = false;
 
+/* Cumulative disconnects since boot — reported on the `telemetry` topic so the
+ * cloud can chart link stability. Distinct from s_retry_count, which resets to 0
+ * on every successful connect. */
+static uint32_t s_disconnect_count = 0;
+
+uint32_t app_wifi_disconnect_count(void) {
+    return s_disconnect_count;
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
+        s_disconnect_count++;
         if (s_retry_count < MAX_RETRY) {
             /* F11 fix: exponential backoff — 500ms, 1s, 2s, 4s, 8s (cap 10s).
              * Gentler on the AP and on the event task than a tight retry loop. */

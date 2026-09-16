@@ -28,6 +28,22 @@ extern "C" {
 #define SHE_FCTRY_KEY_HW_REV        "hw_rev"          /* rev-a | rev-b | rev-c */
 #define SHE_FCTRY_KEY_PROVISIONED   "provisioned"     /* bool — set after BLE provisioning */
 
+/* Factory-reset-proof copies of the connectivity config.
+ *
+ * SHE_CMD_FACTORY_RESET calls nvs_flash_erase(), which wipes the ENTIRE default
+ * partition — including she_nvs. It only clears the `provisioned` flag in fctry,
+ * deliberately keeping cert/key/PoP. So anything the device needs in order to come
+ * back online after a reset must also live in the fctry partition.
+ *
+ * she_mqtt reads she_nvs first and falls back to these keys (same names, different
+ * namespace), so a factory reset degrades to "re-provision Wi-Fi" instead of
+ * "device can never start MQTT again".
+ */
+#define SHE_FCTRY_KEY_TENANT_ID     "tenant_id"       /* UUID */
+#define SHE_FCTRY_KEY_HOME_ID       "home_id"         /* UUID (nullable) */
+#define SHE_FCTRY_KEY_MQTT_BROKER   "mqtt_broker"     /* e.g. mqtts://host:8883 */
+#define SHE_FCTRY_KEY_API_BASE_URL  "api_base_url"    /* e.g. https://api... */
+
 /* Runtime NVS keys (she_nvs namespace) */
 #define SHE_NVS_KEY_TENANT_ID       "tenant_id"       /* UUID */
 #define SHE_NVS_KEY_HOME_ID         "home_id"         /* UUID (nullable) */

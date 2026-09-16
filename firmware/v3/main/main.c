@@ -42,9 +42,13 @@
 
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"   /* heap diagnostics for TLS handshake failures */
+#include "esp_timer.h"       /* uptime for the Diagnostics service */
+#include "esp_wifi.h"        /* RSSI for the Diagnostics service */
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 
 static const char *TAG = "she_main";
 
@@ -96,6 +100,78 @@ static void update_node_identity(she_node_t *node, const char *mac, const char *
     node->sku = sku;
 }
 
+/* ---- Sample the Diagnostics service params ----
+ *
+ * mqtt_publish_params_local() publishes whatever sits in each param's last_value,
+ * and nothing ever wrote the Diagnostics ones — so the cloud stored Uptime=0,
+ * RSSI=0, Free_Heap=0 and Reset_Reason="" forever and the app's Diagnostics card
+ * was dead. Fill them from the live system just before each publish.
+ *
+ * V3-DEVICE-MODEL §1.4 — these are PROP_READ | PROP_TIME_SERIES.
+ */
+static void sample_diagnostics(she_node_t *node) {
+    /* Reset_Reason is fixed for the life of this boot, so resolve it once. The
+     * value is handed to cJSON as a borrowed pointer, so it must stay alive —
+     * a function-local buffer would dangle. */
+    static char reset_reason[24];
+    if (reset_reason[0] == '\0') {
+        const char *r;
+        switch (esp_reset_reason()) {
+            case ESP_RST_POWERON:   r = "power_on";   break;
+            case ESP_RST_EXT:       r = "ext_pin";    break;
+            case ESP_RST_SW:        r = "software";   break;
+            case ESP_RST_PANIC:     r = "panic";      break;
+            case ESP_RST_INT_WDT:   r = "int_wdt";    break;
+            case ESP_RST_TASK_WDT:  r = "task_wdt";   break;
+            case ESP_RST_WDT:       r = "wdt";        break;
+            case ESP_RST_DEEPSLEEP: r = "deep_sleep"; break;
+            case ESP_RST_BROWNOUT:  r = "brownout";   break;
+            case ESP_RST_SDIO:      r = "sdio";       break;
+            default:                r = "unknown";    break;
+        }
+        strncpy(reset_reason, r, sizeof(reset_reason) - 1);
+        reset_reason[sizeof(reset_reason) - 1] = '\0';
+    }
+
+    int rssi = 0;
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        rssi = ap.rssi;
+    }
+
+    const int uptime_s = (int)(esp_timer_get_time() / 1000000LL);
+    const int free_heap = (int)esp_get_free_heap_size();
+
+    for (int i = 0; i < node->device_count; i++) {
+        node_device_t *d = &node->devices[i];
+        if (strcmp(d->name, "Diagnostics") != 0) {
+            continue;
+        }
+        for (int j = 0; j < d->param_count; j++) {
+            node_param_t *p = &d->params[j];
+            if (strcmp(p->name, "Uptime") == 0) {
+                p->last_value = param_int(uptime_s);
+            } else if (strcmp(p->name, "RSSI") == 0) {
+                p->last_value = param_int(rssi);
+            } else if (strcmp(p->name, "Free_Heap") == 0) {
+                p->last_value = param_int(free_heap);
+            } else if (strcmp(p->name, "Reset_Reason") == 0) {
+                p->last_value.type  = DATA_STRING;
+                p->last_value.val.s = reset_reason;
+            }
+        }
+    }
+
+    /* Also publish the time series.
+     *
+     * params/local carries only a single current value per param; `telemetry` is
+     * what feeds the device_telemetry hypertable and the app's trend chart. The
+     * two are separate channels and are easy to conflate — the firmware used to
+     * publish only the former, so the telemetry screen stayed empty forever. */
+    mqtt_publish_telemetry(uptime_s, rssi, (uint32_t)free_heap,
+                           (uint32_t)esp_get_minimum_free_heap_size(), reset_reason);
+}
+
 /* ---- app_main — boot orchestration per V3-FIRMWARE §4 ---- */
 void app_main(void) {
     ESP_LOGI(TAG, "========================================");
@@ -128,10 +204,22 @@ void app_main(void) {
     else if (strcmp(sku, "SHE-R16") == 0) relay_count = 16;
 
     ESP_ERROR_CHECK(relay_driver_init(relay_count));
-    ESP_LOGI(TAG, "Step 3a: PCF8574 relay driver initialized (%d relays)", relay_count);
+    /* The driver caps itself to the 4 physically wired pins in direct-GPIO mode;
+     * keep the local count in step so the logs below aren't misleading. */
+    if (relay_driver_is_direct_gpio()) {
+        relay_count = 4;
+    }
+    ESP_LOGI(TAG, "Step 3a: relay driver initialized (%d relays)", relay_count);
 
-    ESP_ERROR_CHECK(feedback_monitor_init(relay_count));
-    ESP_LOGI(TAG, "Step 3b: CD4051 feedback monitor initialized");
+    /* The feedback monitor drives GPIO 18 as its CD4051 mux-select C. In direct
+     * GPIO relay mode that pin is a relay output instead, so the two would fight
+     * over it — skip the monitor rather than have it stomp relay state. */
+    if (relay_driver_is_direct_gpio()) {
+        ESP_LOGW(TAG, "Step 3b: feedback monitor SKIPPED — GPIO 18 is a direct relay output");
+    } else {
+        ESP_ERROR_CHECK(feedback_monitor_init(relay_count));
+        ESP_LOGI(TAG, "Step 3b: CD4051 feedback monitor initialized");
+    }
 
 #ifdef CONFIG_SHE_HAS_PZEM
     ESP_ERROR_CHECK(energy_monitor_init());
@@ -142,15 +230,49 @@ void app_main(void) {
     relay_restore_state();
     ESP_LOGI(TAG, "Step 4: Relay state restored from NVS");
 
-    /* 5. Node init — build the RainMaker hierarchy */
-    she_node_t *node = profile_build_for_sku(sku);
+    /* 5. Node init — build the RainMaker hierarchy.
+     *
+     * In direct-GPIO mode only 4 channels physically exist, so advertise the R4
+     * profile even when fctry says SHE-R8 — otherwise the app shows eight relay
+     * switches of which four are inert, and toggling them logs
+     * "relay_set(ch=4, ON) failed: ESP_ERR_INVALID_ARG".
+     *
+     * Self-correcting: fitting a real PCF8574 makes direct mode inactive, so the
+     * fctry SKU is used again and all channels come back with no code change.
+     */
+    const char *profile_sku = sku;
+    if (relay_driver_is_direct_gpio()) {
+        profile_sku = "SHE-R4";
+        ESP_LOGW(TAG, "Direct GPIO mode: advertising SHE-R4 (4 relays) instead of %s", sku);
+    }
+    she_node_t *node = profile_build_for_sku(profile_sku);
     if (!node) {
-        ESP_LOGE(TAG, "Failed to build node profile for SKU %s — halting", sku);
+        ESP_LOGE(TAG, "Failed to build node profile for SKU %s — halting", profile_sku);
         vTaskDelay(portMAX_DELAY);
     }
-    update_node_identity(node, mac, sku, node_id);
+    update_node_identity(node, mac, profile_sku, node_id);
     ESP_LOGI(TAG, "Step 5: Node profile built — node_id=%s mac=%s sku=%s (%d devices)",
              node->node_id, node->mac, node->sku, node->device_count);
+
+    /* Re-sync the profile's cached param values against the hardware.
+     *
+     * relay_restore_state() runs in Step 4 — before this node exists — so it drives
+     * the pins correctly but cannot touch the param cache. The profile is built with
+     * every Power = false, so the first params/local publish told the cloud that all
+     * relays were OFF even when a relay was physically energised: after every reboot
+     * the app showed all switches off while the hardware was in the opposite state.
+     * Read the real pin levels back so the shadow matches reality from the first publish.
+     */
+    for (int i = 0; i < node->device_count; i++) {
+        node_device_t *d = &node->devices[i];
+        for (int j = 0; j < d->param_count; j++) {
+            node_param_t *p = &d->params[j];
+            if (p->data_type == DATA_BOOL && (p->properties & PROP_WRITE)) {
+                p->last_value = param_bool(relay_get(d->channel));
+            }
+        }
+    }
+    ESP_LOGI(TAG, "Relay state synced from hardware: mask=0x%04X", relay_get_all());
 
     /* 6. If not provisioned → start BLE provisioning (blocks) */
     if (!ble_provisioning_is_provisioned()) {
@@ -171,6 +293,14 @@ void app_main(void) {
 
     /* 8. MQTT connect (mTLS, cert from fctry NVS) */
     ESP_LOGI(TAG, "Step 8: Starting MQTT client (mTLS)...");
+    /* Diagnostic: mbedtls returns MBEDTLS_ERR_SSL_INTERNAL_ERROR (-0x6C00) when an
+     * internal allocation fails, which is indistinguishable from a protocol error
+     * in the esp-tls logs. Report heap so a TLS handshake failure can be told apart
+     * from a memory exhaustion. */
+    ESP_LOGI(TAG, "Heap before MQTT: free=%u min_free=%u largest_block=%u",
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)esp_get_minimum_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     /* F7 fix: bounded retry with backoff, then reboot to a clean state
      * instead of running headless forever without cloud connectivity. */
     int mqtt_attempts = 0;
@@ -219,9 +349,17 @@ void app_main(void) {
         ESP_LOGI(TAG, "Step 12: No OTA pending — skipping health check");
     }
 
-    /* Start feedback monitor task (after Wi-Fi + MQTT so it can publish) */
-    feedback_monitor_start();
-    ESP_LOGI(TAG, "Feedback monitor task started");
+    /* Start feedback monitor task (after Wi-Fi + MQTT so it can publish).
+     * Skipped in direct-GPIO relay mode: the task drives GPIO 18 as the CD4051
+     * mux-select C, which is a relay output in that mode. Guarding only the
+     * init() was not enough — the task is started separately here and was still
+     * clobbering the pin. */
+    if (relay_driver_is_direct_gpio()) {
+        ESP_LOGW(TAG, "Feedback monitor task SKIPPED — GPIO 18 is a direct relay output");
+    } else {
+        feedback_monitor_start();
+        ESP_LOGI(TAG, "Feedback monitor task started");
+    }
 
     /* Start button task */
     button_task_start();
@@ -233,9 +371,10 @@ void app_main(void) {
     ESP_LOGI(TAG, "========================================");
 
     while (true) {
-        /* Publish params/local every 60s (V3-FIRMWARE §4 step 13) */
+        /* Sample diagnostics first, then publish params/local (V3-FIRMWARE §4 step 13).
+         * Order matters — publishing first would ship the previous sample. */
+        sample_diagnostics(node);
         mqtt_publish_params_local(node);
-        /* TODO: publish full telemetry (uptime, RSSI, heap, reset_reason) every 60s */
 
         vTaskDelay(pdMS_TO_TICKS(60000));
     }

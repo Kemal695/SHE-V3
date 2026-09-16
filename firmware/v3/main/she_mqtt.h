@@ -69,6 +69,22 @@ esp_err_t mqtt_publish_energy(float voltage, float current, float power_w,
                               float energy_wh, float power_factor, float frequency);
 
 /**
+ * Publish device diagnostics to she/.../{mac}/telemetry (QoS 0, every 60s).
+ * V3-MQTT-STANDARDS §8.5 — FLAT payload, NOT the {ts, params:{...}} wrapper.
+ *
+ * Feeds `MqttSubscriberService.handleTelemetry()` -> the `device_telemetry`
+ * TimescaleDB hypertable -> GET /api/v3/nodes/{id}/telemetry -> the app's
+ * telemetry screen. Without this the firmware never produced telemetry at all
+ * (only `energy_monitor.c` published, and only on R8/R16 with a PZEM), so that
+ * screen stayed empty on a bare DevKit.
+ *
+ * `wifi_disconnects` / `mqtt_reconnects` are read internally from their own
+ * counters — the caller supplies only the values it sampled.
+ */
+esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
+                                 uint32_t min_free_heap, const char *reset_reason);
+
+/**
  * Publish OTA status to she/.../{mac}/ota/status (QoS 1).
  * V3-MQTT-STANDARDS §3.9.
  */

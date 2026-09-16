@@ -7,8 +7,14 @@
 
 #include "she_mqtt.h"
 #include "nvs_keys.h"
+#include "relay_driver.h"    /* relay_set()/relay_save_state() for params/remote commands */
+#include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
+#include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"   /* heap diagnostics for TLS handshake failures */
 #include "nvs_flash.h"
 #include "cJSON.h"
 #include "esp_idf_version.h"
@@ -28,6 +34,9 @@ static esp_mqtt_client_handle_t mqtt_client = NULL;
 static bool g_mqtt_connected = false;
 static she_node_t *g_node = NULL;
 
+/* Cumulative broker disconnects since boot — reported as `mqtt_reconnects`. */
+static uint32_t g_mqtt_reconnects = 0;
+
 /* Cached provisioning info (from NVS) */
 static char g_tenant_short[16];
 static char g_home_short[16];
@@ -46,21 +55,54 @@ char* mqtt_build_topic(const char *direction) {
     return topic;
 }
 
+/* ---- Read a config string: runtime she_nvs first, fctry as fallback ----
+ *
+ * Factory reset wipes the whole default NVS partition, so she_nvs is not a safe
+ * home for anything the device needs to come back online. Prefer the runtime copy
+ * (it can be updated over the air) and fall back to the factory copy.
+ */
+static bool cfg_get_str(nvs_handle_t rt, nvs_handle_t fc, const char *key,
+                        char *out, size_t out_size) {
+    size_t len = out_size;
+    if (rt && nvs_get_str(rt, key, out, &len) == ESP_OK) {
+        return true;
+    }
+    if (fc) {
+        len = out_size;
+        if (nvs_get_str(fc, key, out, &len) == ESP_OK) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ---- Load provisioning info from NVS ---- */
 static esp_err_t load_provisioning_info(void) {
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(SHE_NVS_NAMESPACE, NVS_READONLY, &h);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open NVS namespace %s: %s", SHE_NVS_NAMESPACE, esp_err_to_name(err));
-        return err;
+    nvs_handle_t h  = 0;   /* runtime she_nvs   — wiped by factory reset */
+    nvs_handle_t fh = 0;   /* factory she_fctry — survives factory reset  */
+
+    bool have_rt = (nvs_open(SHE_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK);
+    bool have_fc = (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE,
+                                            NVS_READONLY, &fh) == ESP_OK);
+
+    if (!have_rt) {
+        /* Not fatal: the factory copy carries the connectivity config. */
+        ESP_LOGW(TAG, "Namespace %s unavailable — using fctry fallback (%s)",
+                 SHE_NVS_NAMESPACE, have_fc ? "found" : "MISSING");
     }
+    if (!have_rt && !have_fc) {
+        ESP_LOGE(TAG, "No provisioning config: could open neither %s nor fctry/%s",
+                 SHE_NVS_NAMESPACE, SHE_FCTRY_NAMESPACE);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    nvs_handle_t rt = have_rt ? h : 0;
+    nvs_handle_t fc = have_fc ? fh : 0;
 
     /* Read tenant_id (UUID) — take first 8 chars as short form */
     char tenant_uuid[40] = {0};
-    size_t len = sizeof(tenant_uuid);
-    nvs_get_str(h, SHE_NVS_KEY_TENANT_ID, tenant_uuid, &len);
+    cfg_get_str(rt, fc, SHE_NVS_KEY_TENANT_ID, tenant_uuid, sizeof(tenant_uuid));
     /* Extract first 8 hex chars (no dashes) */
-    char *dash = tenant_uuid;
     int out_idx = 0;
     for (int i = 0; tenant_uuid[i] && out_idx < 8; i++) {
         if (tenant_uuid[i] != '-') {
@@ -71,8 +113,7 @@ static esp_err_t load_provisioning_info(void) {
 
     /* Home ID (may be empty) */
     char home_uuid[40] = {0};
-    len = sizeof(home_uuid);
-    if (nvs_get_str(h, SHE_NVS_KEY_HOME_ID, home_uuid, &len) == ESP_OK) {
+    if (cfg_get_str(rt, fc, SHE_NVS_KEY_HOME_ID, home_uuid, sizeof(home_uuid))) {
         out_idx = 0;
         for (int i = 0; home_uuid[i] && out_idx < 8; i++) {
             if (home_uuid[i] != '-') {
@@ -84,10 +125,10 @@ static esp_err_t load_provisioning_info(void) {
         strcpy(g_home_short, "00000000");
     }
 
-    /* Room ID (may be empty) */
+    /* Room ID — runtime only; a reset legitimately clears room assignment */
     char room_uuid[40] = {0};
-    len = sizeof(room_uuid);
-    if (nvs_get_str(h, SHE_NVS_KEY_ROOM_ID, room_uuid, &len) == ESP_OK) {
+    size_t len = sizeof(room_uuid);
+    if (have_rt && nvs_get_str(h, SHE_NVS_KEY_ROOM_ID, room_uuid, &len) == ESP_OK) {
         out_idx = 0;
         for (int i = 0; room_uuid[i] && out_idx < 8; i++) {
             if (room_uuid[i] != '-') {
@@ -100,12 +141,16 @@ static esp_err_t load_provisioning_info(void) {
     }
 
     /* MQTT broker URL */
-    len = sizeof(g_mqtt_broker);
-    if (nvs_get_str(h, SHE_NVS_KEY_MQTT_BROKER, g_mqtt_broker, &len) != ESP_OK) {
+    char broker[128] = {0};
+    if (cfg_get_str(rt, fc, SHE_NVS_KEY_MQTT_BROKER, broker, sizeof(broker))) {
+        strncpy(g_mqtt_broker, broker, sizeof(g_mqtt_broker) - 1);
+        g_mqtt_broker[sizeof(g_mqtt_broker) - 1] = '\0';
+    } else {
         strcpy(g_mqtt_broker, "mqtts://mqtt.she.et:8883");
     }
 
-    nvs_close(h);
+    if (have_rt) nvs_close(h);
+    if (have_fc) nvs_close(fh);
 
     /* MAC comes from the node (passed in) — normalized lowercase */
     if (g_node && g_node->mac) {
@@ -160,6 +205,95 @@ static esp_err_t load_device_cert(char **cert_pem, char **key_pem) {
     return ESP_OK;
 }
 
+/* ---- Handle params/remote (user command → relay hardware) ------------------
+ *
+ * V3-MQTT-STANDARDS §3.4 payload:
+ *   {"Relay 1":{"Power":true},"seq":12345,"ts":"..."}
+ *
+ * Device names come from the node profile, and each node_device_t already
+ * carries a `channel` that maps straight onto a PCF8574 pin — so no name
+ * parsing is required. We only act on writable (PROP_WRITE) bool params, which
+ * is exactly the relay "Power" parameter; read-only service params (Diagnostics
+ * uptime/RSSI/heap) are skipped.
+ *
+ * After applying a change we persist it (survives reboot via relay_restore_state)
+ * and republish params/local so the cloud and app reflect real hardware state
+ * rather than optimistically echoing the command.
+ * -------------------------------------------------------------------------- */
+static void handle_params_remote(const char *data, size_t len) {
+    if (!g_node) return;
+
+    cJSON *root = cJSON_ParseWithLength(data, len);
+    if (!root) {
+        ESP_LOGE(TAG, "params/remote: malformed JSON payload");
+        return;
+    }
+
+    bool changed = false;
+
+    for (int i = 0; i < g_node->device_count; i++) {
+        node_device_t *d = &g_node->devices[i];
+        cJSON *dev_obj = cJSON_GetObjectItem(root, d->name);
+        if (!dev_obj) {
+            continue;
+        }
+
+        for (int j = 0; j < d->param_count; j++) {
+            node_param_t *p = &d->params[j];
+
+            /* Only writable params are commands; everything else is telemetry. */
+            if (!(p->properties & PROP_WRITE)) {
+                continue;
+            }
+
+            cJSON *v = cJSON_GetObjectItem(dev_obj, p->name);
+            if (!v) {
+                continue;
+            }
+
+            if (p->data_type == DATA_BOOL && cJSON_IsBool(v)) {
+                const bool on = cJSON_IsTrue(v);
+                p->last_value.type = DATA_BOOL;
+                p->last_value.val.b = on;
+                p->dirty = true;
+
+                esp_err_t err = relay_set(d->channel, on);
+                if (err != ESP_OK) {
+                    ESP_LOGW(TAG, "relay_set(ch=%d, %s) failed: %s",
+                             d->channel, on ? "ON" : "OFF", esp_err_to_name(err));
+                } else {
+                    ESP_LOGI(TAG, "%s (ch %d) -> %s",
+                             d->name, d->channel, on ? "ON" : "OFF");
+                }
+                changed = true;
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+
+    if (changed) {
+        relay_save_state();
+        mqtt_publish_params_local(g_node);
+    }
+}
+
+/* ---- OTA task ----
+ *
+ * ota_handler_start() downloads ~1.5 MB, verifies the signature and reboots — minutes
+ * of blocking work. Running it on the MQTT event-handler task would stall the very
+ * connection used to report download progress, so it gets its own task. The payload is
+ * heap-copied because the MQTT event buffer is only valid for the duration of the event.
+ */
+static void ota_task(void *arg) {
+    char *payload = (char *)arg;
+    if (payload) {
+        ota_handler_start(payload, strlen(payload));
+        free(payload);
+    }
+    vTaskDelete(NULL);
+}
+
 /* ---- MQTT event handler ---- */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                 int32_t event_id, void *event_data) {
@@ -192,7 +326,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
     case MQTT_EVENT_DISCONNECTED:
         g_mqtt_connected = false;
-        ESP_LOGW(TAG, "MQTT disconnected — LWT will fire on broker side");
+        /* Each drop is followed by a reconnect, so counting disconnects is a
+         * faithful proxy for `mqtt_reconnects`. */
+        g_mqtt_reconnects++;
+        ESP_LOGW(TAG, "MQTT disconnected — LWT will fire on broker side (drops=%u)",
+                 (unsigned)g_mqtt_reconnects);
         break;
     case MQTT_EVENT_DATA: {
         /* Received a message — parse topic + dispatch */
@@ -221,14 +359,23 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         if (strcmp(direction, "params/remote") == 0) {
             /* User command — toggle relay(s) */
             /* V3-MQTT-STANDARDS §3.4 payload: {"Relay 1":{"Power":true},"seq":12345,"ts":"..."} */
-            /* TODO: parse JSON, find matching device, set relay state via relay_driver */
             ESP_LOGI(TAG, "Received params/remote command: %.*s", event->data_len, event->data);
-            /* For Phase 1: log only — full handler in relay_driver integration */
+            handle_params_remote(event->data, event->data_len);
         } else if (strcmp(direction, "ota/url") == 0) {
-            /* OTA trigger — pass to ota_handler */
-            /* V3-MQTT-STANDARDS §3.8 payload */
-            ESP_LOGI(TAG, "Received ota/url — starting OTA");
-            /* ota_handler_start(event->data, event->data_len); */
+            /* OTA trigger (V3-MQTT-STANDARDS §3.8). Dispatched to its own task — see
+             * ota_task() above for why it must not run on the MQTT event task. */
+            ESP_LOGI(TAG, "Received ota/url — dispatching OTA task");
+            char *ota_payload = malloc(event->data_len + 1);
+            if (ota_payload) {
+                memcpy(ota_payload, event->data, event->data_len);
+                ota_payload[event->data_len] = '\0';
+                if (xTaskCreate(ota_task, "she_ota", 8192, ota_payload, 5, NULL) != pdPASS) {
+                    ESP_LOGE(TAG, "Failed to create OTA task — OTA not started");
+                    free(ota_payload);
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to allocate OTA payload (%d bytes)", event->data_len);
+            }
         } else if (strcmp(direction, "command") == 0) {
             /* System command (reboot, factory_reset, sync_time, ping) */
             ESP_LOGI(TAG, "Received command: %.*s", event->data_len, event->data);
@@ -237,7 +384,20 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         break;
     }
     case MQTT_EVENT_ERROR:
-        ESP_LOGE(TAG, "MQTT error: type=%d", event->error_handle->error_type);
+        /* error_type 1 == MQTT_ERROR_TYPE_TCP_TRANSPORT, i.e. the TLS layer failed.
+         * Report heap here too: MBEDTLS_ERR_SSL_INTERNAL_ERROR is what mbedtls
+         * returns when an internal allocation fails, and without heap numbers a
+         * memory problem is indistinguishable from a protocol problem. */
+        ESP_LOGE(TAG, "MQTT error: type=%d heap_free=%u largest_block=%u",
+                 event->error_handle->error_type,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+            ESP_LOGE(TAG, "  transport: esp_tls_last_esp_err=0x%x tls_stack_err=0x%x sock_errno=%d",
+                     event->error_handle->esp_tls_last_esp_err,
+                     event->error_handle->esp_tls_stack_err,
+                     event->error_handle->esp_transport_sock_errno);
+        }
         break;
     default:
         break;
@@ -389,6 +549,34 @@ esp_err_t mqtt_publish_params_local(she_node_t *node) {
     free(topic);
     free(payload);
     cJSON_Delete(root);
+    return err;
+}
+
+esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
+                                 uint32_t min_free_heap, const char *reset_reason) {
+    char *topic = mqtt_build_topic("telemetry");
+
+    /* V3-MQTT-STANDARDS §8.5 — FLAT diagnostics payload.
+     *
+     * The backend reads these keys directly (root.path("uptime_s") and friends).
+     * Wrapping them in {ts, params:{...}} makes every field resolve to 0, and
+     * handleTelemetry() then silently inserts nothing — no error, just an empty
+     * device_telemetry table. Keep it flat.
+     *
+     * The payload's `ts` is advisory only: the backend stamps each row with its
+     * own Instant.now(), so an unsynced device clock cannot corrupt the series. */
+    char payload[320];
+    snprintf(payload, sizeof(payload),
+             "{\"uptime_s\":%d,\"rssi_dbm\":%d,\"free_heap_bytes\":%u,"
+             "\"min_free_heap_bytes\":%u,\"wifi_disconnects\":%u,"
+             "\"mqtt_reconnects\":%u,\"reset_reason\":\"%s\",\"ts\":%ld}",
+             uptime_s, rssi_dbm,
+             (unsigned)free_heap, (unsigned)min_free_heap,
+             (unsigned)app_wifi_disconnect_count(), (unsigned)g_mqtt_reconnects,
+             reset_reason ? reset_reason : "unknown", (long)time(NULL));
+
+    esp_err_t err = mqtt_publish(topic, payload, 0, false);   /* QoS 0, not retained */
+    free(topic);
     return err;
 }
 

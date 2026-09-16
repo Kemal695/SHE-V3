@@ -6,6 +6,7 @@
 
 #include "local_ctrl.h"
 #include "she_mqtt.h"
+#include "relay_driver.h"     /* relay_set() / relay_save_state() for the offline control path */
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
@@ -16,6 +17,7 @@
 #include "mbedtls/constant_time.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
+#include <stdio.h>            /* snprintf */
 #include <stdlib.h>
 #include <string.h>
 
@@ -122,18 +124,228 @@ static esp_err_t handler_ctrl(httpd_req_t *req) {
     }
 
     cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
+        return ESP_OK;
+    }
+
     cJSON *dev_name = cJSON_GetObjectItem(root, "device_name");
     cJSON *params = cJSON_GetObjectItem(root, "params");
 
-    if (dev_name && params) {
-        ESP_LOGI(TAG, "Local control: device=%s params received", dev_name->valuestring);
-        /* TODO: find device in g_node + set relay state via relay_driver */
-        /* For Phase 1: log only */
+    if (!cJSON_IsString(dev_name) || !cJSON_IsObject(params)) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"expected device_name:string, params:object\"}");
+        return ESP_OK;
     }
 
+    if (!g_node) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"node_profile_not_ready\"}");
+        return ESP_OK;
+    }
+
+    /* Resolve the device by name and apply every writable bool param it declares.
+     *
+     * This mirrors handle_params_remote() in she_mqtt.c, but for the single-device
+     * shape the local API uses. It is the offline path: when the broker is
+     * unreachable this is the ONLY way to operate a relay, so it must actually
+     * drive the hardware — and it must report failure honestly rather than
+     * returning accepted:true for a request it ignored. */
+    node_device_t *dev = NULL;
+    for (int i = 0; i < g_node->device_count; i++) {
+        if (strcmp(g_node->devices[i].name, dev_name->valuestring) == 0) {
+            dev = &g_node->devices[i];
+            break;
+        }
+    }
+
+    if (!dev) {
+        ESP_LOGW(TAG, "Local control: unknown device '%s'", dev_name->valuestring);
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "404 Not Found");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"unknown_device\"}");
+        return ESP_OK;
+    }
+
+    int applied = 0;
+    for (int j = 0; j < dev->param_count; j++) {
+        node_param_t *p = &dev->params[j];
+        if (!(p->properties & PROP_WRITE)) {
+            continue;                      /* read-only params are not commands */
+        }
+        cJSON *v = cJSON_GetObjectItem(params, p->name);
+        if (!v) {
+            continue;
+        }
+        if (p->data_type == DATA_BOOL && cJSON_IsBool(v)) {
+            const bool on = cJSON_IsTrue(v);
+            p->last_value.type = DATA_BOOL;
+            p->last_value.val.b = on;
+            p->dirty = true;
+
+            esp_err_t err = relay_set(dev->channel, on);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Local control: relay_set(ch=%d, %s) failed: %s",
+                         dev->channel, on ? "ON" : "OFF", esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s",
+                         dev->name, dev->channel, on ? "ON" : "OFF");
+                applied++;
+            }
+        }
+    }
+
+    if (applied == 0) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"no_writable_param_applied\"}");
+        return ESP_OK;
+    }
+
+    /* Persist so the state survives a reboot, and mirror it to the cloud shadow.
+     * mqtt_publish_params_local() is a no-op while disconnected, which is exactly
+     * what we want offline. */
+    relay_save_state();
+    mqtt_publish_params_local(g_node);
+
+    char resp[160];
+    snprintf(resp, sizeof(resp),
+             "{\"accepted\":true,\"device\":\"%s\",\"applied\":%d}",
+             dev->name, applied);
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"accepted\":true}");
+    httpd_resp_sendstr(req, resp);
+    return ESP_OK;
+}
+
+/* ---- Write one connectivity key into BOTH NVS partitions ----
+ *
+ * she_mqtt reads she_nvs first and falls back to fctry, and fctry holds the
+ * factory-reset-proof copy (see nvs_keys.h). Writing only she_nvs would leave the
+ * two disagreeing, so a later factory reset would silently revert the device to a
+ * stale broker address. Keep them in step.
+ */
+static esp_err_t write_conn_key(const char *key, const char *value) {
+    esp_err_t result = ESP_OK;
+
+    nvs_handle_t h;
+    if (nvs_open(SHE_NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        esp_err_t e = nvs_set_str(h, key, value);
+        if (e == ESP_OK) e = nvs_commit(h);
+        nvs_close(h);
+        if (e != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to write %s to %s: %s", key, SHE_NVS_NAMESPACE,
+                     esp_err_to_name(e));
+            result = e;
+        }
+    } else {
+        ESP_LOGW(TAG, "Could not open %s for write", SHE_NVS_NAMESPACE);
+        result = ESP_FAIL;
+    }
+
+    nvs_handle_t fh;
+    if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READWRITE, &fh) == ESP_OK) {
+        esp_err_t e = nvs_set_str(fh, key, value);
+        if (e == ESP_OK) e = nvs_commit(fh);
+        nvs_close(fh);
+        if (e != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to write %s to fctry: %s", key, esp_err_to_name(e));
+        }
+    }
+    return result;
+}
+
+/* ---- HTTP POST /she/config ----
+ *
+ * Re-point the device at a different broker/API without a reflash and without
+ * losing the Wi-Fi credentials that live in she_nvs. This exists because the
+ * broker address is baked into NVS at provisioning time, so a DHCP change used to
+ * mean re-provisioning the whole device.
+ *
+ * Body (both keys optional):
+ *   {"mqtt_broker":"mqtts://192.168.1.7:8883","api_base_url":"http://192.168.1.7:8080"}
+ */
+static esp_err_t handler_config(httpd_req_t *req) {
+    char pop_header[16] = {0};
+    size_t pop_len = httpd_req_get_hdr_value_len(req, "X-SHE-PoP");
+    if (pop_len > 0 && pop_len < sizeof(pop_header)) {
+        httpd_req_get_hdr_value_str(req, "X-SHE-PoP", pop_header, sizeof(pop_header));
+    }
+    if (!verify_pop(pop_header, strlen(pop_header))) {
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
+        return ESP_OK;
+    }
+
+    char buf[320] = {0};
+    int read = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (read <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"empty_body\"}");
+        return ESP_OK;
+    }
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
+        return ESP_OK;
+    }
+
+    cJSON *broker = cJSON_GetObjectItem(root, "mqtt_broker");
+    cJSON *api = cJSON_GetObjectItem(root, "api_base_url");
+
+    if (!cJSON_IsString(broker) && !cJSON_IsString(api)) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"expected mqtt_broker and/or api_base_url\"}");
+        return ESP_OK;
+    }
+
+    char new_broker[80] = {0};
+    char new_api[80] = {0};
+
+    if (cJSON_IsString(broker)) {
+        snprintf(new_broker, sizeof(new_broker), "%s", broker->valuestring);
+        write_conn_key(SHE_NVS_KEY_MQTT_BROKER, new_broker);
+        ESP_LOGI(TAG, "Config: mqtt_broker -> %s", new_broker);
+    }
+    if (cJSON_IsString(api)) {
+        snprintf(new_api, sizeof(new_api), "%s", api->valuestring);
+        write_conn_key(SHE_NVS_KEY_API_BASE_URL, new_api);
+        ESP_LOGI(TAG, "Config: api_base_url -> %s", new_api);
+    }
+    cJSON_Delete(root);
+
+    /* Reconnect MQTT so the new address takes effect now rather than at the next
+     * reboot — we cannot reboot from here, the board has no working reset line. */
+    if (new_broker[0] != '\0' && g_node) {
+        mqtt_client_stop();
+        esp_err_t e = mqtt_client_start(g_node);
+        ESP_LOGI(TAG, "Config: MQTT restarted on new broker: %s", esp_err_to_name(e));
+    }
+
+    /* Sized so the compiler can prove no truncation: 42 fixed chars + two
+     * 79-char values + NUL = 201, comfortably inside 256. -Werror=format-truncation
+     * rejects anything it cannot bound. */
+    char resp[256];
+    snprintf(resp, sizeof(resp),
+             "{\"accepted\":true,\"mqtt_broker\":\"%s\",\"api_base_url\":\"%s\"}",
+             new_broker, new_api);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp);
     return ESP_OK;
 }
 
@@ -186,7 +398,12 @@ static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_ctrl = {
         .uri = "/she/ctrl", .method = HTTP_POST, .handler = handler_ctrl,
     };
-    return httpd_register_uri_handler(server, &uri_ctrl);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_ctrl));
+
+    httpd_uri_t uri_config = {
+        .uri = "/she/config", .method = HTTP_POST, .handler = handler_config,
+    };
+    return httpd_register_uri_handler(server, &uri_config);
 }
 
 /* ---- Start HTTPS server (F1 fix: real TLS via esp_https_server) ----
