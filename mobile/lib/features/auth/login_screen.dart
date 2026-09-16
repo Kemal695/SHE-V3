@@ -8,9 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/base_url_provider.dart';
 import '../../core/theme/she_theme.dart';
 import '../../core/utils/validators.dart';
 import '../../l10n/app_localizations.dart';
+import '../settings/server_settings_dialog.dart';
 import 'auth_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -116,6 +118,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextButton(
                   onPressed: () => context.go('/register'),
                   child: const Text("Don't have an account? Register"),
+                ),
+
+                const SizedBox(height: 8),
+
+                // ---- Server settings ----
+                // Reachable WITHOUT a session on purpose: if the server URL is
+                // wrong you cannot log in, and the Settings screen is behind the
+                // auth redirect — so this is the only way to recover.
+                TextButton.icon(
+                  onPressed: () => showServerSettingsDialog(context, ref),
+                  icon: const Icon(Icons.dns, size: 18),
+                  label: Text(
+                    'Server: ${ref.watch(apiBaseUrlProvider)}',
+                    style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),

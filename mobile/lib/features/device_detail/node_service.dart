@@ -55,11 +55,20 @@ class NodeService {
     return response.data['data'];
   }
 
+  /// ISO-8601 timestamp in UTC, safe to send as a backend `from`/`to` query param.
+  ///
+  /// `DateTime.toIso8601String()` omits the offset for a *local* DateTime, so the wire value
+  /// looked like `2026-09-14T14:18:16.183777` with no zone. The backend binds these as `Instant`,
+  /// which requires one, and rejected them with
+  /// `DateTimeParseException: ... could not be parsed at index 26` — an unhandled 500 that left
+  /// the Energy screen blank. Converting to UTC makes Dart append the `Z` designator.
+  String _isoUtc(DateTime dt) => dt.toUtc().toIso8601String();
+
   Future<Map<String, dynamic>> getTelemetry(
       String nodeId, {DateTime? from, DateTime? to, String? param}) async {
     final queryParams = <String, dynamic>{
-      'from': (from ?? DateTime.now().subtract(const Duration(days: 1))).toIso8601String(),
-      'to': (to ?? DateTime.now()).toIso8601String(),
+      'from': _isoUtc(from ?? DateTime.now().subtract(const Duration(days: 1))),
+      'to': _isoUtc(to ?? DateTime.now()),
       'bucket': '5m',
     };
     if (param != null) queryParams['param'] = param;
@@ -82,8 +91,8 @@ class NodeService {
   Future<Map<String, dynamic>> getEnergy(
       String nodeId, {DateTime? from, DateTime? to}) async {
     final response = await _dio.get(ApiConstants.nodeEnergy(nodeId), queryParameters: {
-      'from': (from ?? DateTime.now().subtract(const Duration(days: 1))).toIso8601String(),
-      'to': (to ?? DateTime.now()).toIso8601String(),
+      'from': _isoUtc(from ?? DateTime.now().subtract(const Duration(days: 1))),
+      'to': _isoUtc(to ?? DateTime.now()),
     });
     return response.data['data'];
   }

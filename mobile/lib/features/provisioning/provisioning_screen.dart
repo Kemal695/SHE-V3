@@ -37,6 +37,9 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   final _popCtrl = TextEditingController(text: '123456789');
   final _passphraseCtrl = TextEditingController();
   final _macCtrl = TextEditingController();
+  // Hidden networks are invisible to the ESP32's scan (a hidden AP omits its
+  // SSID from the beacon), so the name has to be typed by hand.
+  final _manualSsidCtrl = TextEditingController();
   String _selectedSku = 'SHE-R8';
 
   bool _isLoading = false;
@@ -155,10 +158,12 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           msg.contains('(e2,');
       if (sessionFailure) {
         _fail(
-            'Secure session rejected. Check: 1) the PoP matches this device — read it '
-            'from the device serial log (“PoP = …”, not the 123456789 default), '
-            '2) the phone is next to the device, 3) wipe stale factory state with '
-            '“idf.py -p <PORT> erase-flash” if an earlier attempt failed halfway. '
+            'Secure session rejected. Check: 1) the PoP matches this device — '
+            'DevKit/bring-up boards (CONFIG_SHE_DEVKIT_ESP32) use the dev default '
+            '123456789; production units use the 9-digit factory PoP, which can be '
+            'recovered from the fctry NVS partition with scripts/read-fctry-pop.py, '
+            '2) the phone is next to the device, 3) power-cycle the device for a '
+            'clean provisioning session if an earlier attempt failed halfway. '
             'Details: $e');
       } else {
         _fail(e);
@@ -170,7 +175,16 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
 
   // ---- Step 3: send Wi-Fi creds, device connects + reboots ----
   Future<void> _provision() async {
-    if (_selectedDevice == null || _selectedSsid == null) return;
+    // A manually typed SSID wins: a hidden AP never appears in the ESP32's
+    // scan (it omits its SSID from the beacon), so the only way to reach it is
+    // to type the name exactly.
+    final manual = _manualSsidCtrl.text.trim();
+    final ssid = manual.isNotEmpty ? manual : _selectedSsid;
+    if (_selectedDevice == null || ssid == null || ssid.isEmpty) {
+      setState(() => _error =
+          'Pick a Wi-Fi network, or type the name of your hidden network');
+      return;
+    }
     if (_popCtrl.text.trim().length != 9 ||
         int.tryParse(_popCtrl.text.trim()) == null) {
       setState(
@@ -182,7 +196,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
       final ok = await _prov.provisionWifi(
         _selectedDevice!,
         _popCtrl.text.trim(),
-        _selectedSsid!,
+        ssid,
         _passphraseCtrl.text,
       );
       if (ok == true) {
@@ -196,7 +210,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         setState(() {
           _wifiOk = true;
           _status =
-              'Wi-Fi sent! $_selectedDevice is connecting to "$_selectedSsid" and will reboot. '
+              'Wi-Fi sent! $_selectedDevice is connecting to "$ssid" and will reboot. '
               'Now claim the device below so it appears in your dashboard.';
         });
       } else {
@@ -311,9 +325,9 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 const SizedBox(height: 16),
               ],
 
-              // ---- Found networks ----
-              if (_networks.isNotEmpty) ...[
-                Text('Wi-Fi networks (via $_selectedDevice)',
+              // ---- Wi-Fi credentials (once the device is connected) ----
+              if (_selectedDevice != null) ...[
+                Text('Wi-Fi network (via $_selectedDevice)',
                     style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
                 ..._networks.map((n) => Card(
@@ -322,12 +336,32 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                           : null,
                       child: ListTile(
                         leading: const Icon(Icons.wifi),
-                        title: Text(n.isEmpty ? '(hidden network)' : n),
+                        title: Text(n.isEmpty ? '(unnamed)' : n),
                         onTap: _isLoading
                             ? null
-                            : () => setState(() => _selectedSsid = n),
+                            : () => setState(() {
+                                  _selectedSsid = n;
+                                  // Choosing from the list clears any typed name.
+                                  _manualSsidCtrl.clear();
+                                }),
                       ),
                     )),
+                const SizedBox(height: 12),
+                // A hidden AP omits its SSID from the beacon, so the ESP32's
+                // scan cannot see it at all — the name has to be typed here.
+                TextFormField(
+                  controller: _manualSsidCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Network name (SSID)',
+                    hintText: 'Type it for a hidden network',
+                    helperText: _networks.isEmpty
+                        ? 'No broadcast networks found — type your SSID'
+                        : 'Leave empty to use the network selected above',
+                  ),
+                  onChanged: (v) => setState(() {
+                    if (v.trim().isNotEmpty) _selectedSsid = null;
+                  }),
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _passphraseCtrl,
@@ -338,8 +372,11 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed:
-                      (_isLoading || _selectedSsid == null) ? null : _provision,
+                  onPressed: (_isLoading ||
+                          (_selectedSsid == null &&
+                              _manualSsidCtrl.text.trim().isEmpty))
+                      ? null
+                      : _provision,
                   icon: const Icon(Icons.send),
                   label: const Text('Send credentials & provision'),
                 ),
@@ -347,7 +384,13 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
               ],
 
               // ---- Step 4: claim (app-claims, P1-3) ----
-              if (_wifiOk) ...[
+              // Shown unconditionally. Claiming is just an API call keyed on the
+              // MAC (POST /api/v3/nodes/claim), so it must not be gated behind the
+              // Wi-Fi step — which reports a false negative when the firmware
+              // reboots immediately after getting an IP (see ble_provisioning.c:
+              // it sets the provisioned flag then esp_restart()s, dropping the BLE
+              // link before the library can read the final status).
+              ...[
                 Text('Claim device',
                     style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),

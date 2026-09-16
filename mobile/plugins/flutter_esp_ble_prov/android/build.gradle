@@ -1,0 +1,63 @@
+// Vendored from flutter_esp_ble_prov 0.1.7 + modernized for AGP 8 / Gradle 9.
+// Changes vs upstream: AGP 7.4.0 -> 8.5.1, Kotlin 1.7.21 -> 2.3.20 (matches
+// host app), compileSdk 31 -> 34, Java 8 -> 17, added namespace (required by
+// AGP 8+). Espressif provisioning lib still comes from jitpack (see
+// repositories below + mobile/android/settings.gradle.kts note).
+group 'how.virc.flutter_esp_ble_prov'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.20"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    if (project.android.hasProperty("namespace")) {
+        namespace 'how.virc.flutter_esp_ble_prov'
+    }
+
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        minSdk 23
+    }
+}
+
+dependencies {
+    implementation 'com.android.support:support-annotations:28.0.0'
+    implementation 'org.greenrobot:eventbus:3.3.1'
+    implementation 'com.google.crypto.tink:tink-android:1.6.1'
+    implementation 'com.google.protobuf:protobuf-javalite:3.18.0'
+    implementation 'com.github.espressif:esp-idf-provisioning-android:lib-2.1.2'
+}

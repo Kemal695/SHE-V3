@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../constants/api_constants.dart';
+import 'base_url_provider.dart';
 import 'dio_client.dart';
 import '../../features/device_detail/device_detail_screen.dart';
 
@@ -43,12 +44,26 @@ class WsClient {
     final accessToken = ref.read(accessTokenProvider);
     if (accessToken == null) return;
 
-    final uri = Uri.parse('${ApiConstants.wsBaseUrl}${ApiConstants.wsPath}');
+    // Effective (possibly user-overridden) base URL — see base_url_provider.dart.
+    final uri = Uri.parse('${ref.read(wsBaseUrlProvider)}${ApiConstants.wsPath}');
 
-    // P1-4: Sec-WebSocket-Protocol: bearer.<jwt>
+    // P1-4: Sec-WebSocket-Protocol: bearer.<jwt> — the JWT rides in the subprotocol
+    // so it never appears in a URL or a cookie.
+    //
+    // We must ALSO offer the bare `bearer` token. The server selects `bearer` as its
+    // response subprotocol (deliberately, so the JWT is not echoed back in the 101
+    // response headers — the H13 fix in WsAuthInterceptor). RFC 6455 §4.1 requires the
+    // client to fail the connection if the server's chosen subprotocol was not among
+    // the ones offered, and dart:io enforces exactly that:
+    //
+    //     _close(WebSocketStatus.protocolError, ...)   // code 1002
+    //
+    // Offering only `bearer.<jwt>` therefore made every handshake die instantly — the
+    // server logged "WS connected" and then immediately "WS closed: code=1002", and
+    // the app silently received no live updates at all.
     _channel = WebSocketChannel.connect(
       uri,
-      protocols: ['bearer.$accessToken'],
+      protocols: ['bearer', 'bearer.$accessToken'],
     );
 
     // M12 fix (part 2): do NOT mark connected until the handshake actually

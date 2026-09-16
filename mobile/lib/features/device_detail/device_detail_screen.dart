@@ -42,6 +42,11 @@ class DeviceDetailScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.show_chart),
+            onPressed: () => context.push('/node/$nodeId/telemetry'),
+            tooltip: l10n?.telemetry ?? 'Telemetry',
+          ),
+          IconButton(
             icon: const Icon(Icons.bolt),
             onPressed: () => context.push('/node/$nodeId/energy'),
             tooltip: l10n?.energy ?? 'Energy',

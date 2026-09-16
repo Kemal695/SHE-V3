@@ -158,4 +158,25 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get emailInvalid => 'ትክክለኛ የኢሜይል አድራሻ ያስገቡ';
+
+  @override
+  String get telemetry => 'ቴሌሜትሪ';
+
+  @override
+  String get refresh => 'አድስ';
+
+  @override
+  String get latestReadings => 'የቅርብ ጊዜ ንባቦች';
+
+  @override
+  String get samples => 'ናሙናዎች';
+
+  @override
+  String get trend => 'አዝማሚያ';
+
+  @override
+  String get needMoreSamples => 'አዝማሚያ ለመሳል ቢያንስ ሁለት ናሙናዎች ያስፈልጋሉ።';
+
+  @override
+  String get noTelemetryYet => 'ለዚህ መሣሪያ እስካሁን ቴሌሜትሪ አልተመዘገበም።';
 }

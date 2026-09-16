@@ -69,5 +69,12 @@
   "memberRemoved": "Member removed",
   "memberRoleUpdated": "Role updated",
   "emailRequired": "Email is required",
-  "emailInvalid": "Enter a valid email address"
+  "emailInvalid": "Enter a valid email address",
+  "telemetry": "Telemetry",
+  "refresh": "Refresh",
+  "latestReadings": "Latest readings",
+  "samples": "samples",
+  "trend": "Trend",
+  "needMoreSamples": "Need at least two samples to draw a trend.",
+  "noTelemetryYet": "No telemetry recorded for this node yet."
 }

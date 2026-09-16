@@ -69,5 +69,12 @@
   "memberRemoved": "አባል ተወግዷል",
   "memberRoleUpdated": "ሚና ተዘምኗል",
   "emailRequired": "ኢሜይል ያስፈልጋል",
-  "emailInvalid": "ትክክለኛ የኢሜይል አድራሻ ያስገቡ"
+  "emailInvalid": "ትክክለኛ የኢሜይል አድራሻ ያስገቡ",
+  "telemetry": "ቴሌሜትሪ",
+  "refresh": "አድስ",
+  "latestReadings": "የቅርብ ጊዜ ንባቦች",
+  "samples": "ናሙናዎች",
+  "trend": "አዝማሚያ",
+  "needMoreSamples": "አዝማሚያ ለመሳል ቢያንስ ሁለት ናሙናዎች ያስፈልጋሉ።",
+  "noTelemetryYet": "ለዚህ መሣሪያ እስካሁን ቴሌሜትሪ አልተመዘገበም።"
 }

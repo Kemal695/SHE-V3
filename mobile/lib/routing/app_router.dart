@@ -16,6 +16,7 @@ import '../features/energy/energy_screen.dart';
 import '../features/home/members_screen.dart';
 import '../features/provisioning/provisioning_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/telemetry/telemetry_screen.dart';
 import '../core/storage/secure_storage.dart';
 import '../core/network/dio_client.dart';
 
@@ -64,6 +65,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/node/:id/energy',
         builder: (context, state) =>
             EnergyScreen(nodeId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/node/:id/telemetry',
+        builder: (context, state) =>
+            TelemetryScreen(nodeId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/home/:homeId/members',

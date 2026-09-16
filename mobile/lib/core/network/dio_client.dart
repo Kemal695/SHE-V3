@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/api_constants.dart';
 import '../storage/secure_storage.dart';
+import 'base_url_provider.dart';
 
 // ---- Access token (in-memory only — V3-SECURITY-MODEL §1.1) ----
 final accessTokenProvider = StateProvider<String?>((ref) => null);
@@ -20,8 +21,10 @@ Completer<bool>? _activeRefreshCompleter;
 
 // ---- Dio provider ----
 final dioProvider = Provider<Dio>((ref) {
+  // watch (not read): when the user changes the base URL in Settings, this
+  // provider is recreated and every subsequent call uses the new endpoint.
   final dio = Dio(BaseOptions(
-    baseUrl: ApiConstants.apiBaseUrl,
+    baseUrl: ref.watch(apiBaseUrlProvider),
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(seconds: 30),
     sendTimeout: const Duration(seconds: 30),
@@ -107,7 +110,9 @@ class JwtInterceptor extends Interceptor {
       final refreshToken = await SecureStorage.getRefreshToken();
       if (refreshToken == null) return false;
 
-      final dio = Dio(BaseOptions(baseUrl: ApiConstants.apiBaseUrl));
+      // Use the effective (possibly user-overridden) base URL, not the
+      // build-time constant, or refresh would silently target a stale host.
+      final dio = Dio(BaseOptions(baseUrl: ref.read(apiBaseUrlProvider)));
       final response = await dio.post(
         ApiConstants.authRefresh,
         data: {'refresh_token': refreshToken},

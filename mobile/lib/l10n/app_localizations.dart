@@ -391,6 +391,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter a valid email address'**
   String get emailInvalid;
+
+  /// No description provided for @telemetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Telemetry'**
+  String get telemetry;
+
+  /// No description provided for @refresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get refresh;
+
+  /// No description provided for @latestReadings.
+  ///
+  /// In en, this message translates to:
+  /// **'Latest readings'**
+  String get latestReadings;
+
+  /// No description provided for @samples.
+  ///
+  /// In en, this message translates to:
+  /// **'samples'**
+  String get samples;
+
+  /// No description provided for @trend.
+  ///
+  /// In en, this message translates to:
+  /// **'Trend'**
+  String get trend;
+
+  /// No description provided for @needMoreSamples.
+  ///
+  /// In en, this message translates to:
+  /// **'Need at least two samples to draw a trend.'**
+  String get needMoreSamples;
+
+  /// No description provided for @noTelemetryYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No telemetry recorded for this node yet.'**
+  String get noTelemetryYet;
 }
 
 class _AppLocalizationsDelegate

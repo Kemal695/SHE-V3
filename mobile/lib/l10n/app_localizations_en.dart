@@ -159,4 +159,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get emailInvalid => 'Enter a valid email address';
+
+  @override
+  String get telemetry => 'Telemetry';
+
+  @override
+  String get refresh => 'Refresh';
+
+  @override
+  String get latestReadings => 'Latest readings';
+
+  @override
+  String get samples => 'samples';
+
+  @override
+  String get trend => 'Trend';
+
+  @override
+  String get needMoreSamples => 'Need at least two samples to draw a trend.';
+
+  @override
+  String get noTelemetryYet => 'No telemetry recorded for this node yet.';
 }
