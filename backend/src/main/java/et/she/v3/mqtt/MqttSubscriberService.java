@@ -8,6 +8,10 @@ import et.she.v3.entity.NodeParam;
 import et.she.v3.repository.NodeDeviceRepository;
 import et.she.v3.repository.NodeParamRepository;
 import et.she.v3.repository.NodeRepository;
+import et.she.v3.repository.OtaApprovalRepository;
+import et.she.v3.repository.OtaBatchRepository;
+import et.she.v3.entity.OtaApproval;
+import et.she.v3.entity.OtaBatch;
 import et.she.v3.security.TenantContextInterceptor;
 import et.she.v3.websocket.WsEventBus;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -88,6 +92,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     private final NodeDeviceRepository nodeDeviceRepository;
     private final NodeParamRepository nodeParamRepository;
     private final EnergyService energyService;
+    private final OtaApprovalRepository otaApprovalRepository;
+    private final OtaBatchRepository otaBatchRepository;
     private final TenantContextInterceptor tenantContextInterceptor;
     private final WsEventBus wsEventBus;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
@@ -117,6 +123,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                                  NodeDeviceRepository nodeDeviceRepository,
                                  NodeParamRepository nodeParamRepository,
                                  EnergyService energyService,
+                                 OtaApprovalRepository otaApprovalRepository,
+                                 OtaBatchRepository otaBatchRepository,
                                  TenantContextInterceptor tenantContextInterceptor,
                                  WsEventBus wsEventBus,
                                  org.springframework.jdbc.core.JdbcTemplate jdbcTemplate,
@@ -127,6 +135,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         this.nodeDeviceRepository = nodeDeviceRepository;
         this.nodeParamRepository = nodeParamRepository;
         this.energyService = energyService;
+        this.otaApprovalRepository = otaApprovalRepository;
+        this.otaBatchRepository = otaBatchRepository;
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.wsEventBus = wsEventBus;
         this.jdbcTemplate = jdbcTemplate;
@@ -690,6 +700,83 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         UUID tenantId = nodeOpt.map(Node::getTenantId).orElse(null);
 
         wsEventBus.publishOtaProgress(tenantId, mac, status, null, version);
+
+        // Persist it. This handler previously only logged and pushed a WebSocket event, so
+        // ota_approvals was never written and ota_batches stayed ROLLING forever — a rollout
+        // that had genuinely succeeded looked permanently in progress in the admin view.
+        nodeOpt.ifPresent(node -> recordOtaStatus(node, status, error));
+    }
+
+    /** Terminal approval states — an approval in any of these is no longer in flight. */
+    private static final java.util.Set<String> TERMINAL_APPROVAL_STATES =
+            java.util.Set.of("COMPLETED", "FAILED", "DECLINED", "ROLLED_BACK");
+
+    /**
+     * Device ota/status → ota_approvals, then roll the batch up when nothing is left in flight.
+     *
+     * The device sends only its MAC, a version and a status — never a batch id — so the
+     * approval is resolved via findActiveByNode().
+     */
+    private void recordOtaStatus(Node node, String status, String error) {
+        try {
+            txTemplate.execute(tx -> {
+                List<OtaApproval> active = otaApprovalRepository.findActiveByNode(node.getId());
+                if (active.isEmpty()) {
+                    log.debug("OTA status '{}' for node {} but no in-flight approval",
+                            status, node.getNodeId());
+                    return null;
+                }
+                OtaApproval approval = active.get(0);   // newest first, see the query
+
+                switch (status) {
+                    case "downloading" -> otaApprovalRepository.updateDeployment(
+                            approval.getId(), "IN_PROGRESS", "DOWNLOADING", approval.getProgress());
+                    case "rebooting" -> otaApprovalRepository.updateDeployment(
+                            approval.getId(), "IN_PROGRESS", "REBOOTING", 100);
+                    case "success" -> otaApprovalRepository.updateTerminal(
+                            approval.getId(), "COMPLETED", null);
+                    case "failed" -> otaApprovalRepository.updateTerminal(
+                            approval.getId(), "FAILED", error);
+                    default -> log.warn("Unknown ota/status '{}' from node {}", status, node.getNodeId());
+                }
+                rollUpBatch(approval.getBatchId());
+                return null;
+            });
+        } catch (Exception e) {
+            log.error("Failed to record OTA status for node {}: {}", node.getNodeId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Move a batch to a terminal state once every approval has settled.
+     *
+     * Nothing did this before, so a batch that had finished — successfully or not — stayed
+     * ROLLING indefinitely.
+     */
+    private void rollUpBatch(UUID batchId) {
+        long total = otaApprovalRepository.countAllByBatchId(batchId);
+        if (total == 0) {
+            return;
+        }
+        // Counts, not entities: the bulk update above does not refresh what is already loaded,
+        // so reading OtaApproval back here would report the pre-update status.
+        long inFlight = otaApprovalRepository.countInFlightByBatchId(batchId);
+        if (inFlight > 0) {
+            log.debug("OTA batch {} still has {} approval(s) in flight", batchId, inFlight);
+            return;   // still rolling out to other nodes
+        }
+        long failed = otaApprovalRepository.countFailedByBatchId(batchId);
+        String newStatus = failed > 0 ? "FAILED" : "COMPLETED";
+
+        otaBatchRepository.findById(batchId).ifPresent(batch -> {
+            if (newStatus.equals(batch.getStatus())) {
+                return;
+            }
+            batch.setStatus(newStatus);
+            otaBatchRepository.save(batch);
+            log.info("OTA batch {} rolled up to {} ({} approval(s), {} failed)",
+                    batchId, newStatus, total, failed);
+        });
     }
 
     /**
@@ -706,6 +793,23 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         UUID tenantId = nodeOpt.map(Node::getTenantId).orElse(null);
 
         wsEventBus.publishOtaProgress(tenantId, mac, "IN_PROGRESS", percent, null);
+
+        // Persist the percentage too — otherwise ota_approvals.progress stays 0 and an
+        // operator watching the rollout sees no movement.
+        nodeOpt.ifPresent(node -> {
+            try {
+                txTemplate.execute(tx -> {
+                    List<OtaApproval> active = otaApprovalRepository.findActiveByNode(node.getId());
+                    if (!active.isEmpty()) {
+                        OtaApproval a = active.get(0);
+                        otaApprovalRepository.updateProgress(a.getId(), "DOWNLOADING", percent);
+                    }
+                    return null;
+                });
+            } catch (Exception e) {
+                log.debug("Could not record OTA progress for node {}: {}", node.getNodeId(), e.getMessage());
+            }
+        });
     }
 
     /**

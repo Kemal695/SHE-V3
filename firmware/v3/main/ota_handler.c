@@ -337,12 +337,30 @@ esp_err_t ota_handler_start(const char *ota_url_json, size_t json_len) {
     return ESP_OK;
 }
 
-/* ---- Check if we're in PENDING_VERIFY state ---- */
+/* ---- Check if this boot still has to prove itself ----
+ *
+ * Two states mean "freshly updated, not yet trusted":
+ *
+ *   ESP_OTA_IMG_PENDING_VERIFY - the bootloader promotes NEW to this when it was built with
+ *                                CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE.
+ *   ESP_OTA_IMG_NEW            - what the app itself writes via esp_ota_set_boot_partition()
+ *                                when *it* was built with the flag. A bootloader built without
+ *                                the flag never promotes NEW, so it just sits there.
+ *
+ * Checking only PENDING_VERIFY silently disables the health check on any device whose
+ * bootloader predates the flag - and OTA never rewrites the bootloader, so such a device can
+ * never start verifying over the air. Accepting NEW as well means one OTA is enough to bring
+ * a deployed device onto the health-check path, with no serial reflash.
+ *
+ * (Why the very first OTA after enabling the flag still cannot verify: the OTA is performed by
+ * the *old* app, and esp_ota_ops.c writes ESP_OTA_IMG_UNDEFINED when the flag is off. So the
+ * image lands unverified - expected, and it self-corrects on the next OTA.)
+ */
 bool ota_handler_is_pending_verify(void) {
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t state;
     if (esp_ota_get_state_partition(running, &state) == ESP_OK) {
-        return state == ESP_OTA_IMG_PENDING_VERIFY;
+        return state == ESP_OTA_IMG_PENDING_VERIFY || state == ESP_OTA_IMG_NEW;
     }
     return false;
 }

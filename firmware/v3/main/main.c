@@ -41,6 +41,7 @@
 #endif
 
 #include "esp_log.h"
+#include "esp_app_desc.h"    /* esp_app_get_description() — version reported in ota/status */
 #include "esp_system.h"
 #include "esp_heap_caps.h"   /* heap diagnostics for TLS handshake failures */
 #include "esp_timer.h"       /* uptime for the Diagnostics service */
@@ -71,23 +72,81 @@ static esp_err_t read_node_identity(char *mac, size_t mac_len,
     return ESP_OK;
 }
 
-/* ---- 5-minute OTA health check task (F6 fix) ---- */
+/* ---- 5-minute OTA health check task (F6 fix) ----
+ *
+ * Three numbers, and the first two exist because the original version got them wrong. It
+ * demanded "connected" on the very first poll — before Wi-Fi had even associated — so every
+ * OTA rolled back at t=0. A health check that cannot succeed is worse than none: it reverts
+ * a good image and bricks the update path.
+ *
+ *   CONNECT_GRACE_S   how long the image has to *get* online after a reboot. Nothing is
+ *                     wrong yet during this window; the app is still starting.
+ *   BREAK_TOLERANCE_S how long a drop may last once online. A single 1-second MQTT blip is
+ *                     normal on real networks; zero tolerance would revert on noise.
+ *   STABLE_REQUIRED_S how long it must stay online to be considered good.
+ */
+#define CONNECT_GRACE_S     180
+#define BREAK_TOLERANCE_S    30
+#define STABLE_REQUIRED_S   300
+
+static bool link_is_up(void) {
+    return app_wifi_is_connected() && mqtt_client_is_connected();
+}
+
 static void ota_health_check_task(void *arg) {
-    ESP_LOGI(TAG, "OTA health check started: waiting 5 minutes for stable Wi-Fi + MQTT...");
-    int stable_seconds = 0;
-    while (stable_seconds < 300) {
+    /* Phase 1 — give the image a chance to come up. */
+    int waited = 0;
+    while (!link_is_up() && waited < CONNECT_GRACE_S) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        if (app_wifi_is_connected() && mqtt_client_is_connected()) {
+        waited++;
+    }
+    if (!link_is_up()) {
+        ESP_LOGE(TAG, "OTA health check FAILED: no Wi-Fi/MQTT within %ds of boot — rolling back",
+                 CONNECT_GRACE_S);
+        ota_handler_rollback();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        esp_restart();
+        return;
+    }
+    ESP_LOGI(TAG, "OTA health check: online after %ds — now watching for %ds of stability",
+             waited, STABLE_REQUIRED_S);
+
+    /* Phase 2 — stay up, allowing brief interruptions. */
+    int stable_seconds = 0;
+    int break_seconds = 0;
+    while (stable_seconds < STABLE_REQUIRED_S) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (link_is_up()) {
+            break_seconds = 0;
             stable_seconds++;
         } else {
-            ESP_LOGW(TAG, "OTA health check unstable at %ds: Wi-Fi or MQTT disconnected — rolling back!", stable_seconds);
-            ota_handler_rollback();
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            esp_restart();
+            break_seconds++;
+            ESP_LOGW(TAG, "OTA health check: link down %ds (stable so far: %ds)",
+                     break_seconds, stable_seconds);
+            if (break_seconds >= BREAK_TOLERANCE_S) {
+                ESP_LOGE(TAG, "OTA health check FAILED: down for %ds — rolling back",
+                         break_seconds);
+                ota_handler_rollback();
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                esp_restart();
+                return;
+            }
         }
     }
     ota_handler_mark_valid();
     ESP_LOGI(TAG, "OTA health check PASSED: stable for 5 minutes — marked valid.");
+
+    /* Tell the backend the rollout actually succeeded.
+     *
+     * Without this the device's last word was "rebooting", so ota_approvals never reached a
+     * terminal state and ota_batches stayed ROLLING forever — a rollout that had genuinely
+     * worked still looked in-progress in the admin view. The health check is exactly the
+     * signal that distinguishes "booted and stayed up" from "booted and fell over", which is
+     * why this publish belongs here and not at the end of the OTA handler.
+     *
+     * Version comes from the app descriptor, so it reports the image actually running. */
+    mqtt_publish_ota_status("success", esp_app_get_description()->version, NULL);
+
     vTaskDelete(NULL);
 }
 
