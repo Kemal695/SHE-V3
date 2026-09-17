@@ -58,6 +58,9 @@ public class Node {
     @Column(name = "is_online", nullable = false)
     private boolean isOnline = false;
 
+    @Column(name = "is_quarantined", nullable = false)
+    private boolean isQuarantined = false;   // V3-SECURITY-MODEL §4.2 — EMQX auth denies if true
+
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
 
@@ -102,6 +105,8 @@ public class Node {
     public void setCertFingerprint(String certFingerprint) { this.certFingerprint = certFingerprint; }
     public boolean isOnline() { return isOnline; }
     public void setOnline(boolean online) { isOnline = online; }
+    public boolean isQuarantined() { return isQuarantined; }
+    public void setQuarantined(boolean quarantined) { isQuarantined = quarantined; }
     public Instant getLastSeenAt() { return lastSeenAt; }
     public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
     public Instant getProvisionedAt() { return provisionedAt; }

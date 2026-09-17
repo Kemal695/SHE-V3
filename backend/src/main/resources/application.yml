@@ -223,6 +223,18 @@ she:
     # Env-tunable so a sweep can be exercised without waiting (e.g. =1 for a test).
     stale-rollout-minutes: ${SHE_OTA_STALE_ROLLOUT_MINUTES:360}
 
+  # ---- Payment (Chapa — Telebirr/CBE Birr aggregator) ----
+  # V3-PAYMENTS §3, ADR-005. Secrets stay empty until a Chapa sandbox account
+  # exists; PaymentService must still start without them.
+  payment:
+    chapa:
+      api-base-url: ${CHAPA_API_BASE_URL:https://api.chapa.co/v1}
+      secret-key: ${CHAPA_SECRET_KEY:}
+      webhook-secret: ${CHAPA_WEBHOOK_SECRET:}
+      callback-url: ${CHAPA_CALLBACK_URL:http://localhost:8080/api/v3/payments/webhook}
+      return-url: ${CHAPA_RETURN_URL:she-app://payments/success}
+      ip-whitelist: ${CHAPA_WEBHOOK_IP_WHITELIST:41.216.199.0/24,196.188.124.0/24}
+
 # =============================================================================
 # Logging (V3-OPS-RUNBOOK §3.3 — structured for Loki)
 # =============================================================================

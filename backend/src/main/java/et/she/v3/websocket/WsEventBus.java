@@ -195,6 +195,26 @@ public class WsEventBus extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Push subscription_activated to the tenant's sessions after a payment webhook
+     * activates or extends a subscription, so the client unlocks premium features
+     * without a reconnect. V3-PAYMENTS §3.2.
+     */
+    public void publishSubscriptionActivated(UUID tenantId, UUID userId, String plan) {
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("event", "subscription_activated");
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("userId", userId != null ? userId.toString() : "");
+        payload.put("plan", plan);
+        payload.put("timestamp", Instant.now().toString());
+        data.put("data", payload);
+        if (tenantId != null) {
+            broadcast(tenantId, data);
+        } else {
+            broadcastToAll(data);
+        }
+    }
+
     // =========================================================================
     // Broadcast helpers
     // =========================================================================

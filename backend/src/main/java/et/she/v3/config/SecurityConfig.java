@@ -52,6 +52,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/v3/auth/login", "/api/v3/auth/register").permitAll()
                 .requestMatchers("/api/v3/auth/refresh").permitAll()
                 .requestMatchers("/api/v3/tenant/branding").permitAll()
+                // Chapa payment webhook — no session/JWT; authenticated by HMAC-SHA256 inside
+                // PaymentService.verifySignature() (V3-PAYMENTS §3.2), not by Spring Security.
+                .requestMatchers("/api/v3/payments/webhook").permitAll()
                 // WebSocket handshake — auth is handled by WsAuthInterceptor via Sec-WebSocket-Protocol
                 .requestMatchers("/ws/v3").permitAll()
                 // Internal endpoints — protected by network ACL in prod (not exposed to Cloudflare)
