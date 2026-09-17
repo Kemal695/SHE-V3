@@ -44,6 +44,11 @@ class ApiConstants {
   // OTA (V3-API-SPECIFICATION §9)
   static String otaBatches(String homeId) => '$apiPrefix/homes/$homeId/ota/batches';
 
+  // Payments + subscriptions (V3-PAYMENTS §3, ADR-005)
+  static const String paymentsInitiate = '$apiPrefix/payments/initiate';
+  static const String paymentsVerify = '$apiPrefix/payments/verify';   // + /{txRef}
+  static const String subscriptionsCurrent = '$apiPrefix/subscriptions/current';
+
   // WebSocket
   static const String wsPath = '/ws/v3';
 

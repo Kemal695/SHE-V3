@@ -40,9 +40,9 @@ public class ApiKey {
     @Column(name = "last_used_at")
     private Instant lastUsedAt;
 
-    // V21 declares this INET, not varchar. Left as a plain String, Hibernate expects
-    // varchar(255) and schema validation fails at startup ("wrong column type").
-    @JdbcTypeCode(SqlTypes.OTHER)
+    // V21 declares this INET, not varchar. Routed through InetAddressConverter so the
+    // value binds as Postgres inet on both read and write (String <-> InetAddress).
+    @Convert(converter = InetAddressConverter.class)
     @Column(name = "last_used_ip", columnDefinition = "inet")
     private String lastUsedIp;
 

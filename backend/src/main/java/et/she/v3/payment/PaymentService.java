@@ -16,6 +16,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.reactive.function.client.WebClientException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -164,7 +165,16 @@ public class PaymentService {
                 Map.of("title", "SHE " + req.plan(), "description", "Monthly subscription")
         );
 
-        ChapaClient.InitResponse chapaResp = chapaClient.initialize(chapaReq);
+        ChapaClient.InitResponse chapaResp;
+        try {
+            chapaResp = chapaClient.initialize(chapaReq);
+        } catch (WebClientException e) {
+            // Chapa unreachable / unconfigured (e.g. missing CHAPA_SECRET_KEY → 401).
+            // Fail closed with 502 Bad Gateway rather than leaking a 500. Per
+            // PHASE3-SIGNOFF §5 the local-dev path is "502 = Chapa not configured".
+            throw new SheException("PAYMENT_PROVIDER_UNAVAILABLE",
+                    "Chapa payment provider unreachable: " + e.getMessage(), 502, e);
+        }
 
         // Store checkout_url for the Flutter app
         payment.setCheckoutUrl(chapaResp.checkout_url());

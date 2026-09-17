@@ -336,12 +336,14 @@ public class HomeServiceImpl implements HomeService {
 
     private HomeDtos.HomeResponse toResponse(Home h) {
         return new HomeDtos.HomeResponse(h.getId(), h.getName(), h.getAddress(),
-                h.getOwnerUserId(), h.getCreatedAt().toString());
+                h.getOwnerUserId(),
+                h.getCreatedAt() != null ? h.getCreatedAt().toString() : null);
     }
 
     private HomeDtos.RoomResponse toRoomResponse(Room r) {
         return new HomeDtos.RoomResponse(r.getId(), r.getName(), r.getIcon(),
-                r.getSortOrder(), r.getCreatedAt().toString());
+                r.getSortOrder(),
+                r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
     }
 
     private AuthenticatedUser currentUser() {

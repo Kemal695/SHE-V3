@@ -53,6 +53,15 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const Divider(),
 
+            // ---- Subscription / Upgrade (Phase 3) ----
+            ListTile(
+              leading: const Icon(Icons.workspace_premium, color: Colors.amber),
+              title: const Text('Subscription'),
+              subtitle: const Text('Upgrade to Premium or Family'),
+              onTap: () => context.go('/payments/B2C_PREMIUM'),
+            ),
+            const Divider(),
+
             // ---- MFA (Phase 5B) ----
             ListTile(
               leading: const Icon(Icons.security),

@@ -14,6 +14,7 @@ import '../features/dashboard/dashboard_screen.dart';
 import '../features/device_detail/device_detail_screen.dart';
 import '../features/energy/energy_screen.dart';
 import '../features/home/members_screen.dart';
+import '../features/payments/payment_screen.dart';
 import '../features/provisioning/provisioning_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/telemetry/telemetry_screen.dart';
@@ -79,6 +80,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/payments/:plan',
+        builder: (context, state) =>
+            PaymentScreen(plan: state.pathParameters['plan']!),
       ),
     ],
   );

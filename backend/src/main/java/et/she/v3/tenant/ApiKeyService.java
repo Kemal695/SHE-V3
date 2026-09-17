@@ -48,6 +48,12 @@ public class ApiKeyService {
     public CreateApiKeyResponse createApiKey(CreateApiKeyRequest req) {
         AuthenticatedUser user = currentUser();
 
+        // V3-B2B-WHITELABEL §5: API keys are TENANT_ADMIN+ only (B2B-1000 / B2B-UNLIMITED).
+        if (!isTenantAdmin(user)) {
+            throw new SheException("RBAC_FORBIDDEN",
+                    "API key creation requires TENANT_ADMIN+ role", 403);
+        }
+
         // Generate secret key: she_live_ + 32 random alphanumeric chars
         StringBuilder secret = new StringBuilder(KEY_PREFIX);
         for (int i = 0; i < 32; i++) {
@@ -124,6 +130,14 @@ public class ApiKeyService {
 
     private AuthenticatedUser currentUser() {
         return (AuthenticatedUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    }
+
+    private boolean isTenantAdmin(AuthenticatedUser user) {
+        // Platform admins (PLATFORM_ADMIN / SUPER_ADMIN) can act in any tenant.
+        if (user.isBypassCapable()) return true;
+        // Otherwise a tenant-scoped TENANT_ADMIN role is required. tenantRole is null
+        // for plain B2C users, so compare via equals (null-safe).
+        return "TENANT_ADMIN".equals(user.tenantRole());
     }
 
     // DTOs

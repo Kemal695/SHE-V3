@@ -46,8 +46,8 @@ public class AuditLog {
     @Column(name = "details", columnDefinition = "jsonb")
     private Map<String, Object> details;
 
-    // V18 declares this INET. Same reason as ApiKey#lastUsedIp.
-    @JdbcTypeCode(SqlTypes.OTHER)
+    // V18 declares this INET. Routed through InetAddressConverter (same as ApiKey#lastUsedIp).
+    @Convert(converter = InetAddressConverter.class)
     @Column(name = "ip_address", columnDefinition = "inet")
     private String ipAddress;
 
