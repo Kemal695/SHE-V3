@@ -216,6 +216,13 @@ she:
       per-user-per-minute: 600
       per-tenant-per-minute: 6000
 
+  ota:
+    # How long an approval may sit with no ota/status from its device before the sweep
+    # gives up and fails it. Deliberately generous: a device that is simply offline for a
+    # few hours should not have a rollout that is still going to succeed marked failed.
+    # Env-tunable so a sweep can be exercised without waiting (e.g. =1 for a test).
+    stale-rollout-minutes: ${SHE_OTA_STALE_ROLLOUT_MINUTES:360}
+
 # =============================================================================
 # Logging (V3-OPS-RUNBOOK §3.3 — structured for Loki)
 # =============================================================================

@@ -22,8 +22,17 @@ public record SheProperties(
         Security security,
         Mqtt mqtt,
         Ca ca,
-        Api api
+        Api api,
+        Ota ota
 ) {
+
+    /**
+     * How long an OTA approval may sit without a single ota/status from its device before the
+     * sweep gives up on it. Deliberately generous — see OtaRollupService#failStaleApprovals.
+     */
+    public int staleRolloutMinutes() {
+        return ota == null ? Ota.DEFAULT_STALE_ROLLOUT_MINUTES : ota.staleRolloutMinutes();
+    }
 
     /**
      * JWT configuration (EdDSA / Ed25519 per P1-6).
@@ -103,5 +112,19 @@ public record SheProperties(
     ) {
         public record Pagination(int defaultPageSize, int maxPageSize) {}
         public record RateLimit(int perUserPerMinute, int perTenantPerMinute) {}
+    }
+
+    /**
+     * OTA rollout configuration.
+     */
+    public record Ota(int staleRolloutMinutes) {
+        public static final int DEFAULT_STALE_ROLLOUT_MINUTES = 360;   // 6 hours
+
+        public Ota {
+            // A missing or nonsensical value must not mean "fail everything immediately".
+            if (staleRolloutMinutes <= 0) {
+                staleRolloutMinutes = DEFAULT_STALE_ROLLOUT_MINUTES;
+            }
+        }
     }
 }

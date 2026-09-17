@@ -1,6 +1,8 @@
 package et.she.v3.scheduled;
 
 import et.she.v3.audit.AuditService;
+import et.she.v3.config.SheProperties;
+import et.she.v3.ota.OtaRollupService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,10 +28,15 @@ public class ScheduledJobs {
 
     private final JdbcTemplate jdbcTemplate;
     private final AuditService auditService;
+    private final OtaRollupService otaRollupService;
+    private final SheProperties props;
 
-    public ScheduledJobs(JdbcTemplate jdbcTemplate, AuditService auditService) {
+    public ScheduledJobs(JdbcTemplate jdbcTemplate, AuditService auditService,
+                         OtaRollupService otaRollupService, SheProperties props) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
+        this.otaRollupService = otaRollupService;
+        this.props = props;
     }
 
     // =========================================================================
@@ -74,6 +81,39 @@ public class ScheduledJobs {
             }
         } catch (Exception e) {
             log.error("Presence sweep failed: {}", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // Stale OTA rollouts — batches that would otherwise never finish
+    // =========================================================================
+
+    // A batch only ever reached a terminal state when a device sent ota/status. If that
+    // message never arrives — device offline or powered down mid-rollout, an MQTT restart
+    // that swallowed it, or a bootloader that can never produce it — the batch sits in ROLLING
+    // indefinitely. The admin view then shows a dead rollout as "in progress" forever, and
+    // nothing can start a new one without aborting this one by hand.
+    //
+    // Same shape as the presence sweep: RLS is ENABLED + FORCED on these tables, so an
+    // unqualified sweep matches zero rows unless we run as platform admin.
+    //
+    // Runs every 30 min with a short initial delay so a restart re-checks promptly; the
+    // give-up window itself is she.ota.stale-rollout-minutes (default 6 h).
+    @Scheduled(fixedRate = 30 * 60_000, initialDelay = 120_000)
+    @Transactional
+    public void reconcileStaleOtaRollouts() {
+        try {
+            jdbcTemplate.execute("SELECT set_config('app.is_platform_admin', 'on', true)");
+
+            int abandoned = otaRollupService.failStaleApprovals(props.staleRolloutMinutes());
+            int rolled = otaRollupService.rollUpRollingBatches();
+
+            if (abandoned > 0 || rolled > 0) {
+                log.info("OTA sweep: {} approval(s) abandoned, {} batch(es) moved to a terminal state",
+                        abandoned, rolled);
+            }
+        } catch (Exception e) {
+            log.error("OTA rollout sweep failed: {}", e.getMessage());
         }
     }
 
