@@ -40,7 +40,10 @@ public class ApiKey {
     @Column(name = "last_used_at")
     private Instant lastUsedAt;
 
-    @Column(name = "last_used_ip")
+    // V21 declares this INET, not varchar. Left as a plain String, Hibernate expects
+    // varchar(255) and schema validation fails at startup ("wrong column type").
+    @JdbcTypeCode(SqlTypes.OTHER)
+    @Column(name = "last_used_ip", columnDefinition = "inet")
     private String lastUsedIp;
 
     @Column(name = "expires_at")
