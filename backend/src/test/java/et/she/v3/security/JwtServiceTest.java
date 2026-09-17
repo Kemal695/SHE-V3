@@ -97,7 +97,9 @@ class JwtServiceTest {
                 "she.et",
                 "she-api"
         );
-        SheProperties props = new SheProperties(jwtProps, null, null, null, null);
+        // SheProperties gained an Ota component with the rollout sweep; this test only
+        // exercises JWT signing, so the remaining components are left null.
+        SheProperties props = new SheProperties(jwtProps, null, null, null, null, null);
         jwtService = new JwtService(props, new ObjectMapper());
         jwtService.init();
     }
