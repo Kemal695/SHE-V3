@@ -102,7 +102,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // ---- Plan summary ----
-              Card(
+              // Scrollable: with the error line shown (or in landscape) the fixed
+              // Column used to overflow and clip the CTA.
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -132,8 +136,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                     ],
                   ),
                 ),
+                  ),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(height: 16),
 
               // ---- Loading ----
               if (_isLoading)
