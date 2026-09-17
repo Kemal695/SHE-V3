@@ -26,6 +26,14 @@ typedef enum {
  */
 esp_err_t system_service_execute(she_system_cmd_t cmd, const char *reason);
 
+/**
+ * Start SNTP so the device has a real clock.
+ *
+ * Safe to call more than once. Call it any time after the network stack is up — lwIP retries
+ * until it gets a response, so there is no need to wait for a Wi-Fi connection first.
+ */
+void system_service_time_sync_start(void);
+
 #ifdef __cplusplus
 }
 #endif

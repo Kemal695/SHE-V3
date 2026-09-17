@@ -249,6 +249,11 @@ void app_main(void) {
     ESP_ERROR_CHECK(app_wifi_init());
     ESP_LOGI(TAG, "Step 2: Wi-Fi subsystem initialized");
 
+    /* The device clock is otherwise never set, and payloads stamp themselves with it
+     * ("published_at", status "ts"). SNTP retries on its own, so it is safe to start here
+     * before Wi-Fi has actually associated. */
+    system_service_time_sync_start();
+
     /* 3. Driver init */
     /* Read SKU from fctry NVS to determine relay count */
     char mac[18] = {0}, sku[8] = {0}, node_id[32] = {0};
