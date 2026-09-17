@@ -13,6 +13,7 @@ import '../constants/api_constants.dart';
 import 'base_url_provider.dart';
 import 'dio_client.dart';
 import '../../features/device_detail/device_detail_screen.dart';
+import '../../features/payments/subscription_provider.dart';
 
 final wsClientProvider = Provider<WsClient>((ref) {
   final client = WsClient(ref);
@@ -120,6 +121,11 @@ class WsClient {
           }
           break;
         case 'ota.progress':
+          break;
+        case 'subscription_activated':
+          // Backend activated/extended the subscription after a Chapa webhook.
+          // Drop the cached subscription so subscribers refetch the new plan.
+          ref.invalidate(currentSubscriptionProvider);
           break;
       }
     } catch (e) {

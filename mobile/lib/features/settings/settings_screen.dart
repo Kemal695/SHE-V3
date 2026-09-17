@@ -13,6 +13,7 @@ import '../../core/storage/secure_storage.dart';
 import '../../core/storage/settings_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/app_router.dart';
+import '../payments/subscription_provider.dart';
 import '../auth/auth_service.dart';
 import 'server_settings_dialog.dart';
 
@@ -54,12 +55,7 @@ class SettingsScreen extends ConsumerWidget {
             const Divider(),
 
             // ---- Subscription / Upgrade (Phase 3) ----
-            ListTile(
-              leading: const Icon(Icons.workspace_premium, color: Colors.amber),
-              title: const Text('Subscription'),
-              subtitle: const Text('Upgrade to Premium or Family'),
-              onTap: () => context.go('/payments/B2C_PREMIUM'),
-            ),
+            _SubscriptionTile(),
             const Divider(),
 
             // ---- MFA (Phase 5B) ----
@@ -108,12 +104,35 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () async {
                 ref.read(localeProvider.notifier).state = const Locale('en');
                 await SecureStorage.saveLocale('en');
-                if (context.mounted) Navigator.pop(context);
+                if (context.mounted)         Navigator.pop(context);
               },
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Shows the live subscription plan, refreshed by the `subscription_activated`
+/// WebSocket event (see ws_client.dart → currentSubscriptionProvider).
+class _SubscriptionTile extends ConsumerWidget {
+  const _SubscriptionTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sub = ref.watch(currentSubscriptionProvider);
+    final isPremium = sub.hasValue && sub.value?['is_premium'] == true;
+    return ListTile(
+      leading: Icon(Icons.workspace_premium,
+          color: isPremium ? Colors.amber : Colors.grey),
+      title: const Text('Subscription'),
+      subtitle: sub.when(
+        data: (s) => Text('${s['plan'] ?? 'Unknown'}${isPremium ? ' · Premium' : ''}'),
+        loading: () => const Text('Loading…'),
+        error: (_, __) => const Text('Upgrade to Premium or Family'),
+      ),
+      onTap: () => context.go('/payments/B2C_PREMIUM'),
     );
   }
 }
