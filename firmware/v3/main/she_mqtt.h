@@ -55,6 +55,10 @@ esp_err_t mqtt_publish_config(she_node_t *node);
  */
 esp_err_t mqtt_publish_status(bool online);
 
+/** Diagnostic: publish the device-local schedule list so device-side schedule
+ *  state is observable without a USB cable. See she_mqtt.c for the payload. */
+esp_err_t mqtt_publish_schedules(void);
+
 /**
  * Publish params/local to she/.../{mac}/params/local (QoS 0, every 5s).
  * V3-MQTT-STANDARDS §3.3.

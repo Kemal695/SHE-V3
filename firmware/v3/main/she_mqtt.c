@@ -370,12 +370,19 @@ static void handle_command(const char *data, size_t len) {
                          s.days_mask, (unsigned)s.relay,
                          s.action == SHE_SCHED_ACTION_ON ? "ON" : "OFF",
                          s.days_mask == SHE_SCHED_ONE_SHOT ? " (one-shot)" : "");
+                // Report the resulting state either way. A NO_MEM (list full) is
+                // otherwise invisible from the server, which returns 200 regardless.
+                mqtt_publish_schedules();
             }
         }
+    } else if (strcmp(cmd->valuestring, "schedule_list") == 0) {
+        // Diagnostic: report what the device actually holds.
+        mqtt_publish_schedules();
     } else if (strcmp(cmd->valuestring, "schedule_clear") == 0) {
         ESP_LOGW(TAG, "command: clearing ALL device-local schedules (reason=%s)",
                  reason_str ? reason_str : "none");
         schedule_clear_all();
+        mqtt_publish_schedules();
     } else {
         ESP_LOGW(TAG, "command: unknown cmd '%s' — ignored", cmd->valuestring);
     }
@@ -628,6 +635,48 @@ esp_err_t mqtt_publish_status(bool online) {
     const char *payload = online ? "{\"status\":\"online\"}" : "{\"status\":\"offline\"}";
     esp_err_t err = mqtt_publish(topic, payload, 1, true);   /* QoS 1, retained */
     free(topic);
+    return err;
+}
+
+/**
+ * Report the device-local schedule list over MQTT (diagnostic).
+ *
+ * Publishes what the device ACTUALLY holds, which is the only way to tell a
+ * REJECTED schedule_add (list full / NVS failure) apart from a stored-but-not-
+ * firing one. Both looked identical from the server: the API returns 200 either
+ * way, because it only reports "published", never "stored".
+ *
+ *   {"count":1,"entries":[{"i":0,"h":6,"m":0,"mask":127,"relay":0,"act":1,"lf":29830512}]}
+ */
+esp_err_t mqtt_publish_schedules(void) {
+    size_t count = 0;
+    const she_sched_t *list = schedule_list(&count);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "count", (double)count);
+    cJSON *arr = cJSON_AddArrayToObject(root, "entries");
+    for (size_t i = 0; i < count; i++) {
+        const she_sched_t *s = &list[i];
+        if (!s->enabled) continue;   /* only report live entries */
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddNumberToObject(e, "i", (double)i);
+        cJSON_AddNumberToObject(e, "h", s->hour);
+        cJSON_AddNumberToObject(e, "m", s->minute);
+        cJSON_AddNumberToObject(e, "mask", s->days_mask);
+        cJSON_AddNumberToObject(e, "relay", s->relay);
+        cJSON_AddNumberToObject(e, "act", s->action);
+        cJSON_AddNumberToObject(e, "lf", (double)s->last_fired_min);
+        cJSON_AddItemToArray(arr, e);
+    }
+
+    char *payload = cJSON_PrintUnformatted(root);
+    char *topic = mqtt_build_topic("schedules");
+    esp_err_t err = mqtt_publish(topic, payload, 1, false);
+    ESP_LOGI(TAG, "Published schedules: %s", payload);
+
+    free(topic);
+    free(payload);
+    cJSON_Delete(root);
     return err;
 }
 

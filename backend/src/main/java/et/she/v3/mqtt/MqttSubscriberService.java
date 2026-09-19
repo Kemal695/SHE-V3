@@ -83,7 +83,12 @@ public class MqttSubscriberService implements MqttCallbackExtended {
      * a single `(a|b|c)` alternation filter matches nothing and is ACL-denied.
      */
     private static final List<String> DEVICE_PUBLISH_DIRECTIONS = List.of(
-            "telemetry", "status", "params/local", "energy", "ota/status", "ota/progress");
+            "telemetry", "status", "params/local", "energy", "ota/status", "ota/progress",
+            // Device-local schedule state. Diagnostic only: the device reports what it
+            // actually STORED after schedule_add/clear, plus the state on every change.
+            // Without this the only way to see device-side schedule state was a USB
+            // cable, which made several hours of debugging guesswork.
+            "schedules");
 
     private final SheProperties props;
     private final ObjectMapper objectMapper;
@@ -355,6 +360,11 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                     case "params/local"     -> handleParamsLocal(mac, payload);
                     case "telemetry"        -> handleTelemetry(mac, payload);
                     case "status"           -> handleStatus(mac, payload);
+                    // Diagnostic: log the device's own view of its schedules verbatim.
+                    // Nothing is persisted — this exists so device-side schedule state is
+                    // observable without a USB cable.
+                    case "schedules"        -> log.info(
+                            "Device schedule report mac={} payload={}", mac, payload);
                     case "energy"           -> handleEnergy(mac, payload);
                     case "ota/status"       -> handleOtaStatus(mac, payload);
                     case "ota/progress"     -> handleOtaProgress(mac, payload);
