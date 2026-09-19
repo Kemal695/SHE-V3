@@ -8,6 +8,7 @@
 #include "she_mqtt.h"
 #include "nvs_keys.h"
 #include "relay_driver.h"    /* relay_set()/relay_save_state() for params/remote commands */
+#include "schedule_store.h"  /* device-local schedules (schedule_add/clear via cmd topic) */
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
 #include "system_service.h"  /* system_service_execute() for the command direction */
@@ -324,6 +325,57 @@ static void handle_command(const char *data, size_t len) {
         ESP_LOGI(TAG, "command: ping received — replying with status");
         system_service_execute(SHE_CMD_PING, reason_str);
         mqtt_publish_status(true);
+    } else if (strcmp(cmd->valuestring, "schedule_add") == 0) {
+        /* Device-local schedule — fires WITHOUT the cloud, after SNTP sets the clock.
+         *
+         *   {"cmd":"schedule_add","hour":20,"minute":0,"days_mask":127,
+         *    "relay":0,"action":1}
+         *
+         * days_mask: bit0=Sun … bit6=Sat. 127 (0x7F) = EVERY DAY — the repeating
+         * case. A subset repeats on those weekdays only. 0 = ONE-SHOT: fires once
+         * then self-disables. action: 1=on, 0=off (defaults to on when absent).
+         *
+         * Deliberately strict: a missing/invalid hour or minute is rejected rather
+         * than defaulted to 00:00, which would silently create a midnight schedule.
+         */
+        const cJSON *j_hour   = cJSON_GetObjectItem(root, "hour");
+        const cJSON *j_min    = cJSON_GetObjectItem(root, "minute");
+        const cJSON *j_mask   = cJSON_GetObjectItem(root, "days_mask");
+        const cJSON *j_relay  = cJSON_GetObjectItem(root, "relay");
+        const cJSON *j_action = cJSON_GetObjectItem(root, "action");
+
+        if (!cJSON_IsNumber(j_hour) || !cJSON_IsNumber(j_min)) {
+            ESP_LOGE(TAG, "command: schedule_add needs numeric 'hour' and 'minute'");
+        } else {
+            she_sched_t s;
+            memset(&s, 0, sizeof(s));
+            s.hour      = (uint8_t)j_hour->valuedouble;
+            s.minute    = (uint8_t)j_min->valuedouble;
+            s.days_mask = cJSON_IsNumber(j_mask) ? (uint8_t)j_mask->valuedouble
+                                                 : SHE_SCHED_EVERY_DAY;
+            s.relay     = cJSON_IsNumber(j_relay) ? (uint8_t)j_relay->valuedouble : 0;
+            s.action    = (!cJSON_IsNumber(j_action) || j_action->valuedouble != 0)
+                              ? SHE_SCHED_ACTION_ON : SHE_SCHED_ACTION_OFF;
+
+            if (s.hour > 23 || s.minute > 59) {
+                ESP_LOGE(TAG, "command: schedule_add out-of-range time %02u:%02u",
+                         (unsigned)s.hour, (unsigned)s.minute);
+            } else {
+                int idx = -1;
+                esp_err_t e = schedule_add(&s, &idx);
+                ESP_LOGI(TAG,
+                         "command: schedule_add -> %s (slot %d) %02u:%02u mask=0x%02X "
+                         "relay=%u %s%s",
+                         esp_err_to_name(e), idx, (unsigned)s.hour, (unsigned)s.minute,
+                         s.days_mask, (unsigned)s.relay,
+                         s.action == SHE_SCHED_ACTION_ON ? "ON" : "OFF",
+                         s.days_mask == SHE_SCHED_ONE_SHOT ? " (one-shot)" : "");
+            }
+        }
+    } else if (strcmp(cmd->valuestring, "schedule_clear") == 0) {
+        ESP_LOGW(TAG, "command: clearing ALL device-local schedules (reason=%s)",
+                 reason_str ? reason_str : "none");
+        schedule_clear_all();
     } else {
         ESP_LOGW(TAG, "command: unknown cmd '%s' — ignored", cmd->valuestring);
     }

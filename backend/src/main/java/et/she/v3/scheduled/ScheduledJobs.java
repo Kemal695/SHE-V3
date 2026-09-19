@@ -3,6 +3,7 @@ package et.she.v3.scheduled;
 import et.she.v3.audit.AuditService;
 import et.she.v3.config.SheProperties;
 import et.she.v3.ota.OtaRollupService;
+import et.she.v3.service.AutomationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,14 +30,43 @@ public class ScheduledJobs {
     private final JdbcTemplate jdbcTemplate;
     private final AuditService auditService;
     private final OtaRollupService otaRollupService;
+    private final AutomationService automationService;
     private final SheProperties props;
 
     public ScheduledJobs(JdbcTemplate jdbcTemplate, AuditService auditService,
-                         OtaRollupService otaRollupService, SheProperties props) {
+                         OtaRollupService otaRollupService,
+                         AutomationService automationService,
+                         SheProperties props) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditService = auditService;
         this.otaRollupService = otaRollupService;
+        this.automationService = automationService;
         this.props = props;
+    }
+
+    // =========================================================================
+    // SCHEDULE-triggered automations — once a minute, cron matched
+    // =========================================================================
+
+    // AutomationService.runScheduled() evaluates each automation's cron against the
+    // current minute, so only due automations fire — without that guard this would
+    // re-run every schedule-triggered automation (and re-command devices) every 60 s.
+    @Scheduled(fixedRate = 60_000, initialDelay = 150_000)
+    @Transactional
+    public void runScheduledAutomations() {
+        try {
+            // RLS on automations is ENABLED + FORCED. A scheduled job has no user
+            // context, so with no GUC it would match zero rows — run as platform
+            // admin, transaction-scoped, exactly as expireStalePresence() does.
+            jdbcTemplate.execute("SELECT set_config('app.is_platform_admin', 'on', true)");
+
+            int fired = automationService.runScheduled();
+            if (fired > 0) {
+                log.info("Automation sweep: fired {} schedule-triggered automation(s)", fired);
+            }
+        } catch (Exception e) {
+            log.error("Automation sweep failed: {}", e.getMessage());
+        }
     }
 
     // =========================================================================

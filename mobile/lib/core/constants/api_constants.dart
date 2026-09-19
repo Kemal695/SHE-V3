@@ -41,6 +41,17 @@ class ApiConstants {
   static String nodeEnergy(String id) => '$apiPrefix/nodes/$id/energy';
   static const String nodeClaim = '$apiPrefix/nodes/claim';
 
+  // Scenes (V3-API-SPECIFICATION §8.1)
+  static String homeScenes(String homeId) => '$apiPrefix/homes/$homeId/scenes';
+  static String scene(String id) => '$apiPrefix/scenes/$id';
+  static String sceneActivate(String id) => '$apiPrefix/scenes/$id/activate';
+
+  // Automations (V3-API-SPECIFICATION §7)
+  static String homeAutomations(String homeId) => '$apiPrefix/homes/$homeId/automations';
+  static String automation(String id) => '$apiPrefix/automations/$id';
+  static String automationEnabled(String id) => '$apiPrefix/automations/$id/enabled';
+  static String automationTrigger(String id) => '$apiPrefix/automations/$id/trigger';
+
   // OTA (V3-API-SPECIFICATION §9)
   static String otaBatches(String homeId) => '$apiPrefix/homes/$homeId/ota/batches';
 

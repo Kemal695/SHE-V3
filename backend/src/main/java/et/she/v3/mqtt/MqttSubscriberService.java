@@ -11,6 +11,7 @@ import et.she.v3.repository.NodeRepository;
 import et.she.v3.repository.OtaApprovalRepository;
 import et.she.v3.entity.OtaApproval;
 import et.she.v3.security.TenantContextInterceptor;
+import et.she.v3.service.AutomationService;
 import et.she.v3.websocket.WsEventBus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -93,6 +94,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     private final OtaApprovalRepository otaApprovalRepository;
     private final et.she.v3.ota.OtaRollupService otaRollupService;
     private final TenantContextInterceptor tenantContextInterceptor;
+    private final AutomationService automationService;
     private final WsEventBus wsEventBus;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
@@ -115,6 +117,21 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     private IMqttAsyncClient mqttClient;
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
+    // Last value REPORTED BY THE DEVICE for a (nodeId|deviceId|paramName). Used to make NODE_STATE
+    // automations edge-triggered.
+    //
+    // Why not node_params.last_value? Because writeParams() writes the same column. If a user turns
+    // Relay 1 off from the app, last_value is set to false immediately; when the device echoes false
+    // back there is no apparent transition and the automation never fires — which is wrong (the
+    // relay genuinely changed state). Tracking what the DEVICE last told us avoids that: the previous
+    // reported value is still true, the echo is false => transition => fire. It also stops the
+    // re-fire storm (devices report state every ~20-60 s).
+    //
+    // In-memory: on restart the first report for a param seeds the map and does NOT fire (we don't
+    // know the prior state, so firing would be a guess. Safer to skip one cycle.
+    private final java.util.Map<String, Object> lastReportedValues =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     public MqttSubscriberService(SheProperties props,
                                  ObjectMapper objectMapper,
                                  NodeRepository nodeRepository,
@@ -123,8 +140,9 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                                  EnergyService energyService,
                                  OtaApprovalRepository otaApprovalRepository,
                                  et.she.v3.ota.OtaRollupService otaRollupService,
-                                 TenantContextInterceptor tenantContextInterceptor,
-                                 WsEventBus wsEventBus,
+                                   TenantContextInterceptor tenantContextInterceptor,
+                                   AutomationService automationService,
+                                   WsEventBus wsEventBus,
                                  org.springframework.jdbc.core.JdbcTemplate jdbcTemplate,
                                  org.springframework.transaction.PlatformTransactionManager txManager) {
         this.props = props;
@@ -135,8 +153,9 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         this.energyService = energyService;
         this.otaApprovalRepository = otaApprovalRepository;
         this.otaRollupService = otaRollupService;
-        this.tenantContextInterceptor = tenantContextInterceptor;
-        this.wsEventBus = wsEventBus;
+          this.tenantContextInterceptor = tenantContextInterceptor;
+          this.automationService = automationService;
+          this.wsEventBus = wsEventBus;
         this.jdbcTemplate = jdbcTemplate;
         this.txTemplate = new org.springframework.transaction.support.TransactionTemplate(txManager);
     }
@@ -574,15 +593,44 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                 deviceParams.fields().forEachRemaining(paramEntry -> {
                     String paramName = paramEntry.getKey();
                     JsonNode valueNode = paramEntry.getValue();
-                    nodeParamRepository.findByDeviceAndName(device.getId(), paramName).ifPresent(param -> {
-                        // Update last_value (JSONB cache)
-                        Object value = objectMapper.convertValue(valueNode, Object.class);
-                        nodeParamRepository.updateLastValue(param.getId(), value, Instant.now());
+                      nodeParamRepository.findByDeviceAndName(device.getId(), paramName).ifPresent(param -> {
+                          // Update last_value (JSONB cache)
+                          Object value = objectMapper.convertValue(valueNode, Object.class);
+                          nodeParamRepository.updateLastValue(param.getId(), value, Instant.now());
 
-                        // Push WebSocket node.state
-                        wsEventBus.publishNodeState(node.getTenantId(), node.getHomeId(), node.getId(),
-                                device.getId(), deviceName, paramName, valueNode);
-                    });
+                          // Transition baseline from what the DEVICE previously reported (not from
+                          // last_value, which our own writes also set.
+
+                          String stateKey = node.getId() + "|" + device.getId() + "|" + paramName;
+                          boolean seenBefore = lastReportedValues.containsKey(stateKey);
+                          Object previousValue = lastReportedValues.get(stateKey);
+                          lastReportedValues.put(stateKey, value);
+
+                          // Push WebSocket node.state
+                          wsEventBus.publishNodeState(node.getTenantId(), node.getHomeId(), node.getId(),
+                                  device.getId(), deviceName, paramName, valueNode);
+
+                          // NODE_STATE automations — a change on THIS device may trigger an action on
+                          // another device (e.g. Relay 1 ON -> Relay 3 ON).
+                          //
+                          // Runs inside the RLS transaction opened by processMessageWithRls(), so the
+                          // platform-admin GUC is already set for this connection.
+                          //
+                          // Wrapped defensively: device ingestion must never fail or roll back because
+                          // an automation misbehaved. evaluateNodeState() already catches per-action
+                          // errors; this guards the evaluation itself (DB reads, comparator bugs).
+                          try {
+                              // Skip the very first report for a param: with no known previous
+                              // value, "changed" would be a guess. Seed on first sight, fire after.
+                              if (seenBefore && !java.util.Objects.equals(previousValue, value)) {
+                                  automationService.evaluateNodeState(node.getId(), device.getId(),
+                                          paramName, previousValue, value);
+                              }
+                          } catch (Exception e) {
+                              log.warn("NODE_STATE evaluation failed for node {} param {} ({}): {}",
+                                      node.getNodeId(), paramName, deviceName, e.getMessage());
+                          }
+                      });
                 });
             });
         });

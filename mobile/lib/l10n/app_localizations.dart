@@ -433,6 +433,336 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No telemetry recorded for this node yet.'**
   String get noTelemetryYet;
+
+  /// No description provided for @upgradeToPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'Upgrade to Premium'**
+  String get upgradeToPremium;
+
+  /// No description provided for @upgradeToFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Upgrade to Family'**
+  String get upgradeToFamily;
+
+  /// No description provided for @b2cPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'Premium'**
+  String get b2cPremium;
+
+  /// No description provided for @b2cFamily.
+  ///
+  /// In en, this message translates to:
+  /// **'Family'**
+  String get b2cFamily;
+
+  /// No description provided for @b2cFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get b2cFree;
+
+  /// No description provided for @payViaTelebirr.
+  ///
+  /// In en, this message translates to:
+  /// **'Pay via Telebirr'**
+  String get payViaTelebirr;
+
+  /// No description provided for @acceptedPaymentMethods.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted: Telebirr, CBE Birr, Cards'**
+  String get acceptedPaymentMethods;
+
+  /// No description provided for @unlimitedDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlimited devices'**
+  String get unlimitedDevices;
+
+  /// No description provided for @automationsAndScenes.
+  ///
+  /// In en, this message translates to:
+  /// **'Automations + scenes'**
+  String get automationsAndScenes;
+
+  /// No description provided for @otaUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'OTA updates'**
+  String get otaUpdates;
+
+  /// No description provided for @energyMonitoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Energy monitoring'**
+  String get energyMonitoring;
+
+  /// No description provided for @anomalyAlerts.
+  ///
+  /// In en, this message translates to:
+  /// **'Anomaly alerts'**
+  String get anomalyAlerts;
+
+  /// No description provided for @fiveMembersShared.
+  ///
+  /// In en, this message translates to:
+  /// **'5 members + shared homes'**
+  String get fiveMembersShared;
+
+  /// No description provided for @prioritySupport.
+  ///
+  /// In en, this message translates to:
+  /// **'Priority support'**
+  String get prioritySupport;
+
+  /// No description provided for @energyMonitoringNotAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Energy monitoring is available on SHE-R8 and SHE-R16. Your SHE-R4 device does not have a power sensor.'**
+  String get energyMonitoringNotAvailable;
+
+  /// No description provided for @todaySummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s Summary'**
+  String get todaySummary;
+
+  /// No description provided for @sevenDayHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'7-Day History'**
+  String get sevenDayHistory;
+
+  /// No description provided for @fourteenDayHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'14-Day History'**
+  String get fourteenDayHistory;
+
+  /// No description provided for @thirtyDayHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'30-Day History'**
+  String get thirtyDayHistory;
+
+  /// No description provided for @anomalyDetection.
+  ///
+  /// In en, this message translates to:
+  /// **'Anomaly Detection'**
+  String get anomalyDetection;
+
+  /// No description provided for @monthlyProjection.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly Projection'**
+  String get monthlyProjection;
+
+  /// No description provided for @atCurrentRate.
+  ///
+  /// In en, this message translates to:
+  /// **'At current rate, you\'ll use'**
+  String get atCurrentRate;
+
+  /// No description provided for @thisMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'this month'**
+  String get thisMonth;
+
+  /// No description provided for @powerSpikeDetected.
+  ///
+  /// In en, this message translates to:
+  /// **'Power spike detected'**
+  String get powerSpikeDetected;
+
+  /// No description provided for @powerConsumptionHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'Your power consumption is 3× higher than usual'**
+  String get powerConsumptionHigh;
+
+  /// No description provided for @scenesRowTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Scenes'**
+  String get scenesRowTitle;
+
+  /// No description provided for @goodMorning.
+  ///
+  /// In en, this message translates to:
+  /// **'Good Morning'**
+  String get goodMorning;
+
+  /// No description provided for @leavingHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaving Home'**
+  String get leavingHome;
+
+  /// No description provided for @movieNight.
+  ///
+  /// In en, this message translates to:
+  /// **'Movie Night'**
+  String get movieNight;
+
+  /// No description provided for @sleepMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep Mode'**
+  String get sleepMode;
+
+  /// No description provided for @voiceControl.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice Control'**
+  String get voiceControl;
+
+  /// No description provided for @heySheba.
+  ///
+  /// In en, this message translates to:
+  /// **'Hey Sheba'**
+  String get heySheba;
+
+  /// No description provided for @voiceListening.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening...'**
+  String get voiceListening;
+
+  /// No description provided for @voiceProcessing.
+  ///
+  /// In en, this message translates to:
+  /// **'Processing...'**
+  String get voiceProcessing;
+
+  /// No description provided for @voiceLastIntent.
+  ///
+  /// In en, this message translates to:
+  /// **'Last Command'**
+  String get voiceLastIntent;
+
+  /// No description provided for @voiceConfidence.
+  ///
+  /// In en, this message translates to:
+  /// **'Confidence'**
+  String get voiceConfidence;
+
+  /// No description provided for @voiceNotAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice control is available on SHE-R16 only'**
+  String get voiceNotAvailable;
+
+  /// No description provided for @selectTheme.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get selectTheme;
+
+  /// No description provided for @darkMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark Mode'**
+  String get darkMode;
+
+  /// No description provided for @lightMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Light Mode'**
+  String get lightMode;
+
+  /// No description provided for @systemTheme.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get systemTheme;
+
+  /// No description provided for @useEthiopianCalendar.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Ethiopian Calendar'**
+  String get useEthiopianCalendar;
+
+  /// No description provided for @twoFactorAuth.
+  ///
+  /// In en, this message translates to:
+  /// **'Two-Factor Authentication'**
+  String get twoFactorAuth;
+
+  /// No description provided for @mfaComingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable MFA (coming in Phase 5B)'**
+  String get mfaComingSoon;
+
+  /// No description provided for @selectLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Language'**
+  String get selectLanguage;
+
+  /// No description provided for @amharic.
+  ///
+  /// In en, this message translates to:
+  /// **'አማርኛ (Amharic)'**
+  String get amharic;
+
+  /// No description provided for @english.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get english;
+
+  /// No description provided for @retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get retry;
+
+  /// No description provided for @failedToLoadDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load devices'**
+  String get failedToLoadDevices;
+
+  /// No description provided for @cannotDeleteOwnAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot delete your own account'**
+  String get cannotDeleteOwnAccount;
+
+  /// No description provided for @weakPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password must be at least 12 characters with 1 uppercase, 1 lowercase, 1 digit, 1 special character'**
+  String get weakPassword;
+
+  /// No description provided for @invalidEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid email address'**
+  String get invalidEmail;
+
+  /// No description provided for @invalidPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'Ethiopian phone format: +2519XXXXXXXX or 09XXXXXXXX'**
+  String get invalidPhone;
+
+  /// No description provided for @donatedHaveAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Already have an account? Login'**
+  String get donatedHaveAccount;
+
+  /// No description provided for @noAccountRegister.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account? Register'**
+  String get noAccountRegister;
 }
 
 class _AppLocalizationsDelegate

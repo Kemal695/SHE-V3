@@ -313,7 +313,27 @@ public class NodeServiceImpl implements NodeService {
 
     @Override
     public NodeDtos.WriteParamsResponse writeParams(UUID nodeId, UUID deviceId, NodeDtos.WriteParamsRequest req) {
-        Node node = getAuthorizedNodeOrThrow(nodeId, "MEMBER");
+        return writeParamsInternal(nodeId, deviceId, req, false);
+    }
+
+    @Override
+    public NodeDtos.WriteParamsResponse writeParamsSystem(UUID nodeId, UUID deviceId, Map<String, Object> params) {
+        return writeParamsInternal(nodeId, deviceId, new NodeDtos.WriteParamsRequest(params), true);
+    }
+
+    /**
+     * Shared implementation for both the user-driven and the SYSTEM write paths.
+     *
+     * When `system` is true the caller has NO user context (an automation fired by
+     * the scheduler): we skip the user authorization check — otherwise
+     * currentUser() NPEs because getAuthentication() is null — but keep everything
+     * else identical (desired-state update, MQTT publish, audit). The audit row is
+     * written with actor_type SYSTEM and a null actor user, so a system action
+     * never masquerades as a user action (P1-19).
+     */
+    private NodeDtos.WriteParamsResponse writeParamsInternal(
+            UUID nodeId, UUID deviceId, NodeDtos.WriteParamsRequest req, boolean system) {
+        Node node = system ? verifyNodeExists(nodeId) : getAuthorizedNodeOrThrow(nodeId, "MEMBER");
         NodeDevice device = nodeDeviceRepository.findById(deviceId)
                 .orElseThrow(() -> new SheException("NODE_DEVICE_NOT_FOUND", "Device " + deviceId + " not found", 404));
 
@@ -371,8 +391,12 @@ public class NodeServiceImpl implements NodeService {
         }
 
         // P1-19: commanding a device is a privileged action — record what was
-        // written, not just that a write happened.
-        auditService.record(node.getTenantId(), "USER", currentUserIdOrNull(), "node.param.write",
+        // written, not just that a write happened. SYSTEM writes record a null
+        // actor user so the audit trail never attributes them to a person.
+        auditService.record(node.getTenantId(),
+                system ? "SYSTEM" : "USER",
+                system ? null : currentUserIdOrNull(),
+                "node.param.write",
                 "node_device", deviceId,
                 Map.of("node_id", String.valueOf(nodeId), "params", deviceParams),
                 null, null, null);
@@ -386,8 +410,12 @@ public class NodeServiceImpl implements NodeService {
 
     /** The only commands a device will act on. Kept in step with handle_command() in
      *  firmware/v3/main/she_mqtt.c — an unknown value must be refused here, not published. */
+    // schedule_add / schedule_clear manage device-LOCAL schedules (schedule_store.c).
+    // They fire without the cloud, so they are the resilience path when the server or
+    // internet is down. ADMIN-only, same as the other destructive/state-changing commands.
     private static final Set<String> ALLOWED_COMMANDS =
-            Set.of("reboot", "factory_reset", "sync_time", "ping");
+            Set.of("reboot", "factory_reset", "sync_time", "ping",
+                   "schedule_add", "schedule_clear");
 
     @Override
     public NodeDtos.CommandResponse executeCommand(UUID nodeId, NodeDtos.CommandRequest req) {
@@ -411,9 +439,32 @@ public class NodeServiceImpl implements NodeService {
                         k -> new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis()))
                 .updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
 
+        // schedule_add carries the schedule itself. Validate here as well as on the
+        // device: failing fast at the API is a much better error than a device that
+        // silently ignores a malformed command.
+        Map<String, Object> extra = null;
+        if ("schedule_add".equals(cmd)) {
+            if (req.hour() == null || req.minute() == null) {
+                throw new SheException("VALIDATION_ERROR",
+                        "schedule_add requires 'hour' (0-23) and 'minute' (0-59)", 422);
+            }
+            if (req.hour() < 0 || req.hour() > 23 || req.minute() < 0 || req.minute() > 59) {
+                throw new SheException("VALIDATION_ERROR",
+                        "schedule_add: hour must be 0-23 and minute 0-59", 422);
+            }
+            extra = new java.util.HashMap<>();
+            extra.put("hour", req.hour());
+            extra.put("minute", req.minute());
+            // Default to EVERY DAY when omitted — a schedule with no days would be
+            // a one-shot, which is almost never what someone means by "set a schedule".
+            extra.put("days_mask", req.days_mask() != null ? req.days_mask() : 127);
+            extra.put("relay", req.relay() != null ? req.relay() : 0);
+            extra.put("action", req.action() != null ? req.action() : 1);
+        }
+
         try {
             mqttPublishService.publishCommand(tenantShort, homeShort, roomShort,
-                    node.getNormalizedMac(), cmd, reason, seq);
+                    node.getNormalizedMac(), cmd, reason, seq, extra);
         } catch (Exception e) {
             log.error("Failed to publish command {} to node {}: {}", cmd, node.getNodeId(), e.getMessage());
             throw new SheException("MQTT_PUBLISH_FAILED", "Failed to publish command to device", 502, e);
@@ -421,9 +472,13 @@ public class NodeServiceImpl implements NodeService {
 
         // P1-19: a system command is a privileged action. Record which one and why —
         // "someone rebooted the device" is exactly the kind of thing an audit log exists for.
+        Map<String, Object> auditDetails = new java.util.HashMap<>();
+        auditDetails.put("cmd", cmd);
+        auditDetails.put("reason", reason);
+        if (extra != null) auditDetails.putAll(extra);
         auditService.record(node.getTenantId(), "USER", currentUserIdOrNull(), "node.command",
                 "node", nodeId,
-                Map.of("cmd", cmd, "reason", reason),
+                auditDetails,
                 null, null, null);
 
         String topic = String.format("she/%s/%s/%s/%s/command",

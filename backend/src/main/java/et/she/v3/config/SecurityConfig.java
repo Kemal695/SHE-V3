@@ -59,6 +59,12 @@ public class SecurityConfig {
                 .requestMatchers("/ws/v3").permitAll()
                 // Internal endpoints — protected by network ACL in prod (not exposed to Cloudflare)
                 .requestMatchers("/internal/**").permitAll()
+                // OTA firmware images — public by design. The device authenticates the
+                // IMAGE, not the request: ota_handler verifies SHA-256 + Ed25519 via
+                // TweetNaCl before flashing (V3-SECURITY-MODEL §5.5), so a forged or
+                // tampered download is rejected on-device. Gating this behind a JWT
+                // would break OTA outright — the ESP32 has no user token.
+                .requestMatchers("/firmware/**").permitAll()
                 // Swagger UI (local + staging only — disabled in prod via application-prod.yml)
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Everything else requires authentication

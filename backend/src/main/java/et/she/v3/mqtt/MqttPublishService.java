@@ -79,18 +79,36 @@ public class MqttPublishService {
      */
     public void publishCommand(String tenantShort, String homeShort, String roomShort,
                                String normalizedMac, String cmd, String reason, long seq) throws Exception {
+        publishCommand(tenantShort, homeShort, roomShort, normalizedMac, cmd, reason, seq, null);
+    }
+
+    /**
+     * @param extra optional additional fields merged into the payload (e.g. hour/minute/
+     *              days_mask for `schedule_add`). Null or empty is fine.
+     *
+     * Uses a mutable HashMap, NOT Map.of — Map.of throws NPE on a null value, which
+     * would take down a command publish over a missing optional field.
+     */
+    public void publishCommand(String tenantShort, String homeShort, String roomShort,
+                               String normalizedMac, String cmd, String reason, long seq,
+                               Map<String, Object> extra) throws Exception {
         String topic = String.format("she/%s/%s/%s/%s/command",
                 tenantShort, homeShort, roomShort, normalizedMac);
 
-        Map<String, Object> payload = Map.of(
-                "cmd", cmd,
-                "reason", reason,
-                "seq", seq,
-                "ts", java.time.Instant.now().toString()
-        );
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("cmd", cmd);
+        payload.put("reason", reason);
+        payload.put("seq", seq);
+        payload.put("ts", java.time.Instant.now().toString());
+        if (extra != null) {
+            for (Map.Entry<String, Object> e : extra.entrySet()) {
+                if (e.getValue() != null) payload.put(e.getKey(), e.getValue());
+            }
+        }
 
         publish(topic, 1, false, objectMapper.writeValueAsBytes(payload));
-        log.info("Published command: mac={} cmd={} seq={}", normalizedMac, cmd, seq);
+        log.info("Published command: mac={} cmd={} seq={} extra={}",
+                normalizedMac, cmd, seq, extra == null ? "-" : extra.keySet());
     }
 
     /**

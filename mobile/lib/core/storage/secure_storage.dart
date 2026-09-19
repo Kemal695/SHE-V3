@@ -9,7 +9,11 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorage {
-  static const _accessTokenKey = 'access_token';
+  // NOTE: there is deliberately NO access-token key here. The access token is
+  // in-memory only (Riverpod `accessTokenProvider`) per V3-SECURITY-MODEL §1.1 —
+  // only the refresh token is persisted. An `_accessTokenKey` constant used to
+  // live here and was never used; it implied the access token might be written
+  // to disk, which the security model forbids, so it was removed.
   static const _refreshTokenKey = 'refresh_token';
   static const _tokenExpiryKey = 'token_expiry';
   static const _localeKey = 'locale';

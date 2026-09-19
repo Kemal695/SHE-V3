@@ -54,6 +54,9 @@ extern "C" {
 #define SHE_NVS_KEY_SECURE_VERSION  "secure_version"  /* anti-rollback counter */
 #define SHE_NVS_KEY_RELAY_STATE     "relay_state"     /* uint16_t bitmask (persist property) */
 #define SHE_NVS_KEY_PARAM_SEQ       "param_seq"       /* uint32_t monotonic seq for params/remote */
+#define SHE_NVS_KEY_SCHEDULES       "schedules"       /* blob: she_sched_t[SHE_SCHED_MAX] — device-local
+                                                        * schedules (see schedule_store.h). Persisted so a
+                                                        * power cut does not lose them. V3-FIRMWARE §2.2. */
 
 /* ---- NVS encryption keys partition (nvs.keys) ---- */
 #define SHE_NVS_KEYS_PARTITION      "nvs.keys"

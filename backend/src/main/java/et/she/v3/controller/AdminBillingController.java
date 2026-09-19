@@ -83,18 +83,25 @@ public class AdminBillingController {
                 .plusSeconds(30 * 86400L)
                 .truncatedTo(java.time.temporal.ChronoUnit.DAYS);
 
-        return ResponseEntity.ok(Map.of("data", Map.of(
-                "mrr_etb", mrr.toPlainString(),
-                "outstanding_etb", outstanding.toPlainString(),
-                "next_invoice_date", nextInvoice.toString(),
-                "total_payments", allPayments.size(),
-                "active_subscription", subs.stream()
-                        .filter(s -> "ACTIVE".equals(s.getStatus()))
-                        .findFirst()
-                        .map(s -> Map.of("plan", s.getPlan(), "expires_at",
-                                s.getExpiresAt() != null ? s.getExpiresAt().toString() : ""))
-                        .orElse(null)
-        )));
+        // NOTE: this must NOT be Map.of(...). `Map.of` rejects null values and
+        // throws NullPointerException, and `active_subscription` is legitimately
+        // null when the tenant has no active subscription — which turned the
+        // whole endpoint into a 500 (the admin console's billing screen broke).
+        // Use a HashMap, which permits nulls, matching the documented contract
+        // (`active_subscription` is `{plan, expires_at} | null`).
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("mrr_etb", mrr.toPlainString());
+        body.put("outstanding_etb", outstanding.toPlainString());
+        body.put("next_invoice_date", nextInvoice.toString());
+        body.put("total_payments", allPayments.size());
+        body.put("active_subscription", subs.stream()
+                .filter(s -> "ACTIVE".equals(s.getStatus()))
+                .findFirst()
+                .map(s -> Map.of("plan", s.getPlan(), "expires_at",
+                        s.getExpiresAt() != null ? s.getExpiresAt().toString() : ""))
+                .orElse(null));
+
+        return ResponseEntity.ok(Map.of("data", body));
     }
 
     @GetMapping("/invoices")

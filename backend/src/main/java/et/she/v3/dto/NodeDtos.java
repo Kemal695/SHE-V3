@@ -145,7 +145,25 @@ public class NodeDtos {
      * an unrecognised value must be rejected here rather than published for the device to
      * guess at, because one of these commands wipes the device.
      */
-    public record CommandRequest(@NotBlank String cmd, String reason) {}
+    /**
+     * cmd + reason, plus OPTIONAL fields used only by `schedule_add`.
+     *
+     * Kept as flat extra fields rather than a nested object so the published MQTT
+     * payload stays flat, matching the other server→device directions
+     * (params/remote, ota/url) and the device's cJSON parsing.
+     *
+     * days_mask: bit0=Sun … bit6=Sat. 127 = every day; a subset = those weekdays;
+     * 0 (or omitted) = ONE-SHOT, which fires once and then disables itself.
+     */
+    public record CommandRequest(
+            @NotBlank String cmd,
+            String reason,
+            Integer hour,
+            Integer minute,
+            Integer days_mask,
+            Integer relay,
+            Integer action
+    ) {}
 
     public record CommandResponse(UUID nodeId, String cmd, boolean accepted, String topic) {}
 }

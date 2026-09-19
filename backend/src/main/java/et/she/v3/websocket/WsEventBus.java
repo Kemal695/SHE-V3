@@ -92,6 +92,13 @@ public class WsEventBus extends TextWebSocketHandler {
                     } else if ("node".equals(scope)) {
                         ws.subscribedNodeIds.add(UUID.fromString(targetId));
                     }
+                    // Logged deliberately: subscription is a SCOPING mechanism (an
+                    // unsubscribed session receives every event in its tenant, see
+                    // isSubscribed()), so "is this client scoped?" is otherwise
+                    // invisible in the logs and cost real debugging time.
+                    log.info("WS subscribe: session={} scope={} target={} -> homes={} nodes={}",
+                            session.getId(), scope, targetId,
+                            ws.subscribedHomeIds.size(), ws.subscribedNodeIds.size());
                 }
                 case "unsubscribe" -> {
                     String scope = root.path("scope").asText();
@@ -101,6 +108,9 @@ public class WsEventBus extends TextWebSocketHandler {
                     } else if ("node".equals(scope)) {
                         ws.subscribedNodeIds.remove(UUID.fromString(targetId));
                     }
+                    log.info("WS unsubscribe: session={} scope={} target={} -> homes={} nodes={}",
+                            session.getId(), scope, targetId,
+                            ws.subscribedHomeIds.size(), ws.subscribedNodeIds.size());
                 }
                 case "ping" -> session.sendMessage(new TextMessage("{\"event\":\"pong\"}"));
             }

@@ -5,6 +5,7 @@ import et.she.v3.entity.Node;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -69,6 +70,14 @@ public interface NodeService {
      * V3-MQTT-STANDARDS §3.4 — publishes to she/.../params/remote (QoS 1).
      */
     NodeDtos.WriteParamsResponse writeParams(UUID nodeId, UUID deviceId, NodeDtos.WriteParamsRequest req);
+
+    /**
+     * Write params as the SYSTEM, with no user context — used by automation actions
+     * fired by the scheduler. Identical to {@link #writeParams} except it skips the
+     * user authorization check (which would NPE without an Authentication) and
+     * records the audit row with actor_type SYSTEM and a null actor user.
+     */
+    NodeDtos.WriteParamsResponse writeParamsSystem(UUID nodeId, UUID deviceId, Map<String, Object> params);
 
     /**
      * GET /api/v3/nodes/{id}/telemetry?from=&to=&param=&bucket=

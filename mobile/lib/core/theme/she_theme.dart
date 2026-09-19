@@ -32,7 +32,7 @@ class SheTheme {
   // ---- Active device glow (V3-DESIGN-SYSTEM §3) ----
   static List<BoxShadow> get activeGlow => [
         BoxShadow(
-          color: brightSkyBlue.withOpacity(0.3),
+          color: brightSkyBlue.withValues(alpha: 0.3),
           blurRadius: 20,
           spreadRadius: 0,
         ),
@@ -105,7 +105,7 @@ class SheTheme {
           thumbColor: WidgetStateProperty.resolveWith((states) =>
               states.contains(WidgetState.selected) ? brightSkyBlue : textMuted),
           trackColor: WidgetStateProperty.resolveWith((states) =>
-              states.contains(WidgetState.selected) ? brightSkyBlue.withOpacity(0.3) : textMuted.withOpacity(0.2)),
+              states.contains(WidgetState.selected) ? brightSkyBlue.withValues(alpha: 0.3) : textMuted.withValues(alpha: 0.2)),
         ),
       );
 }

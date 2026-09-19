@@ -50,8 +50,18 @@ void system_service_time_sync_start(void) {
     if (s_sntp_started) {
         return;
     }
-    /* Payload timestamps are built with gmtime(), so UTC keeps them unambiguous. */
-    setenv("TZ", "UTC0", 1);
+    /* Local time is Ethiopia (EAT, UTC+3, no DST) — required so that a schedule the
+     * user sets as "20:00" means 20:00 Ethiopian, not 20:00 UTC (which would be
+     * 23:00 local, three hours late).
+     *
+     * This is SAFE for existing payload timestamps: every one is built with
+     * gmtime()/gmtime_r() (device_profiles.c published_at, and the sync log below),
+     * which is unaffected by TZ. Nothing in the tree calls localtime() or mktime()
+     * except the schedule watcher, which is exactly what wants local time.
+     *
+     * POSIX offset is "time added to local to reach UTC", so UTC+3 is -3.
+     */
+    setenv("TZ", "EAT-3", 1);
     tzset();
 
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);

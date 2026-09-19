@@ -50,7 +50,6 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   List<String> _networks = [];
   String? _selectedDevice;
   String? _selectedSsid;
-  bool _wifiOk = false;
 
   List<Map<String, dynamic>> _homes = [];
   String? _selectedHomeId;
@@ -208,7 +207,6 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           _macCtrl.text = m.group(1)!;
         }
         setState(() {
-          _wifiOk = true;
           _status =
               'Wi-Fi sent! $_selectedDevice is connecting to "$ssid" and will reboot. '
               'Now claim the device below so it appears in your dashboard.';
@@ -310,7 +308,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 const SizedBox(height: 8),
                 ..._devices.map((d) => Card(
                       color: _selectedDevice == d
-                          ? SheTheme.brightSkyBlue.withOpacity(0.2)
+                          ? SheTheme.brightSkyBlue.withValues(alpha: 0.2)
                           : null,
                       child: ListTile(
                         leading: const Icon(Icons.memory),
@@ -332,7 +330,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 const SizedBox(height: 8),
                 ..._networks.map((n) => Card(
                       color: _selectedSsid == n
-                          ? SheTheme.brightSkyBlue.withOpacity(0.2)
+                          ? SheTheme.brightSkyBlue.withValues(alpha: 0.2)
                           : null,
                       child: ListTile(
                         leading: const Icon(Icons.wifi),
@@ -405,7 +403,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _selectedSku,
+                        initialValue: _selectedSku,
                         decoration: const InputDecoration(labelText: 'Model'),
                         items: const [
                           DropdownMenuItem(
@@ -422,7 +420,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _selectedHomeId,
+                        initialValue: _selectedHomeId,
                         decoration: const InputDecoration(labelText: 'Home'),
                         items: _homes
                             .map((h) => DropdownMenuItem(

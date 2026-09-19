@@ -19,6 +19,7 @@ idf_component_register(
         "energy_monitor.c"
         "device_profiles.c"
         "system_service.c"
+        "schedule_store.c"
         "button_task.c"
         # Vendored Ed25519 verifier (see third_party/README.md for why and for checksums)
         "third_party/tweetnacl.c"

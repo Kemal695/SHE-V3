@@ -34,6 +34,7 @@
 #include "feedback_monitor.h"
 #include "energy_monitor.h"
 #include "button_task.h"
+#include "schedule_store.h"
 #include "system_service.h"
 
 #ifdef CONFIG_SHE_R16
@@ -294,6 +295,15 @@ void app_main(void) {
     relay_restore_state();
     ESP_LOGI(TAG, "Step 4: Relay state restored from NVS");
 
+    /* 4b. Load device-local schedules from NVS (does not need Wi-Fi or SNTP —
+     * the watcher simply no-ops until the clock is set). */
+    if (schedule_store_init() != ESP_OK) {
+        ESP_LOGW(TAG, "Step 4b: Schedule store unavailable — device-local "
+                      "scheduling disabled (cloud schedules unaffected)");
+    } else {
+        ESP_LOGI(TAG, "Step 4b: Device-local schedules loaded from NVS");
+    }
+
     /* 5. Node init — build the RainMaker hierarchy.
      *
      * In direct-GPIO mode only 4 channels physically exist, so advertise the R4
@@ -428,6 +438,12 @@ void app_main(void) {
     /* Start button task */
     button_task_start();
     ESP_LOGI(TAG, "Button task started");
+
+    /* 12b. Start the schedule watcher — fires device-local schedules (including
+     * repeating/weekday ones) even when the cloud is unreachable. */
+    if (schedule_task_start() != ESP_OK) {
+        ESP_LOGW(TAG, "Schedule watcher NOT started — device-local schedules inert");
+    }
 
     /* 13. Main loop: publish heartbeat + telemetry every 60s */
     ESP_LOGI(TAG, "========================================");
