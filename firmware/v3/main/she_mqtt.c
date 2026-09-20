@@ -593,6 +593,11 @@ esp_err_t mqtt_client_start(she_node_t *node) {
     esp_mqtt_client_register_event(mqtt_client, MQTT_EVENT_ANY, mqtt_event_handler, NULL);
     esp_mqtt_client_start(mqtt_client);
 
+    /* Presence heartbeat. The one-shot retained status published on connect can
+     * be missed by the backend (shared subscription + retained = unreliable), so
+     * re-publish periodically instead. The task no-ops until we're connected. */
+    mqtt_start_status_heartbeat();
+
     /* Note: cert_pem + key_pem are now owned by the MQTT client — don't free yet */
 
     ESP_LOGI(TAG, "MQTT client started: broker=%s client_id=%s", g_mqtt_broker, g_mac);
@@ -644,6 +649,44 @@ esp_err_t mqtt_publish_status(bool online) {
     esp_err_t err = mqtt_publish(topic, payload, 1, true);   /* QoS 1, retained */
     free(topic);
     return err;
+}
+
+/* ---- Presence heartbeat --------------------------------------------------
+ *
+ * Status used to be published ONCE on connect, retained. That is not enough:
+ * the backend subscribes through a SHARED subscription
+ * ($share/she-backend/she/+/+/+/+/status), and retained messages are not
+ * reliably delivered to shared-subscription members. So a device that booted
+ * before the backend subscribed stays grey in the app indefinitely — it is
+ * connected and talking, but the server never learned it was online.
+ *
+ * Re-publishing on a timer makes presence self-healing: whatever the
+ * subscribe order, the backend hears from the device within one interval.
+ */
+#define STATUS_HEARTBEAT_S  60
+
+static void status_heartbeat_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(STATUS_HEARTBEAT_S * 1000));
+        if (!g_mqtt_connected) continue;        /* don't publish while offline */
+        if (mqtt_publish_status(true) != ESP_OK) {
+            ESP_LOGW(TAG, "status heartbeat publish failed");
+        }
+    }
+}
+
+void mqtt_start_status_heartbeat(void)
+{
+    static bool started = false;
+    if (started) return;
+    if (xTaskCreate(status_heartbeat_task, "she_status_hb", 3072, NULL, 4, NULL) == pdPASS) {
+        started = true;
+        ESP_LOGI(TAG, "status heartbeat every %ds", STATUS_HEARTBEAT_S);
+    } else {
+        ESP_LOGW(TAG, "could not start status heartbeat task");
+    }
 }
 
 /**

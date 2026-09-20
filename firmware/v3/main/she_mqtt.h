@@ -27,6 +27,16 @@ extern "C" {
 esp_err_t mqtt_client_start(she_node_t *node);
 
 /**
+ * Start the presence heartbeat (re-publishes `status` every 60 s).
+ *
+ * Needed because the backend subscribes via a SHARED subscription, and
+ * retained messages are not reliably delivered to shared-subscription members —
+ * so a status published only at boot can be missed entirely, leaving the device
+ * shown as offline in the app even though it is connected. See she_mqtt.c.
+ */
+void mqtt_start_status_heartbeat(void);
+
+/**
  * Stop the MQTT client (clean shutdown).
  */
 esp_err_t mqtt_client_stop(void);
