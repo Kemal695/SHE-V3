@@ -14,6 +14,17 @@
 #include <stdbool.h>
 #include "cJSON.h"
 
+/**
+ * Firmware version reported by every device profile.
+ *
+ * Single source of truth. Previously each profile hardcoded its own string, so
+ * after an OTA the app kept showing the version baked in at build time rather
+ * than what was actually running — you could not tell an update had landed.
+ * Bump this one value before every release, and keep it in step with the
+ * `firmware_version` used when creating an OTA batch.
+ */
+#define SHE_FIRMWARE_VERSION "3.0.9"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

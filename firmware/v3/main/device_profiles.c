@@ -140,7 +140,7 @@ she_node_t* profile_build_r4(void) {
         .node_id = "SHE-R4-PLACEHOLDER",
         .mac = "00:00:00:00:00:00",
         .sku = "SHE-R4",
-        .firmware = "3.0.3",
+        .firmware = SHE_FIRMWARE_VERSION,   /* single source of truth — see device_profiles.h */
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
@@ -162,7 +162,7 @@ she_node_t* profile_build_r8(void) {
         .node_id = "SHE-R8-PLACEHOLDER",
         .mac = "00:00:00:00:00:00",
         .sku = "SHE-R8",
-        .firmware = "3.0.3",
+        .firmware = SHE_FIRMWARE_VERSION,   /* single source of truth — see device_profiles.h */
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
@@ -204,7 +204,7 @@ she_node_t* profile_build_r16(void) {
         .node_id = "SHE-R16-PLACEHOLDER",
         .mac = "00:00:00:00:00:00",
         .sku = "SHE-R16",
-        .firmware = "3.0.3",
+        .firmware = SHE_FIRMWARE_VERSION,   /* single source of truth — see device_profiles.h */
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
@@ -232,7 +232,7 @@ she_node_t* profile_build_r24(void) {
         .node_id = "SHE-R24-PLACEHOLDER",
         .mac = "00:00:00:00:00:00",
         .sku = "SHE-R24",
-        .firmware = "3.0.3",
+        .firmware = SHE_FIRMWARE_VERSION,   /* single source of truth — see device_profiles.h */
         .hw_rev = "rev-a",
         .secure_version = 1,
         .devices = devices,
