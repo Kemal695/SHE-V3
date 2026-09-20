@@ -47,10 +47,12 @@ static void button_task(void *arg) {
             if (press_duration < LONG_PRESS_MS) {
                 /* Short press — cycle relays */
                 ESP_LOGI(TAG, "Short press — cycling relays");
-                /* Toggle all relays on then off */
-                relay_set_all(0xFFFF);
+                /* Toggle all relays on then off.
+                 * 0x00FFFFFF covers 24 channels (ADR-015); the old 0xFFFF would
+                 * have left the third expander untouched on a 24-relay board. */
+                relay_set_all(0x00FFFFFFu);
                 vTaskDelay(pdMS_TO_TICKS(500));
-                relay_set_all(0x0000);
+                relay_set_all(0x00000000u);
             }
         }
         last_level = level;

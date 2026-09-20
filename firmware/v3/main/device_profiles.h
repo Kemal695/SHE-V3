@@ -84,6 +84,9 @@ she_node_t* profile_build_r4(void);
 she_node_t* profile_build_r8(void);
 she_node_t* profile_build_r16(void);
 
+/** R24: 24 relays (16 lights + 8 sockets) on 3 × PCF8574. See ADR-015. */
+she_node_t* profile_build_r24(void);
+
 /* ---- Helpers ---- */
 she_node_t* profile_build_for_sku(const char *sku);
 cJSON* profile_to_config_json(const she_node_t *node);   /* for MQTT config publish */

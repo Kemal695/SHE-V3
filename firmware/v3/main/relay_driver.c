@@ -15,9 +15,40 @@
 
 static const char *TAG = "she_relay";
 
-/* PCF8574 I2C addresses (A0/A1/A2 grounded = 0x20) */
+/* ── Expander chips ────────────────────────────────────────────────────────
+ *
+ * One entry per PCF8574 on the OUTPUT bus. Previously this was a hardcoded
+ * `g_chip0_state` / `g_chip1_state` pair with an `if (channel < 8) … else …`
+ * branch, which capped the board at 16 relays. The 24-relay board needs a third
+ * chip, and adding it that way would have meant a third variable and a third
+ * branch — with a fourth chip meaning a fourth of each. (See ADR-015.)
+ *
+ * Channels map to chips by simple division: chip = channel / 8, pin = channel % 8.
+ * That makes a fourth chip a table entry rather than new code.
+ *
+ * Addresses: PCF8574 straps A0/A1/A2 to set its address; 0x20 = all three low.
+ * Chip 2 is the 24-relay board's third output expander.
+ */
 #define PCF8574_ADDR_CHIP0    0x20
 #define PCF8574_ADDR_CHIP1    0x21
+#define PCF8574_ADDR_CHIP2    0x22
+
+#define RELAY_CHIPS           3
+#define RELAY_CHANNELS_MAX    (RELAY_CHIPS * 8)   /* 24 */
+
+/* Active-low: a PCF8574 output bit of 0 energises the relay. Applied in exactly
+ * one place (relay_set below) rather than at every call site — the reference
+ * firmware scattered `state ? 0 : 1` everywhere and it made polarity impossible
+ * to reason about. */
+static uint8_t  g_chip_state[RELAY_CHIPS] = { 0xFF, 0xFF, 0xFF };
+static uint8_t  g_chip_addr[RELAY_CHIPS]  = {
+    PCF8574_ADDR_CHIP0, PCF8574_ADDR_CHIP1, PCF8574_ADDR_CHIP2
+};
+static bool     g_chip_present[RELAY_CHIPS] = { false, false, false };
+
+/* Any chip answering on the bus. Kept as a single flag because the existing
+ * bring-up path (and relay_driver_is_direct_gpio fallback) keys off it. */
+static bool g_pcf8574_present = false;
 
 /* I2C pins: production SKUs use GPIO 8/9. Classic ESP32-D0WD DevKit uses
  * GPIO 21/22 — GPIO 6-11 on ESP32-D0WD are wired to the integrated SPI
@@ -35,9 +66,6 @@ static const char *TAG = "she_relay";
 #endif
 
 static uint8_t g_relay_count = 0;
-static uint8_t g_chip0_state = 0xFF;   /* PCF8574 powers up high (relays off) */
-static uint8_t g_chip1_state = 0xFF;
-static bool g_pcf8574_present = false; /* set by probe in relay_driver_init */
 
 /* ---- Direct-GPIO fallback -------------------------------------------------
  *
@@ -100,9 +128,22 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
     ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0));
 
-    /* Probe the expander — tolerate a missing chip (dev bring-up without
-     * peripherals, loose wiring). Boot must continue; writes become no-ops. */
-    g_pcf8574_present = (pcf8574_write_raw(PCF8574_ADDR_CHIP0, 0xFF) == ESP_OK);
+    /* Probe every expander. Tolerate missing chips — dev bring-up without
+     * peripherals, loose wiring, or one dead chip on a 24-relay board. Boot must
+     * continue and the working chips must keep working; that is why each is
+     * probed individually rather than assuming they are all-or-nothing. */
+    uint8_t found = 0;
+    for (int i = 0; i < RELAY_CHIPS; i++) {
+        g_chip_present[i] = (pcf8574_write_raw(g_chip_addr[i], 0xFF) == ESP_OK);
+        if (g_chip_present[i]) {
+            found++;
+        } else {
+            ESP_LOGW(TAG, "PCF8574 chip %d @0x%02X not found — its 8 channels "
+                          "will report as unavailable", i, g_chip_addr[i]);
+        }
+    }
+    g_pcf8574_present = (found > 0);
+    ESP_LOGI(TAG, "%u/%d expanders responded", (unsigned)found, RELAY_CHIPS);
 
 #if defined(CONFIG_SHE_DEVKIT_ESP32)
     if (!g_pcf8574_present) {
@@ -150,11 +191,13 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
     }
 
     /* Set all relays off (PCF8574 outputs high = relays de-energized, active-low) */
-    g_chip0_state = 0xFF;
-    g_chip1_state = 0xFF;
+    for (int i = 0; i < RELAY_CHIPS; i++) {
+        g_chip_state[i] = 0xFF;
+    }
     relay_set_all(0);
 
-    ESP_LOGI(TAG, "PCF8574 initialized (present=%d) — all relays OFF", g_pcf8574_present);
+    ESP_LOGI(TAG, "PCF8574 initialized (present=%d, %u chips) — all relays OFF",
+             g_pcf8574_present, (unsigned)found);
     return ESP_OK;
 }
 
@@ -203,15 +246,18 @@ esp_err_t relay_set(uint8_t channel, bool on) {
     }
 #endif
 
-    /* PCF8574 is active-low: bit = 0 → relay ON */
-    uint8_t bit = 1 << (channel % 8);
-    if (channel < 8) {
-        if (on) g_chip0_state &= ~bit; else g_chip0_state |= bit;
-        return pcf8574_write(PCF8574_ADDR_CHIP0, g_chip0_state);
-    } else {
-        if (on) g_chip1_state &= ~bit; else g_chip1_state |= bit;
-        return pcf8574_write(PCF8574_ADDR_CHIP1, g_chip1_state);
-    }
+    /* chip = channel / 8, pin = channel % 8. Active-low: bit 0 → relay ON.
+     * Polarity is applied HERE and nowhere else (see ADR-015). */
+    const uint8_t chip = channel / 8;
+    const uint8_t bit  = (uint8_t)(1u << (channel % 8));
+
+    if (chip >= RELAY_CHIPS) return ESP_ERR_INVALID_ARG;
+    if (!g_chip_present[chip]) return ESP_ERR_NOT_FOUND;
+
+    if (on) g_chip_state[chip] &= ~bit;
+    else    g_chip_state[chip] |= bit;
+
+    return pcf8574_write(g_chip_addr[chip], g_chip_state[chip]);
 }
 
 bool relay_get(uint8_t channel) {
@@ -225,13 +271,14 @@ bool relay_get(uint8_t channel) {
     }
 #endif
 
-    uint8_t bit = 1 << (channel % 8);
-    uint8_t state = (channel < 8) ? g_chip0_state : g_chip1_state;
-    /* Active-low: bit=0 means relay ON */
-    return (state & bit) == 0;
+    const uint8_t chip = channel / 8;
+    const uint8_t bit  = (uint8_t)(1u << (channel % 8));
+    if (chip >= RELAY_CHIPS) return false;
+    /* Active-low: bit = 0 means relay ON */
+    return (g_chip_state[chip] & bit) == 0;
 }
 
-esp_err_t relay_set_all(uint16_t bitmask) {
+esp_err_t relay_set_all(uint32_t bitmask) {
 #if defined(CONFIG_SHE_DEVKIT_ESP32)
     if (g_direct_gpio) {
         g_direct_state = (uint16_t)bitmask;
@@ -248,27 +295,36 @@ esp_err_t relay_set_all(uint16_t bitmask) {
     }
 #endif
 
-    g_chip0_state = 0xFF;   /* All off (active-low: bit=1 = relay OFF) */
-    g_chip1_state = 0xFF;
-    for (int i = 0; i < g_relay_count && i < 16; i++) {
-        if (bitmask & (1 << i)) {
-            /* Clear the bit (active-low = relay ON) */
-            if (i < 8) g_chip0_state &= ~(1 << i);
-            else g_chip1_state &= ~(1 << (i - 8));
+    /* Build one byte per chip from the requested mask, then write each present
+     * chip. Previously this was hardcoded to two chips; it is now a loop, so a
+     * third (or fourth) expander needs no new code. (See ADR-015.) */
+    esp_err_t first_err = ESP_OK;
+    for (int c = 0; c < RELAY_CHIPS; c++) {
+        uint8_t byte = 0xFF;   /* all off (active-low: 1 = relay OFF) */
+        for (int p = 0; p < 8; p++) {
+            const int ch = c * 8 + p;
+            if (ch < (int)g_relay_count && (bitmask & (1u << ch))) {
+                byte &= ~(1u << p);   /* clear the bit = relay ON */
+            }
         }
+        g_chip_state[c] = byte;
     }
-    /* CRITICAL: write to both chips unconditionally — even when bitmask=0 */
-    pcf8574_write(PCF8574_ADDR_CHIP0, g_chip0_state);
-    if (g_relay_count > 8) {
-        pcf8574_write(PCF8574_ADDR_CHIP1, g_chip1_state);
+
+    /* CRITICAL: write every present chip unconditionally — even when bitmask=0.
+     * A partial write would leave a chip holding its previous state, which is
+     * how a "turn everything off" ends up leaving one bank energised. */
+    for (int c = 0; c < RELAY_CHIPS; c++) {
+        if (!g_chip_present[c]) continue;
+        esp_err_t e = pcf8574_write(g_chip_addr[c], g_chip_state[c]);
+        if (e != ESP_OK && first_err == ESP_OK) first_err = e;
     }
-    return ESP_OK;
+    return first_err;
 }
 
-uint16_t relay_get_all(void) {
-    uint16_t mask = 0;
-    for (int i = 0; i < g_relay_count && i < 16; i++) {
-        if (relay_get(i)) mask |= (1 << i);
+uint32_t relay_get_all(void) {
+    uint32_t mask = 0;
+    for (int i = 0; i < g_relay_count && i < RELAY_CHANNELS_MAX; i++) {
+        if (relay_get((uint8_t)i)) mask |= (1u << i);
     }
     return mask;
 }
@@ -277,10 +333,13 @@ esp_err_t relay_restore_state(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(SHE_NVS_NAMESPACE, NVS_READONLY, &h);
     if (err != ESP_OK) return err;
-    uint16_t state = 0;
-    nvs_get_u16(h, SHE_NVS_KEY_RELAY_STATE, &state);
+    /* 24 channels need 32 bits — this was nvs_get_u16 before ADR-015, which
+     * silently truncated the upper bank on a 24-relay board. */
+    uint32_t state = 0;
+    err = nvs_get_u32(h, SHE_NVS_KEY_RELAY_STATE, &state);
     nvs_close(h);
-    ESP_LOGI(TAG, "Restoring relay state: 0x%04X", state);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "Restoring relay state: 0x%06lX", (unsigned long)state);
     return relay_set_all(state);
 }
 
@@ -288,10 +347,25 @@ esp_err_t relay_save_state(void) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(SHE_NVS_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
-    uint16_t state = relay_get_all();
-    nvs_set_u16(h, SHE_NVS_KEY_RELAY_STATE, state);
+    uint32_t state = relay_get_all();
+    nvs_set_u32(h, SHE_NVS_KEY_RELAY_STATE, state);
     nvs_commit(h);
     nvs_close(h);
-    ESP_LOGI(TAG, "Saved relay state mask=0x%04X", (unsigned)state);
+    ESP_LOGI(TAG, "Saved relay state mask=0x%06lX", (unsigned long)state);
     return ESP_OK;
+}
+
+esp_err_t relay_apply_group(uint32_t group_mask, bool on) {
+    /* Read-modify-write so a master control cannot disturb channels outside its
+     * group. relay_set_all() would clobber everything, which is why "all lights
+     * off" must not be implemented with it on this board — the sockets would go
+     * off too. */
+    const uint32_t current = relay_get_all();
+    const uint32_t next = on ? (current | group_mask) : (current & ~group_mask);
+
+    ESP_LOGI(TAG, "group 0x%06lX -> %s (mask 0x%06lX -> 0x%06lX)",
+             (unsigned long)group_mask, on ? "ON" : "OFF",
+             (unsigned long)current, (unsigned long)next);
+
+    return relay_set_all(next);
 }

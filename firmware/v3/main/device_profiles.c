@@ -19,6 +19,25 @@ static const char *TAG = "device_profiles";
 static const char *relay_names_r4[]  = {"Relay 1", "Relay 2", "Relay 3", "Relay 4"};
 static const char *relay_names_r8[]  = {"Relay 1", "Relay 2", "Relay 3", "Relay 4",
                                         "Relay 5", "Relay 6", "Relay 7", "Relay 8"};
+/* R24 board (ADR-015): 16 lights + 8 sockets across 3 × PCF8574.
+ *
+ * Channel map — note the sockets sit BETWEEN the two light banks, because that
+ * is how the expanders are physically wired:
+ *    ch  0-7  Light 1-8    (expander 0x20)
+ *    ch  8-15 Socket 1-8   (expander 0x21)
+ *    ch 16-23 Light 9-16   (expander 0x22)
+ *
+ * Names are the cloud-facing contract: a person finds a light by room and name,
+ * not by expander pin. Room labels (bilingual) go in the device attributes. */
+static const char *relay_names_r24[] = {
+    "Light 1",  "Light 2",  "Light 3",  "Light 4",
+    "Light 5",  "Light 6",  "Light 7",  "Light 8",
+    "Socket 1", "Socket 2", "Socket 3", "Socket 4",
+    "Socket 5", "Socket 6", "Socket 7", "Socket 8",
+    "Light 9",  "Light 10", "Light 11", "Light 12",
+    "Light 13", "Light 14", "Light 15", "Light 16",
+};
+
 static const char *relay_names_r16[] = {"Relay 1", "Relay 2", "Relay 3", "Relay 4",
                                         "Relay 5", "Relay 6", "Relay 7", "Relay 8",
                                         "Relay 9", "Relay 10", "Relay 11", "Relay 12",
@@ -194,10 +213,39 @@ she_node_t* profile_build_r16(void) {
     return &node;
 }
 
+/* R24: 24 relays (16 lights + 8 sockets) on 3 × PCF8574, per ADR-015.
+ *
+ * The master controls (Light Master / Socket Master / ALL OFF) are NOT modelled
+ * as devices here. A master is an intent over a group of channels, not a channel
+ * of its own — it is served by relay_apply_group() with the RELAY_GROUP_* masks
+ * from relay_driver.h. Modelling it as a device would imply it has a pin. */
+she_node_t* profile_build_r24(void) {
+    static node_device_t devices[26];   /* 24 relays + OTA + Diagnostics */
+
+    for (int i = 0; i < 24; i++) {
+        devices[i] = build_relay_device(relay_names_r24[i], i);
+    }
+    devices[24] = build_ota_service();
+    devices[25] = build_diagnostics_service();
+
+    static she_node_t node = {
+        .node_id = "SHE-R24-PLACEHOLDER",
+        .mac = "00:00:00:00:00:00",
+        .sku = "SHE-R24",
+        .firmware = "3.0.3",
+        .hw_rev = "rev-a",
+        .secure_version = 1,
+        .devices = devices,
+        .device_count = 26,
+    };
+    return &node;
+}
+
 she_node_t* profile_build_for_sku(const char *sku) {
     if (strcmp(sku, "SHE-R4") == 0)  return profile_build_r4();
     if (strcmp(sku, "SHE-R8") == 0)  return profile_build_r8();
     if (strcmp(sku, "SHE-R16") == 0) return profile_build_r16();
+    if (strcmp(sku, "SHE-R24") == 0) return profile_build_r24();
 #ifdef CONFIG_SHE_DEVKIT_ESP32
     /* DevKit has no factory-programmed SKU — fall back to the R4 profile
      * (4 relays, no PZEM) so bring-up can proceed to BLE provisioning. */

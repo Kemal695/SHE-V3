@@ -346,7 +346,8 @@ void app_main(void) {
             }
         }
     }
-    ESP_LOGI(TAG, "Relay state synced from hardware: mask=0x%04X", relay_get_all());
+    ESP_LOGI(TAG, "Relay state synced from hardware: mask=0x%06lX",
+             (unsigned long)relay_get_all());
 
     /* 6. If not provisioned → start BLE provisioning (blocks) */
     if (!ble_provisioning_is_provisioned()) {
