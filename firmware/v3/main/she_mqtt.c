@@ -375,6 +375,14 @@ static void handle_command(const char *data, size_t len) {
                 mqtt_publish_schedules();
             }
         }
+    } else if (strcmp(cmd->valuestring, "relay_test") == 0) {
+        // Bench self-test: walk every channel ON/OFF one at a time, logging each
+        // with its channel number and expander. Watch which relay actually clicks
+        // — a mismatch means the channel map or an expander address is wrong.
+        // Triggerable over MQTT because serial has not always been available.
+        ESP_LOGW(TAG, "command: RELAY SELF-TEST requested (reason=%s)",
+                 reason_str ? reason_str : "none");
+        relay_selftest(400);
     } else if (strcmp(cmd->valuestring, "schedule_list") == 0) {
         // Diagnostic: report what the device actually holds.
         mqtt_publish_schedules();

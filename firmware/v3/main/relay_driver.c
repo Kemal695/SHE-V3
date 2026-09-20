@@ -11,6 +11,10 @@
 #include "driver/i2c.h"
 #include "driver/gpio.h"     /* direct-GPIO fallback when no PCF8574 is present */
 #include "nvs_flash.h"
+/* Explicit: relay_selftest() uses vTaskDelay(). It compiled before only because
+ * driver/i2c.h pulls FreeRTOS in transitively — not something to rely on. */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "she_relay";
@@ -368,4 +372,29 @@ esp_err_t relay_apply_group(uint32_t group_mask, bool on) {
              (unsigned long)current, (unsigned long)next);
 
     return relay_set_all(next);
+}
+
+esp_err_t relay_selftest(uint32_t step_delay_ms) {
+    ESP_LOGW(TAG, "=== RELAY SELF-TEST: %u channels, %ums per step ===",
+             (unsigned)g_relay_count, (unsigned)step_delay_ms);
+    ESP_LOGW(TAG, "Watch which relay clicks as each channel is named below.");
+
+    for (uint8_t ch = 0; ch < g_relay_count; ch++) {
+        const uint8_t chip = ch / 8;
+        const uint8_t pin  = ch % 8;
+
+        ESP_LOGW(TAG, "  ch %2u  (expander %u @0x%02X, pin %u)  -> ON",
+                 ch, chip, g_chip_addr[chip], pin);
+        relay_set(ch, true);
+        vTaskDelay(pdMS_TO_TICKS(step_delay_ms));
+
+        relay_set(ch, false);
+        vTaskDelay(pdMS_TO_TICKS(step_delay_ms / 2));
+    }
+
+    /* Leave everything off regardless of how we got here — a self-test that
+     * ends with a relay energised is a self-test nobody will run twice. */
+    relay_set_all(0);
+    ESP_LOGW(TAG, "=== SELF-TEST DONE — all relays OFF ===");
+    return ESP_OK;
 }

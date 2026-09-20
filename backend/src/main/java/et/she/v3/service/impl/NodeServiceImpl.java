@@ -415,7 +415,10 @@ public class NodeServiceImpl implements NodeService {
     // internet is down. ADMIN-only, same as the other destructive/state-changing commands.
     private static final Set<String> ALLOWED_COMMANDS =
             Set.of("reboot", "factory_reset", "sync_time", "ping",
-                   "schedule_add", "schedule_clear", "schedule_list");
+                   "schedule_add", "schedule_clear", "schedule_list",
+                   // Bench self-test: walks every relay channel ON/OFF so a new
+                   // board's channel map can be verified against what actually clicks.
+                   "relay_test");
 
     @Override
     public NodeDtos.CommandResponse executeCommand(UUID nodeId, NodeDtos.CommandRequest req) {

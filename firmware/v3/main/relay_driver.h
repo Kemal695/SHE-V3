@@ -98,6 +98,19 @@ esp_err_t relay_save_state(void);
  */
 esp_err_t relay_apply_group(uint32_t group_mask, bool on);
 
+/**
+ * Bench self-test: walk every channel ON then OFF, one at a time, logging each
+ * step with its channel number and name.
+ *
+ * Run this first on a new board. Watch which relay actually clicks when the log
+ * says "ch 8 (Socket 1)" — if the wrong one moves, the channel map or an
+ * expander address is wrong, and that is much cheaper to find here than through
+ * a half-working app. Leaves every relay OFF.
+ *
+ * @param step_delay_ms pause per step; 400 ms is enough to see and hear.
+ */
+esp_err_t relay_selftest(uint32_t step_delay_ms);
+
 #ifdef __cplusplus
 }
 #endif
