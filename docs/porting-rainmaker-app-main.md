@@ -221,17 +221,27 @@ Unverified: whether the board *also* carries the mux+ADC path, or whether the in
 replace it entirely.
 
 
-### Proposed structure
+### Where the code actually went
+
+The plan changed once I read `relay_driver.c` properly. It already drove PCF8574 with set
+semantics and polarity in the driver, so a **new chip driver was not needed** — the work was
+extending the existing one. Files touched:
 
 ```
 firmware/v3/main/
-  pcf8574.c / .h          NEW  — I2C expander driver (set, not toggle; bus in handle)
-  relay_driver.c          EDIT — add an expander backend; keep the public API identical
-  device_profiles.c       EDIT — add a 24-relay profile (16 light + 8 socket) + masters
-  feedback_monitor.c      EDIT — read AC inputs, publish real state
+  relay_driver.c      EDIT — chip table (3 entries), 32-bit mask, group intents
+  relay_driver.h      EDIT — widened signatures + RELAY_GROUP_* masks
+  device_profiles.c   EDIT — profile_build_r24() (16 lights + 8 sockets)
+  device_profiles.h   EDIT — declaration
+  button_task.c       EDIT — 0xFFFF -> 0x00FFFFFFu
+  main.c              EDIT — mask log width
+  (no new files — the device model already had names/channels/attributes)
 ```
 
-### Channel mapping (24 relays, `uint16_t` bitmask is enough)
+A `pcf8574.c` / `pcf8574_board.c` were written first and **deleted** once it became clear they
+duplicated `relay_driver.c` and `device_profiles.h`. See the memory log for 2026-09-20.
+
+### Channel mapping (24 relays)
 
 | Channel | Expander | Pin | Name |
 |---|---|---|---|
@@ -239,11 +249,17 @@ firmware/v3/main/
 | 8–15 | OUT_2 | 0–7 | Socket 1–8 |
 | 16–23 | OUT_3 | 0–7 | Light 9–16 |
 
-Masters are **not** channels — they are commands that fan out:
-- `Light Master` → channels 0–7 + 16–23
-- `Socket Master` → channels 8–15
-- `Master Switch` → all 24
-- `ALL OFF` → all 24 off
+Masters are **not** channels — they are intents over a group, served by
+`relay_apply_group()` with these masks:
+
+| Master | Mask | Note |
+|---|---|---|
+| Lights | `0x00FF00FF` | **not contiguous** — sockets sit between the light banks |
+| Sockets | `0x0000FF00` | |
+| All | `0x00FFFFFF` | |
+
+`relay_apply_group()` is read-modify-write precisely so "all lights off" cannot turn the
+sockets off. Using `relay_set_all()` for a master would do exactly that.
 
 ### Behaviour changes vs. the original
 
@@ -255,27 +271,48 @@ Masters are **not** channels — they are commands that fan out:
 | reports requested value | reports **actual** state |
 | Amharic attrs only | keep them, plus expose via profile |
 
-### Open questions before implementing
-
-1. **Addresses** — `OUT1_ADD`/`OUT2_ADD`/`OUT3_ADD`/`DCIN*`/`ACIN*` are not in the file.
-   Need the real values (and to confirm none collide on a bus).
-2. **I2C pins** — `I2C_MASTER_SDA_IO_0/1`, `SCL_IO_0/1` also undefined here.
-3. **Is this board a new SKU** (`SHE-R24`?) or a variant of `SHE-R4`? It needs its own
-   `target_sku` for OTA targeting — and per `docs/LOCK-MANIFEST.md` a new hardware profile is
-   a decision that likely wants an **ADR-015+**, not an in-place spec edit.
-4. **Feedback semantics** — `pcf8574_read_pin` returns `(bit) ? 0 : 1`, i.e. **active-low
-   inputs**. Need to confirm the AC sense boards really are active-low before trusting them.
-
 ---
 
-## 4. Recommended order
+## 4. Status
 
-1. Get the addresses + pins (blocking — nothing can be flashed without them).
-2. `pcf8574.c` — driver with set semantics, bus in the handle, polarity in one place.
-3. Bench-test the driver alone: set each of the 24 pins, confirm the right relay clicks.
-4. Wire it behind `relay_set()` so the existing stack needs no changes.
-5. Add the 24-relay profile + masters, then verify through the app end-to-end.
-6. Only then bring the AC feedback into `feedback_monitor`.
+### Done and building (exit 0)
 
-Step 3 matters most: with 24 outputs on two buses, confirming the *mapping* is where this
-will go wrong, and it is cheap to check before anything else depends on it.
+- Chip table replaces the hardcoded two-chip pair; a chip is a table entry, not a branch.
+- Third expander added for channels 16–23; mask widened `uint16_t` → `uint32_t`.
+- Per-chip probing, so one dead expander does not take the board down and the log names it.
+- `relay_set_all()` writes every present chip unconditionally — a partial write is how
+  "all off" leaves one bank energised.
+- `relay_apply_group()` for master intents.
+- **Latent bug fixed:** `relay_restore_state()`/`relay_save_state()` used `nvs_get_u16` /
+  `nvs_set_u16`. With 24 channels the upper bank was silently truncated, so relays 17–24 would
+  have come back in the wrong state after every reboot — and it would have looked like a
+  hardware fault. Now `u32`.
+- `profile_build_r24()`: 26 devices, sku `SHE-R24`.
+- `ADR-015` written (status **Proposed**).
+
+### Blocked — needs values only the hardware owner has
+
+1. **The I2C addresses.** `0x20`/`0x21` came from the existing `relay_driver.c`, so they are
+   probably right. **`0x22` for the third expander is a guess.** A wrong address writes to
+   whatever chip *is* at that address — on a relay board, the wrong circuit.
+2. **The I2C pins.** `I2C_MASTER_SDA/SCL_IO_0` (outputs) and `_1` (inputs).
+
+Neither is in the shared `app_main.c`; they live in the project's `pcf8574.h` and
+`analoginputs.h`.
+
+### Not started
+
+- **Input expander feedback.** `feedback_monitor.c` uses a CD4051 mux + ADC (analog,
+  one channel at a time); this board uses digital I2C input registers. Different principles —
+  an I2C input path has to be added, not adapted. Unverified whether the board also carries
+  the mux path.
+- **Room labels.** The bilingual attributes (`"Room/ክፍል" = "Living Room/ሳሎን"`) belong in the
+  `attributes` field of `node_device_t`, which already supports them. Not yet populated for R24.
+
+### Then
+
+1. Bench-test all 24 channels — set each one, confirm the right relay clicks. With three
+   expanders this is where a mapping mistake shows up, and it is cheap to check first.
+2. Populate the room labels.
+3. Add the I2C input feedback path.
+
