@@ -214,28 +214,26 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         SSLOptions sslOpts = buildSslOptions();
         opts.setSocketFactory(sslOpts.sslContext().getSocketFactory());
 
+        // Release any previous client before replacing it. Every reconnect used to
+        // build a new MqttAsyncClient and drop the old reference, leaking a client
+        // plus its threads and socket on each cycle.
+        if (mqttClient != null) {
+            try {
+                mqttClient.close();
+            } catch (Exception e) {
+                log.debug("closing previous MQTT client: {}", e.getMessage());
+            }
+            mqttClient = null;
+        }
+
         mqttClient = new MqttAsyncClient(brokerUrl, clientId, new MemoryPersistence());
         mqttClient.setCallback(this);
 
-        // Connect + subscribe
+        // Connect. Subscriptions are NOT set up here — connectComplete() does that,
+        // so there is exactly one path and it runs on every (re)connection.
         IMqttToken token = mqttClient.connect(opts);
         token.waitForCompletion(15000);
-        log.info("MQTT connected");
-
-        // Shared subscription — V3-ARCHITECTURE §7.2
-        // One subscription per direction: MQTT has no regex topic filters, so the old
-        // `.../+/(telemetry|status|...)` filter matched nothing and was ACL-denied.
-        for (String direction : DEVICE_PUBLISH_DIRECTIONS) {
-            String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
-                    "/she/+/+/+/+/" + direction;
-            mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
-            log.info("MQTT subscribed to: {}", sharedTopic);
-        }
-
-        // Also subscribe to `config` NON-shared (full self-description on connect — don't miss during instance restart)
-        String configTopic = "she/+/+/+/+/config";
-        mqttClient.subscribe(configTopic, 1).waitForCompletion();
-        log.info("MQTT subscribed to: {}", configTopic);
+        log.info("MQTT connect() returned");
     }
 
     private void safeReconnect() {
@@ -288,20 +286,48 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     // MqttCallbackExtended
     // =========================================================================
 
+    /**
+     * Subscribe to every topic we care about.
+     *
+     * Called from connectComplete() so subscriptions are always re-established
+     * in lockstep with the connection lifecycle.
+     *
+     * NOTE: this used to live inline in connect() AND in connectComplete() behind
+     * an `if (reconnect)` guard. That guard could never be true — the client is
+     * configured with setAutomaticReconnect(false) and reconnects are driven
+     * manually, so Paho always reports reconnect=false — meaning one of the two
+     * copies was dead code. Keeping a single path here removes the whole class of
+     * "connected but silently subscribed to nothing" bug: with cleanSession(true)
+     * no subscription survives a reconnect on its own.
+     */
+    private void subscribeAll() throws MqttException {
+        // Shared subscription — V3-ARCHITECTURE §7.2
+        // One subscription per direction: MQTT has no regex topic filters, so the old
+        // `.../+/(telemetry|status|...)` filter matched nothing and was ACL-denied.
+        for (String direction : DEVICE_PUBLISH_DIRECTIONS) {
+            String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
+                    "/she/+/+/+/+/" + direction;
+            mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
+            log.info("MQTT subscribed to: {}", sharedTopic);
+        }
+
+        // Also subscribe to `config` NON-shared (full self-description on connect —
+        // don't miss it during an instance restart).
+        String configTopic = "she/+/+/+/+/config";
+        mqttClient.subscribe(configTopic, 1).waitForCompletion();
+        log.info("MQTT subscribed to: {}", configTopic);
+    }
+
     @Override
     public void connectComplete(boolean reconnect, String serverURI) {
-        if (reconnect) {
-            log.info("MQTT reconnected to {}", serverURI);
-            try {
-                for (String direction : DEVICE_PUBLISH_DIRECTIONS) {
-                    String sharedTopic = "$share/" + props.mqtt().sharedSubscriptionGroup() +
-                            "/she/+/+/+/+/" + direction;
-                    mqttClient.subscribe(sharedTopic, 1).waitForCompletion();
-                }
-                mqttClient.subscribe("she/+/+/+/+/config", 1).waitForCompletion();
-            } catch (Exception e) {
-                log.error("MQTT re-subscribe failed", e);
-            }
+        log.info("MQTT connected to {} (reconnect={})", serverURI, reconnect);
+        try {
+            subscribeAll();
+        } catch (Exception e) {
+            // Do NOT swallow this: a failure here means the backend looks healthy
+            // but receives nothing, which is indistinguishable from a dead device.
+            log.error("MQTT subscribe failed — backend will receive NOTHING until " +
+                      "reconnected. Verify with: emqx ctl clients list | grep she-backend", e);
         }
     }
 
