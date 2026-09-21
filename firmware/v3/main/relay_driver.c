@@ -21,17 +21,28 @@ static const char *TAG = "she_relay";
 
 /* ── Expander chips ────────────────────────────────────────────────────────
  *
- * One entry per PCF8574 on the OUTPUT bus. Previously this was a hardcoded
- * `g_chip0_state` / `g_chip1_state` pair with an `if (channel < 8) … else …`
- * branch, which capped the board at 16 relays. The 24-relay board needs a third
- * chip, and adding it that way would have meant a third variable and a third
- * branch — with a fourth chip meaning a fourth of each. (See ADR-015.)
+ * One entry per PCF8574. Previously this was a hardcoded `g_chip0_state` /
+ * `g_chip1_state` pair with an `if (channel < 8) … else …` branch, which capped
+ * the board at 16 relays. The 24-relay board needs a third chip, and adding it
+ * that way would have meant a third variable and a third branch — with a fourth
+ * chip meaning a fourth of each. (See ADR-015.)
  *
  * Channels map to chips by simple division: chip = channel / 8, pin = channel % 8.
  * That makes a fourth chip a table entry rather than new code.
  *
+ * Each entry carries its own BUS. The reference firmware hardcoded I2C_NUM_1 for
+ * reads and I2C_NUM_0 for writes regardless of which device was passed in, which
+ * only worked because that board happened to split outputs and inputs across two
+ * buses. Encoding the bus per chip makes the assumption explicit, and survives a
+ * board that puts both sides on one bus. (See ADR-016.)
+ *
  * Addresses: PCF8574 straps A0/A1/A2 to set its address; 0x20 = all three low.
  * Chip 2 is the 24-relay board's third output expander.
+ *
+ * ⚠️ The ADDRESSES BELOW ARE ASSUMED. 0x20/0x21 came from the pre-existing file;
+ * 0x22 is a guess. A wrong address writes to whatever chip IS at that address —
+ * on a relay board, the wrong circuit. Confirm against the board's pcf8574.h
+ * before flashing anything that drives real expanders.
  */
 #define PCF8574_ADDR_CHIP0    0x20
 #define PCF8574_ADDR_CHIP1    0x21
@@ -40,6 +51,9 @@ static const char *TAG = "she_relay";
 #define RELAY_CHIPS           3
 #define RELAY_CHANNELS_MAX    (RELAY_CHIPS * 8)   /* 24 */
 
+/* Bus each output chip sits on. All outputs share one bus on this board. */
+#define RELAY_CHIP_BUS        0
+
 /* Active-low: a PCF8574 output bit of 0 energises the relay. Applied in exactly
  * one place (relay_set below) rather than at every call site — the reference
  * firmware scattered `state ? 0 : 1` everywhere and it made polarity impossible
@@ -47,6 +61,9 @@ static const char *TAG = "she_relay";
 static uint8_t  g_chip_state[RELAY_CHIPS] = { 0xFF, 0xFF, 0xFF };
 static uint8_t  g_chip_addr[RELAY_CHIPS]  = {
     PCF8574_ADDR_CHIP0, PCF8574_ADDR_CHIP1, PCF8574_ADDR_CHIP2
+};
+static uint8_t  g_chip_bus[RELAY_CHIPS]   = {
+    RELAY_CHIP_BUS, RELAY_CHIP_BUS, RELAY_CHIP_BUS
 };
 static bool     g_chip_present[RELAY_CHIPS] = { false, false, false };
 
@@ -114,7 +131,7 @@ bool relay_driver_is_direct_gpio(void) {
 }
 
 /* Forward declaration (defined below) */
-static esp_err_t pcf8574_write_raw(uint8_t addr, uint8_t data);
+static esp_err_t pcf8574_write_raw(uint8_t bus, uint8_t addr, uint8_t data);
 
 esp_err_t relay_driver_init(uint8_t relay_count) {
     g_relay_count = relay_count;
@@ -138,7 +155,7 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
      * probed individually rather than assuming they are all-or-nothing. */
     uint8_t found = 0;
     for (int i = 0; i < RELAY_CHIPS; i++) {
-        g_chip_present[i] = (pcf8574_write_raw(g_chip_addr[i], 0xFF) == ESP_OK);
+        g_chip_present[i] = (pcf8574_write_raw(g_chip_bus[i], g_chip_addr[i], 0xFF) == ESP_OK);
         if (g_chip_present[i]) {
             found++;
         } else {
@@ -205,23 +222,23 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
     return ESP_OK;
 }
 
-static esp_err_t pcf8574_write_raw(uint8_t addr, uint8_t data) {
+static esp_err_t pcf8574_write_raw(uint8_t bus, uint8_t addr, uint8_t data) {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(cmd, data, true);
     i2c_master_stop(cmd);
-    esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(100));
+    esp_err_t err = i2c_master_cmd_begin(bus, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
     return err;
 }
 
 /* Presence-gated write — no-op (with warning) when the chip is absent */
-static esp_err_t pcf8574_write(uint8_t addr, uint8_t data) {
+static esp_err_t pcf8574_write(uint8_t bus, uint8_t addr, uint8_t data) {
     if (!g_pcf8574_present) {
         return ESP_ERR_NOT_FOUND;
     }
-    esp_err_t err = pcf8574_write_raw(addr, data);
+    esp_err_t err = pcf8574_write_raw(bus, addr, data);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "PCF8574 write failed (addr 0x%02X): %s", addr, esp_err_to_name(err));
     }
@@ -261,7 +278,7 @@ esp_err_t relay_set(uint8_t channel, bool on) {
     if (on) g_chip_state[chip] &= ~bit;
     else    g_chip_state[chip] |= bit;
 
-    return pcf8574_write(g_chip_addr[chip], g_chip_state[chip]);
+    return pcf8574_write(g_chip_bus[chip], g_chip_addr[chip], g_chip_state[chip]);
 }
 
 bool relay_get(uint8_t channel) {
@@ -319,7 +336,7 @@ esp_err_t relay_set_all(uint32_t bitmask) {
      * how a "turn everything off" ends up leaving one bank energised. */
     for (int c = 0; c < RELAY_CHIPS; c++) {
         if (!g_chip_present[c]) continue;
-        esp_err_t e = pcf8574_write(g_chip_addr[c], g_chip_state[c]);
+        esp_err_t e = pcf8574_write(g_chip_bus[c], g_chip_addr[c], g_chip_state[c]);
         if (e != ESP_OK && first_err == ESP_OK) first_err = e;
     }
     return first_err;
