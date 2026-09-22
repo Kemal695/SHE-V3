@@ -81,6 +81,23 @@ def main() -> int:
     env.setdefault("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.WSH;.MSC")
     env["PATH"] = os.pathsep.join([d for d in TOOL_DIRS if os.path.isdir(d)] + [env.get("PATH", "")])
 
+    # Limit build parallelism.
+    #
+    # Measured: ninja reports "[default=6 on this system]" here — 6 parallel jobs
+    # on a 2-core / 4-thread i5-6200U, i.e. 50% oversubscribed. This laptop has
+    # hard-crashed four times (Event 41, no clean shutdown) under all-core load
+    # while discharging, so the oversubscription matters.
+    #
+    # `idf.py` has no -j flag (verified against `idf.py build --help`), so the cap
+    # goes in via CMAKE_BUILD_PARALLEL_LEVEL, which CMake's --build honours and
+    # which the ninja generator picks up.
+    #
+    # Override per-run:  SHE_BUILD_JOBS=4 python scripts/run-idf.py build
+    jobs = env.get("SHE_BUILD_JOBS", "2")
+    env["CMAKE_BUILD_PARALLEL_LEVEL"] = jobs
+    print(f"  build parallelism capped at {jobs} job(s) "
+          f"(SHE_BUILD_JOBS to change; ninja would otherwise use 6)")
+
     cmd = [IDF_PYTHON, rf"{IDF_PATH}\tools\idf.py"] + args
     os.chdir(FIRMWARE_DIR)
     return subprocess.call(cmd, env=env)
