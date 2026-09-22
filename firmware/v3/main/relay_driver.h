@@ -62,6 +62,20 @@ esp_err_t relay_set_all(uint32_t bitmask);
 uint32_t relay_get_all(void);
 
 /**
+ * Read back what an output expander actually holds (not what we last wrote).
+ * Returns ESP_ERR_NOT_FOUND for a chip that never answered at init, or in
+ * direct-GPIO mode where there are no expanders.
+ */
+esp_err_t relay_driver_readback(uint8_t chip, uint8_t *actual);
+
+/**
+ * Compare every present output expander against its shadow byte.
+ * ESP_OK when all agree; ESP_ERR_INVALID_STATE on mismatch, with the offending
+ * chip index in *first_mismatch (if non-NULL).
+ */
+esp_err_t relay_driver_verify_shadow(int *first_mismatch);
+
+/**
  * Restore last relay state from NVS (persist property — V3-DEVICE-MODEL §1.5).
  * Called at boot.
  */

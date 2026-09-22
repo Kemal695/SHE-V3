@@ -234,6 +234,36 @@ static esp_err_t pcf8574_write_raw(uint8_t bus, uint8_t addr, uint8_t data) {
 }
 
 /* Presence-gated write — no-op (with warning) when the chip is absent */
+/**
+ * Read one byte from a PCF8574.
+ *
+ * A PCF8574 has no register address and no pin select: you read the whole port
+ * in one transaction and mask. That is why the input side (ADR-016) reads eight
+ * inputs at once rather than one at a time like the CD4051 mux path does.
+ *
+ * Also used to read back the OUTPUT expanders. A write can be ACKed and still
+ * not stick — a bad solder joint on a PCF8574's pins, or a chip that resets
+ * itself — and the only way to tell is to read what it actually holds. That is
+ * what relay_driver_readback() below is for.
+ */
+static esp_err_t pcf8574_read_raw(uint8_t bus, uint8_t addr, uint8_t *out) {
+    if (out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
+    uint8_t data = 0;
+    i2c_master_read_byte(cmd, &data, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+    esp_err_t err = i2c_master_cmd_begin(bus, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
+    if (err == ESP_OK) {
+        *out = data;
+    }
+    return err;
+}
+
 static esp_err_t pcf8574_write(uint8_t bus, uint8_t addr, uint8_t data) {
     if (!g_pcf8574_present) {
         return ESP_ERR_NOT_FOUND;
@@ -348,6 +378,67 @@ uint32_t relay_get_all(void) {
         if (relay_get((uint8_t)i)) mask |= (1u << i);
     }
     return mask;
+}
+
+/**
+ * Read back what an output expander ACTUALLY holds, as opposed to what we last
+ * wrote to it.
+ *
+ * The shadow (g_chip_state) records intent. If a chip ACKs a write but does not
+ * hold it — dry joint on its pins, chip browning out, address collision with
+ * another device on the bus — the shadow and reality diverge and nothing else
+ * would notice: relay_get() would keep reporting the intended state and the
+ * server would keep showing it. This is the function that can tell.
+ *
+ * @param chip   0..RELAY_CHIPS-1
+ * @param actual receives the byte read from the chip
+ * @return ESP_OK, ESP_ERR_INVALID_ARG, or ESP_ERR_NOT_FOUND if that chip was
+ *         never seen on the bus at init.
+ */
+esp_err_t relay_driver_readback(uint8_t chip, uint8_t *actual) {
+    if (actual == NULL || chip >= RELAY_CHIPS) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (g_direct_gpio || !g_chip_present[chip]) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return pcf8574_read_raw(g_chip_bus[chip], g_chip_addr[chip], actual);
+}
+
+/**
+ * Compare every present output expander against its shadow.
+ *
+ * @param first_mismatch set to the first chip whose read-back disagrees with
+ *        what we wrote, or -1 if all agree. May be NULL.
+ * @return ESP_OK if every present chip agrees, ESP_ERR_INVALID_STATE on any
+ *         mismatch, or the first bus error encountered.
+ *
+ * NOT called anywhere yet — kept as the diagnostic hook for bringing up real
+ * expander hardware, where a silently-not-holding chip is the failure mode that
+ * otherwise presents as "the relay clicks but nothing switches".
+ */
+esp_err_t relay_driver_verify_shadow(int *first_mismatch) {
+    if (first_mismatch) *first_mismatch = -1;
+    if (g_direct_gpio) {
+        return ESP_OK;   /* no expanders in this mode */
+    }
+    for (uint8_t c = 0; c < RELAY_CHIPS; c++) {
+        if (!g_chip_present[c]) continue;
+        uint8_t actual = 0;
+        esp_err_t err = pcf8574_read_raw(g_chip_bus[c], g_chip_addr[c], &actual);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "readback failed for chip %u @0x%02X: %s",
+                     c, g_chip_addr[c], esp_err_to_name(err));
+            return err;
+        }
+        if (actual != g_chip_state[c]) {
+            ESP_LOGE(TAG, "chip %u @0x%02X mismatch: wrote 0x%02X, reads 0x%02X",
+                     c, g_chip_addr[c], g_chip_state[c], actual);
+            if (first_mismatch) *first_mismatch = (int)c;
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t relay_restore_state(void) {
