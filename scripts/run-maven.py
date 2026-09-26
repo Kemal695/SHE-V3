@@ -17,11 +17,19 @@ Usage:
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-BACKEND_DIR = r"D:\she-v3\backend"
-MAVEN_BOOT = "C:/tools/apache-maven-3.9.16/boot/plexus-classworlds-2.11.0.jar"
-MAVEN_CONF = "C:/tools/apache-maven-3.9.16/bin/m2.conf"
-MAVEN_HOME = "C:/tools/apache-maven-3.9.16"
+# Derived, not hardcoded — see the note in run-backend.py.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_DIR = REPO_ROOT / "backend"
+
+MAVEN_HOME = (
+    os.environ.get("MAVEN_HOME")
+    or os.environ.get("M2_HOME")
+    or r"C:\tools\apache-maven-3.9.16"
+)
+MAVEN_BOOT = str(Path(MAVEN_HOME) / "boot" / "plexus-classworlds-2.11.0.jar")
+MAVEN_CONF = str(Path(MAVEN_HOME) / "bin" / "m2.conf")
 
 
 def main() -> int:

@@ -172,12 +172,13 @@ python scripts/flash-esp32.py                     # COM4 @ 460800
 python scripts/flash-esp32.py --port COM7 --erase # different port, full erase
 python scripts/flash-esp32.py --check             # link test only
 python scripts/flash-esp32.py --baud 115200       # marginal cable
-python scripts/flash-esp32.py --build-dir D:/she-v3/firmware/v3/build-esp32d-clean
+python scripts/flash-esp32.py --build-dir firmware/v3/build-esp32d-clean
 ```
 
 The script reads `flasher_args.json` from the build dir for the exact offsets,
 verifies every image exists before touching the chip, runs a `chip_id` link
-test first, and only then flashes.
+test first, and only then flashes. Paths are relative to the repo root — the
+checkout is not at `D:/she-v3` any more.
 
 It passes `--flash_size detect` by default — see §5.
 

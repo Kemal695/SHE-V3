@@ -273,10 +273,37 @@ services:
   # V3-ARCHITECTURE §5.3 (bucket catalog + lifecycle)
   # ---------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    # Was `minio/minio:RELEASE.2024-10-13T13-34-11Z`. MinIO put the project into
+    # maintenance mode (2025-12) and then REMOVED the open-source community
+    # edition and deleted every image from Docker Hub (~2026-09), so that
+    # reference now fails with "pull access denied ... repository does not exist"
+    # — and because compose aborts a whole `pull` batch on one failure, it took
+    # the other five images down with it.
+    #
+    # bitnamilegacy/minio:2024.10.13-debian-12-r1 is built from the SAME upstream
+    # MinIO release (2024-10-13) that this stack was pinned to, so there is no
+    # version drift. Bitnami's legacy archive also keeps the same
+    # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD env names and ships curl, which the
+    # healthcheck below needs.
+    #
+    # NOTE: Bitnami's legacy archive receives no further security updates.
+    # This unblocks local development; the production storage component needs a
+    # proper decision (new ADR + CANONICAL-DECISIONS entry) before GA.
+    image: bitnamilegacy/minio:2024.10.13-debian-12-r1
     container_name: she-minio
     restart: unless-stopped
     networks: [she-backend]
+    # Bitnami's entrypoint (entrypoint.sh line 25) `exec`s its arguments
+    # directly, so the original `command: server /data ...` died with
+    # `exec: server: not found` — exit 127, crash-loop. Calling the real minio
+    # binary bypasses Bitnami's wrapper while keeping the original arguments
+    # verbatim. MINIO_ROOT_USER / MINIO_ROOT_PASSWORD / MINIO_VOLUMES are native
+    # MinIO env vars, so minio reads them itself and no Bitnami layer is needed.
+    entrypoint: ["/opt/bitnami/minio/bin/minio"]
+    # Upstream minio/minio ran as root; Bitnami's image defaults to uid 1001,
+    # which cannot write the root-owned she-minio-data volume. Match the
+    # original image's behaviour rather than re-permissioning the volume.
+    user: "0"
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # console

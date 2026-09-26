@@ -141,10 +141,13 @@ public final class PemToKeyStore {
         if (pwFile == null) pwFile = System.getenv("STEP_CA_CLIENT_PROVISIONER_PASSWORD_FILE");
         if (pwFile == null) pwFile = System.getenv("STEP_CA_PROVISIONER_PASSWORD_FILE");
         if (pwFile == null) {
-            // Fallback to common dev paths
+            // Fallback to common dev paths. These are RELATIVE on purpose: the
+            // absolute variants that used to be listed here pointed at
+            // D:/she-v3, which no longer exists (the checkout moved to
+            // "D:/project X/she-v3/she-v3"), so they could never match again.
+            // Relative resolves against the process CWD, which the launcher
+            // sets to backend/ — hence the ../infra form.
             for (String candidate : new String[]{
-                "D:/she-v3/infra/ca/step-ca-provisioner-password.txt",
-                "/d/she-v3/infra/ca/step-ca-provisioner-password.txt",
                 "infra/ca/step-ca-provisioner-password.txt",
                 "../infra/ca/step-ca-provisioner-password.txt"
             }) {

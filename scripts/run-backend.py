@@ -12,13 +12,40 @@ This loader splits on the FIRST '=' only and performs no shell interpretation.
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-ENV_PATH = r"D:\she-v3\backend\.env"
-BACKEND_DIR = r"D:\she-v3\backend"
+# Derive the repo location from this file rather than hardcoding it. These were
+# absolute (D:\she-v3\...), which broke silently every time the checkout moved —
+# and it did move, to "D:\project X\she-v3\she-v3".
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_DIR = REPO_ROOT / "backend"
+ENV_PATH = BACKEND_DIR / ".env"
 
-MAVEN_BOOT = "C:/tools/apache-maven-3.9.16/boot/plexus-classworlds-2.11.0.jar"
-MAVEN_CONF = "C:/tools/apache-maven-3.9.16/bin/m2.conf"
-MAVEN_HOME = "C:/tools/apache-maven-3.9.16"
+# Maven is installed per-machine, so keep its location overridable instead of
+# hardcoded. MAVEN_HOME/M2_HOME win; the path below is only a fallback.
+MAVEN_HOME = (
+    os.environ.get("MAVEN_HOME")
+    or os.environ.get("M2_HOME")
+    or r"C:\tools\apache-maven-3.9.16"
+)
+MAVEN_BOOT = str(Path(MAVEN_HOME) / "boot" / "plexus-classworlds-2.11.0.jar")
+MAVEN_CONF = str(Path(MAVEN_HOME) / "bin" / "m2.conf")
+
+# Maven's offline flag (-o) is OPT-IN via SHE_MAVEN_OFFLINE=1.
+#
+# It used to be hardcoded, which is fatal on any machine whose ~/.m2 is empty or
+# only partly populated: every resolution then fails instantly with "Cannot
+# access central in offline mode", which reads like a broken build rather than a
+# missing cache. A "is the repo non-empty?" heuristic is not good enough either,
+# because a partially-filled cache passes it and then fails on the first missing
+# artifact. Online mode still reads the local cache first and only reaches the
+# network for what is genuinely absent, so it is strictly the safer default.
+MAVEN_REPO = Path(
+    os.environ.get("MAVEN_REPO_LOCAL") or (Path.home() / ".m2" / "repository")
+)
+OFFLINE = str(os.environ.get("SHE_MAVEN_OFFLINE", "0")).strip().lower() in (
+    "1", "true", "yes", "on",
+)
 
 
 def load_env(path):
@@ -43,6 +70,18 @@ def load_env(path):
 
 
 def main():
+    # Fail with a readable message instead of a cryptic Maven/Java stack trace.
+    if not ENV_PATH.exists():
+        print(f"[launcher] ERROR: {ENV_PATH} not found.", file=sys.stderr)
+        print("[launcher] Copy backend/.env.example to backend/.env and fill it in.",
+              file=sys.stderr)
+        return 1
+    if not Path(MAVEN_BOOT).exists():
+        print(f"[launcher] ERROR: Maven not found at {MAVEN_HOME}", file=sys.stderr)
+        print("[launcher] Install Maven 3.9.x, or set MAVEN_HOME to it.",
+              file=sys.stderr)
+        return 1
+
     n = load_env(ENV_PATH)
     print(f"[launcher] loaded {n} vars from .env", flush=True)
     os.environ["SPRING_PROFILES_ACTIVE"] = "local"
@@ -54,8 +93,11 @@ def main():
         f"-Dmaven.home={MAVEN_HOME}",
         f"-Dmaven.multiModuleProjectDirectory={BACKEND_DIR}",
         "org.codehaus.plexus.classworlds.launcher.Launcher",
-        "-B", "-o", "spring-boot:run",
+        "-B",
     ]
+    if OFFLINE:
+        cmd.append("-o")
+    cmd.append("spring-boot:run")
     os.chdir(BACKEND_DIR)
     return subprocess.call(cmd, env=os.environ)
 

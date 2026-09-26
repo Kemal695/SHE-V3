@@ -9,9 +9,18 @@
 # containing '=' are handled correctly.
 
 set -u
-cd /d/she-v3/backend || exit 1
 
-M2="C:/tools/apache-maven-3.9.16"
+# Derive the repo root from this script's own location. This used to be a
+# hardcoded `cd /d/she-v3/backend`, which broke the moment the checkout moved
+# (it now lives at "D:/project X/she-v3/she-v3").
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$REPO_ROOT/backend"
+
+cd "$BACKEND_DIR" || exit 1
+
+# Maven is installed per-machine; override with MAVEN_HOME or M2_HOME.
+M2="${MAVEN_HOME:-${M2_HOME:-C:/tools/apache-maven-3.9.16}}"
 
 set -a
 while IFS='=' read -r k v; do
@@ -29,5 +38,5 @@ export SPRING_PROFILES_ACTIVE=local
 exec java -classpath "$M2/boot/plexus-classworlds-2.11.0.jar" \
   "-Dclassworlds.conf=$M2/bin/m2.conf" \
   "-Dmaven.home=$M2" \
-  "-Dmaven.multiModuleProjectDirectory=D:/she-v3/backend" \
+  "-Dmaven.multiModuleProjectDirectory=$BACKEND_DIR" \
   org.codehaus.plexus.classworlds.launcher.Launcher -o spring-boot:run

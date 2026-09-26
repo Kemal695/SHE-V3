@@ -17,8 +17,10 @@ Environment is derived from C:/Espressif; override IDF_VERSION to switch.
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-ESPRESSIF = r"C:\Espressif"
+# Installed per-machine; override with SHE_ESPRESSIF when it lives elsewhere.
+ESPRESSIF = os.environ.get("SHE_ESPRESSIF", r"C:\Espressif")
 # The project targets ESP-IDF v5.1.x (LTS) — firmware/v3/README.md and the
 # v3 specs pin 5.1. Do NOT default to 5.2.7: build-esp32d's bootloader
 # sub-build cache was generated against 5.1.4, and cmake aborts with
@@ -51,7 +53,8 @@ TOOL_DIRS = [
     rf"{ESPRESSIF}\tools\dfu-util\0.11\dfu-util-0.11-win64",
 ]
 
-FIRMWARE_DIR = r"D:\she-v3\firmware\v3"
+# Derived, not hardcoded — see the note in run-backend.py.
+FIRMWARE_DIR = Path(__file__).resolve().parent.parent / "firmware" / "v3"
 
 
 def main() -> int:
