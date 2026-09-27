@@ -144,15 +144,25 @@ else
     fail "CA bundle not found at ${CA_BUNDLE}"
 fi
 
-# Check CRL endpoint serves
-INTERMEDIATE_ID_FILE="${CA_DIR}/out/intermediate_id.txt"
+# Check CRL endpoint serves.
+#
+# The intermediate ID must come from the CA the running stack actually uses —
+# infra/ca/stack/, mirrored from the she-ca-certs volume. out/ holds the ID of a
+# DIFFERENT CA (the one bootstrap-ca-local.sh produces), so the URL pointed at a
+# directory that does not exist and always 404'd.
+#
+# -I (HEAD) rather than -o /dev/null for the same reason as the EMQX dashboard
+# check above: curl cannot write to /dev/null on Git Bash, exits 23, and
+# pipefail then propagates that as a failure.
+INTERMEDIATE_ID_FILE="${CA_DIR}/stack/intermediate_id.txt"
+[ -f "${INTERMEDIATE_ID_FILE}" ] || INTERMEDIATE_ID_FILE="${CA_DIR}/out/intermediate_id.txt"
 if [ -f "${INTERMEDIATE_ID_FILE}" ]; then
     INTERMEDIATE_ID=$(cat "${INTERMEDIATE_ID_FILE}")
     CRL_URL="${CRL_BASE_URL}/${INTERMEDIATE_ID}/crl.pem"
-    if curl -sf -o /dev/null -w "%{http_code}" "${CRL_URL}" | grep -q "200"; then
+    if curl -sfI -w "%{http_code}" "${CRL_URL}" | grep -q "200"; then
         pass "CRL endpoint serves at ${CRL_URL}"
     else
-        fail "CRL endpoint not serving at ${CRL_URL}"
+        fail "CRL endpoint not serving at ${CRL_URL} (publish it with infra/ca/refresh-crl.sh)"
     fi
 else
     skip "CRL endpoint check" "intermediate_id.txt not found"
