@@ -81,25 +81,23 @@ section "Criterion 5: Documentation lock"
 LOCK_MANIFEST="${PROJECT_ROOT}/docs/LOCK-MANIFEST.md"
 if [ -f "${LOCK_MANIFEST}" ]; then
     pass "docs/LOCK-MANIFEST.md exists"
-    # Check ADRs in multiple possible locations (local dev vs CI)
-    ADR_GLOB1="${PROJECT_ROOT}/../docs/v3-docs-final/V3-ADR/*.md"
-    ADR_GLOB2="${PROJECT_ROOT}/docs/v3-docs-final/V3-ADR/*.md"
-    ADR_COUNT=$(ls ${ADR_GLOB1} ${ADR_GLOB2} 2>/dev/null | wc -l)
-    if [ "${ADR_COUNT}" -eq 14 ]; then
-        pass "All 14 ADRs present (001-014)"
-    elif [ "${ADR_COUNT}" -ge 14 ]; then
-        pass "All 14 ADRs present (${ADR_COUNT} found, includes extras)"
+    # ADRs live flat in docs/ADRs, one file per decision (NNN-slug.md).
+    # These globs previously pointed at docs/v3-docs-final/V3-ADR — a directory
+    # that has never existed under that name — so the count was always 0 and the
+    # check failed no matter how many ADRs were actually present.
+    ADR_COUNT=$(ls "${PROJECT_ROOT}"/docs/ADRs/[0-9][0-9][0-9]-*.md 2>/dev/null | wc -l)
+    if [ "${ADR_COUNT}" -ge 14 ]; then
+        pass "ADRs present (${ADR_COUNT} found; 001-014 required, extras allowed)"
     else
-        fail "Expected 14 ADRs, found ${ADR_COUNT}"
+        fail "Expected >=14 ADRs, found ${ADR_COUNT}"
     fi
 
-    DOCS_GLOB1="${PROJECT_ROOT}/../docs/v3-docs-final/V3-*.md"
-    DOCS_GLOB2="${PROJECT_ROOT}/docs/v3-docs-final/V3-*.md"
-    DOCS_COUNT=$(ls ${DOCS_GLOB1} ${DOCS_GLOB2} 2>/dev/null | wc -l)
+    # The spec set is docs/v3-specs (there is no docs/v3-docs-final).
+    DOCS_COUNT=$(ls "${PROJECT_ROOT}"/docs/v3-specs/V3-*.md 2>/dev/null | wc -l)
     if [ "${DOCS_COUNT}" -ge 32 ]; then
         pass "All V3-* docs present (${DOCS_COUNT} files)"
     else
-        fail "Expected ≥32 V3-* docs, found ${DOCS_COUNT}"
+        fail "Expected >=32 V3-* docs, found ${DOCS_COUNT}"
     fi
 else
     fail "docs/LOCK-MANIFEST.md not found — run from project root"
@@ -230,8 +228,16 @@ fi
 section "Criterion 1: EMQX cluster + mTLS"
 
 # Check EMQX dashboard responds
+#
+# Uses -I (HEAD) so there is no response body to write. `-o /dev/null` cannot be
+# used here: on Git Bash for Windows curl fails to write to /dev/null and exits
+# 23 ("client returned ERROR on write") even on a successful 200 — and because
+# this script runs under `set -o pipefail` (line 19), that non-zero exit wins
+# over grep's success, so the check reported failure for a dashboard that was
+# answering fine. A temp file does not help either: mktemp returns an MSYS path
+# (/tmp/...) which the native Windows curl binary cannot open.
 EMQX_DASHBOARD_URL="http://${MQTT_HOST}:18083"
-if curl -sf -o /dev/null -w "%{http_code}" "${EMQX_DASHBOARD_URL}" | grep -q "200\|302\|401"; then
+if curl -sfI -w "%{http_code}" "${EMQX_DASHBOARD_URL}" | grep -q "200\|302\|401"; then
     pass "EMQX dashboard responds at ${EMQX_DASHBOARD_URL}"
 else
     fail "EMQX dashboard not responding at ${EMQX_DASHBOARD_URL}"

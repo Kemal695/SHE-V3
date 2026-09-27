@@ -99,7 +99,19 @@ def main():
         cmd.append("-o")
     cmd.append("spring-boot:run")
     os.chdir(BACKEND_DIR)
-    return subprocess.call(cmd, env=os.environ)
+
+    # Strip host-injected variables that collide with Spring Boot's relaxed
+    # binding.
+    #
+    # The WorkBuddy host exports SERVER__PORT=<its own port> into every child
+    # process. Spring normalises that to `server.port`, which outranks the
+    # SERVER_PORT default in application.yml, so Tomcat tries to bind a port the
+    # host is already listening on and the app dies with:
+    #     Web server failed to start. Port 58847 was already in use.
+    # The double underscore is the host's convention, not ours — every port this
+    # project sets is single-underscore (SERVER_PORT, MANAGEMENT_SERVER_PORT).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SERVER__")}
+    return subprocess.call(cmd, env=env)
 
 
 if __name__ == "__main__":
