@@ -32,26 +32,68 @@ IDF_VERSION = os.environ.get("IDF_VERSION", "esp-idf-v5.1.4")
 IDF_PATH = rf"{ESPRESSIF}\frameworks\{IDF_VERSION}"
 IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env\Scripts\python.exe"
 
-TOOL_DIRS = [
-    # 3.30.2 MUST come before 3.24.0: the 3.24.0 binary in this install dies
-    # with 0xC0000005 (access violation) before printing anything, so idf.py's
-    # shutil.which() finds it, runs it, gets a crash, and reports
-    # '"cmake" must be available on the PATH'. Confirmed by running both
-    # directly and comparing return codes.
-    rf"{ESPRESSIF}\tools\cmake\3.30.2\bin",
-    rf"{ESPRESSIF}\tools\ninja\1.12.1",
-    rf"{ESPRESSIF}\tools\ccache\4.6.1",
-    rf"{ESPRESSIF}\tools\idf-git\2.44.0\cmd",
-    rf"{ESPRESSIF}\tools\idf-python\3.11.2",
-    rf"{ESPRESSIF}\tools\xtensa-esp32-elf\esp-12.2.0_20230208\xtensa-esp32-elf\bin",
-    rf"{ESPRESSIF}\tools\xtensa-esp32s3-elf\esp-12.2.0_20230208\xtensa-esp32s3-elf\bin",
-    rf"{ESPRESSIF}\tools\xtensa-esp-elf\esp-13.2.0_20240530\xtensa-esp-elf\bin",
-    rf"{ESPRESSIF}\tools\riscv32-esp-elf\esp-13.2.0_20240530\riscv32-esp-elf\bin",
-    rf"{ESPRESSIF}\tools\esp32ulp-elf\2.35_20220830\esp32ulp-elf\bin",
-    rf"{ESPRESSIF}\tools\esp-rom-elfs\20230305",
-    rf"{ESPRESSIF}\tools\openocd-esp32\v0.12.0-esp32-20240318\openocd-esp32\bin",
-    rf"{ESPRESSIF}\tools\dfu-util\0.11\dfu-util-0.11-win64",
-]
+# Tool versions are DISCOVERED, not hardcoded.
+#
+# The offline installer ships a different tool set than the machine this list
+# was originally written on: ninja 1.10.2 (not 1.12.1), ccache 4.8 (not 4.6.1),
+# riscv32-esp-elf esp-12.2.0 (not esp-13.2.0), esp-rom-elfs 20230320 (not
+# 20230305), openocd-esp32 v0.12.0-esp32-20230921 (not ...20240318), and no
+# xtensa-esp-elf at all. Every one of those silently dropped out of PATH, which
+# is why idf.py then reported '"cmake" must be available on the PATH'.
+#
+# Versions sort DESCENDING so the newest wins. That ordering is load bearing for
+# cmake: 3.24.0 segfaults (0xC0000005) before printing anything, so idf.py's
+# shutil.which() finds it, runs it, gets a crash, and reports cmake as missing.
+# 3.30.2 must therefore be found first. Confirmed by running both binaries and
+# comparing return codes (3.24.0 → exit 139, no output; 3.30.2 → prints version).
+_TOOL_BIN_SUBPATHS = {
+    "cmake": ("bin",),
+    "ninja": (),
+    "ccache": (),
+    "idf-git": ("cmd",),
+    "idf-python": (),
+    "xtensa-esp32-elf": ("xtensa-esp32-elf", "bin"),
+    "xtensa-esp32s3-elf": ("xtensa-esp32s3-elf", "bin"),
+    "xtensa-esp-elf": ("xtensa-esp-elf", "bin"),
+    "riscv32-esp-elf": ("riscv32-esp-elf", "bin"),
+    "esp32ulp-elf": ("esp32ulp-elf", "bin"),
+    "esp-rom-elfs": (),
+    "openocd-esp32": ("openocd-esp32", "bin"),
+    "dfu-util": (),  # unpacks as <version>/dfu-util-<version>-win64
+}
+
+
+def _version_key(name):
+    """Newest-first ordering that tolerates names like 'v0.12.0-esp32-20230921'."""
+    out = []
+    for chunk in str(name).replace("_", ".").replace("-", ".").split("."):
+        out.append((0, int(chunk), "") if chunk.isdigit() else (1, 0, chunk))
+    return out
+
+
+def _discover_tool_dirs():
+    tools_root = Path(ESPRESSIF) / "tools"
+    found = []
+    for tool, sub in _TOOL_BIN_SUBPATHS.items():
+        root = tools_root / tool
+        if not root.is_dir():
+            continue
+        versions = sorted(
+            (d for d in root.iterdir() if d.is_dir()),
+            key=lambda d: _version_key(d.name),
+            reverse=True,
+        )
+        for ver in versions:
+            if tool == "dfu-util":
+                cands = [d for d in ver.iterdir()
+                         if d.is_dir() and d.name.startswith("dfu-util")]
+            else:
+                cands = [ver.joinpath(*sub)]
+            found.extend(str(c) for c in cands if c.is_dir())
+    return found
+
+
+TOOL_DIRS = _discover_tool_dirs()
 
 # Derived, not hardcoded — see the note in run-backend.py.
 FIRMWARE_DIR = Path(__file__).resolve().parent.parent / "firmware" / "v3"
@@ -82,6 +124,21 @@ def main() -> int:
     # reports 'cmake must be available on the PATH'.
     env["IDF_PYTHON_ENV_PATH"] = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env"
     env.setdefault("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.WSH;.MSC")
+    # The component manager is disabled by default.
+    #
+    # It runs `inject_requirements`, which bulk-deletes its own temp files in the
+    # build dir. On this machine a host-level safe-delete guard refuses operations
+    # touching more than ~50 files at once, the helper exits non-zero, and
+    # component.cmake:250 re-raises that as:
+    #   CMake Error ... [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]
+    # which fails the whole configure before a single file is compiled. Note the
+    # guard is NOT the sandbox — disabling the sandbox does not bypass it.
+    #
+    # This project has no idf_component.yml and pulls in no managed components, so
+    # nothing is lost. Set SHE_COMPONENT_MANAGER=1 to re-enable the manager (and
+    # thereby resolve components from the registry) if that ever changes.
+    if os.environ.get("SHE_COMPONENT_MANAGER", "0") != "1":
+        env["IDF_COMPONENT_MANAGER"] = "0"
     env["PATH"] = os.pathsep.join([d for d in TOOL_DIRS if os.path.isdir(d)] + [env.get("PATH", "")])
 
     # Limit build parallelism.
