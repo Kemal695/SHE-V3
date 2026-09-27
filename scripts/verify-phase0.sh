@@ -160,43 +160,62 @@ fi
 
 # Issue + revoke a test device cert (use unique MAC each run to avoid duplicate/revoked conflict)
 TEST_MAC="deadbeef$(date +%s | tail -c 6)"
+#
+# Two Windows-portability fixes here:
+#
+# 1. Paths are relative to ${CA_DIR} (the script cds there below), not /tmp.
+#    `step` is a native Windows binary and cannot open an MSYS path like
+#    /tmp/x.crt, so issuance failed outright. Relative paths work for both bash
+#    and the native binary. $TEMP is no help — Git Bash sets it to /tmp.
+# 2. --root prefers stack/root_ca.crt, which is the CA the running stack actually
+#    uses (mirrored out of the she-ca-certs volume, and what backend/.env points
+#    at). out/root_ca.crt is a DIFFERENT CA produced by bootstrap-ca-local.sh;
+#    verifying against it fails with
+#    "x509: certificate signed by unknown authority".
+TEST_CRT="out/${TEST_MAC}.crt"
+TEST_KEY="out/${TEST_MAC}.key"
+# Relative, for the same reason as the cert paths: an absolute MSYS path such as
+# /d/project X/... is unreadable by the native step.exe. The script cds into
+# ${CA_DIR} below, so a relative path resolves correctly.
+CA_ROOT="stack/root_ca.crt"
+[ -f "${CA_DIR}/${CA_ROOT}" ] || CA_ROOT="out/root_ca.crt"
 # Clean up any previous test certs
-rm -f "/tmp/${TEST_MAC}.crt" "/tmp/${TEST_MAC}.key" "/tmp/deadbeef0011.crt" "/tmp/deadbeef0011.key" 2>/dev/null || true
+rm -f "${CA_DIR}/${TEST_CRT}" "${CA_DIR}/${TEST_KEY}" 2>/dev/null || true
 info "Issuing test device cert for MAC ${TEST_MAC}..."
 if command -v step >/dev/null 2>&1; then
     if [ -f "${CA_DIR}/step-ca-provisioner-password.txt" ]; then
         cd "${CA_DIR}"
-        if step ca certificate "${TEST_MAC}" "/tmp/${TEST_MAC}.crt" "/tmp/${TEST_MAC}.key" \
+        if step ca certificate "${TEST_MAC}" "${TEST_CRT}" "${TEST_KEY}" \
             --san "${TEST_MAC}" \
             --not-after 1h \
             --provisioner "she-device-provisioner" \
-            --provisioner-password-file "${CA_DIR}/step-ca-provisioner-password.txt" \
+            --provisioner-password-file "step-ca-provisioner-password.txt" \
             --ca-url "${STEP_CA_URL}" \
-            --root "${CA_DIR}/out/root_ca.crt" --force 2>/dev/null; then
+            --root "${CA_ROOT}" --force 2>/dev/null; then
             pass "step-ca can issue device certs"
 
             # Revoke it (step 0.27+ uses --cert flag; fallback to serial; local dev CA may not implement revoke via JWK)
-            REVOKE_OUT=$(step ca revoke --cert "/tmp/${TEST_MAC}.crt" \
+            REVOKE_OUT=$(step ca revoke --cert "${TEST_CRT}" \
                 --provisioner "she-device-provisioner" \
-                --provisioner-password-file "${CA_DIR}/step-ca-provisioner-password.txt" \
+                --provisioner-password-file "step-ca-provisioner-password.txt" \
                 --ca-url "${STEP_CA_URL}" \
-                --root "${CA_DIR}/out/root_ca.crt" 2>&1 || true)
+                --root "${CA_ROOT}" 2>&1 || true)
             if echo "${REVOKE_OUT}" | grep -q "revoked\|Revoked"; then
                 pass "step-ca can revoke device certs"
             elif echo "${REVOKE_OUT}" | grep -qi "not implemented\|not supported"; then
                 skip "step-ca revoke" "CA provisioner does not implement revoke via cert (expected for local dev JWK - use serial+token in prod)"
             else
                 # Try serial via openssl (more reliable than step inspect json)
-                SERIAL_HEX=$(openssl x509 -in "/tmp/${TEST_MAC}.crt" -noout -serial 2>/dev/null | cut -d= -f2 | tr -d '\n')
+                SERIAL_HEX=$(openssl x509 -in "${CA_DIR}/${TEST_CRT}" -noout -serial 2>/dev/null | cut -d= -f2 | tr -d '\n')
                 if [ -n "${SERIAL_HEX}" ]; then
                     # Convert hex serial to decimal for step (step expects decimal)
                     SERIAL_DEC=$(python3 -c "print(int('${SERIAL_HEX}', 16))" 2>/dev/null || echo "")
                     if [ -n "${SERIAL_DEC}" ]; then
                         REVOKE2_OUT=$(step ca revoke "${SERIAL_DEC}" \
                             --provisioner "she-device-provisioner" \
-                            --provisioner-password-file "${CA_DIR}/step-ca-provisioner-password.txt" \
+                            --provisioner-password-file "step-ca-provisioner-password.txt" \
                             --ca-url "${STEP_CA_URL}" \
-                            --root "${CA_DIR}/out/root_ca.crt" 2>&1 || true)
+                            --root "${CA_ROOT}" 2>&1 || true)
                         if echo "${REVOKE2_OUT}" | grep -q "revoked\|Revoked"; then
                             pass "step-ca can revoke device certs (via serial)"
                         elif echo "${REVOKE2_OUT}" | grep -qi "not implemented\|already revoked"; then
