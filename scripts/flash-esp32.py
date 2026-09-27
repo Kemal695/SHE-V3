@@ -22,13 +22,25 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 ESPRESSIF = r"C:\Espressif"
 # Match the toolchain the image was built with: the project targets ESP-IDF
 # v5.1.x (LTS), so use the 5.1 python env — it carries pyserial + esptool.
 # (esptool works from the 5.2 env too; this just keeps one story.)
 IDF_PYTHON = rf"{ESPRESSIF}\python_env\idf5.1_py3.11_env\Scripts\python.exe"
-BUILD_DIR = r"D:\she-v3\firmware\v3\build-esp32d"
+
+# Derived from this file's location, not hardcoded. The checkout moved from
+# D:\she-v3 to "D:\project X\she-v3", and a hardcoded build dir silently pointed
+# at a path that no longer existed.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+FIRMWARE_V3 = REPO_ROOT / "firmware" / "v3"
+# idf.py writes to ./build by default; the esp32d devkit profile uses
+# build-esp32d. Prefer whichever actually exists.
+BUILD_DIR = next(
+    (str(d) for d in (FIRMWARE_V3 / "build-esp32d", FIRMWARE_V3 / "build") if d.is_dir()),
+    str(FIRMWARE_V3 / "build-esp32d"),
+)
 
 # Flash chip is written at 40m/dio per sdkconfig; the *serial* baud is ours.
 DEFAULT_BAUD = 460800

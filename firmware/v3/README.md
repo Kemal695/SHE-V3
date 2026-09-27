@@ -42,14 +42,21 @@ firmware/v3/
 # Set up ESP-IDF environment
 . $HOME/esp/esp-idf/export.sh
 
-# Copy CA bundle from infra
-cp ../../infra/ca/ca_bundle.pem certs/ca.pem
+# Copy CA bundle from infra.
+#
+# Use infra/ca/stack/ — the CA the running stack actually uses, mirrored out of
+# the she-ca-certs Docker volume. infra/ca/ca_bundle.pem is a DIFFERENT CA (the
+# one bootstrap-ca-local.sh produces); embedding that one makes the device
+# reject the broker's certificate and mTLS never connects.
+cp ../../infra/ca/stack/ca_bundle.pem certs/ca.pem
 
 # Build for SHE-R8 (default — the volume SKU)
 idf.py set-target esp32s3
 idf.py build
 
 # Flash to device
+# (/dev/ttyUSB0 on Linux; on Windows it is a COM port — find it with
+#  `mode` or Device Manager, e.g. COM3)
 idf.py -p /dev/ttyUSB0 flash monitor
 
 # Build for SHE-R4
