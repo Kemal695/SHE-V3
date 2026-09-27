@@ -39,6 +39,7 @@ class ApiConstants {
       '$apiPrefix/nodes/$nodeId/devices/$deviceId/params';
   static String nodeTelemetry(String id) => '$apiPrefix/nodes/$id/telemetry';
   static String nodeEnergy(String id) => '$apiPrefix/nodes/$id/energy';
+  static String nodeCommands(String id) => '$apiPrefix/nodes/$id/commands';
   static const String nodeClaim = '$apiPrefix/nodes/claim';
 
   // Scenes (V3-API-SPECIFICATION §8.1)

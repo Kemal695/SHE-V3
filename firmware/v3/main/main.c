@@ -260,6 +260,18 @@ void app_main(void) {
     char mac[18] = {0}, sku[8] = {0}, node_id[32] = {0};
     read_node_identity(mac, sizeof(mac), sku, sizeof(sku), node_id, sizeof(node_id));
 
+    /* SKU → channel count. Every SKU the profile builder knows MUST be listed
+     * here, because this is what relay_driver_init() is told, and the driver
+     * rejects any channel >= that count with ESP_ERR_INVALID_ARG.
+     *
+     * SHE-R24 was missing from this chain, so a 24-relay board fell through to
+     * the `8` default below: the driver probed all three expanders (they are
+     * probed unconditionally) and then refused to drive channels 8-23. The R24
+     * profile built 24 relay devices the driver would not operate, and the
+     * masters fanning out over RELAY_GROUP_* silently lost two thirds of their
+     * mask. Whether a profile exists is not what gates the channels — this is.
+     *
+     * Keep this in step with profile_build_for_sku(). */
     uint8_t relay_count = 8;   /* default */
 #ifdef CONFIG_SHE_DEVKIT_ESP32
     relay_count = 4;           /* DevKit falls back to the SHE-R4 profile */
@@ -267,6 +279,7 @@ void app_main(void) {
     if (strcmp(sku, "SHE-R4") == 0)  relay_count = 4;
     else if (strcmp(sku, "SHE-R8") == 0)  relay_count = 8;
     else if (strcmp(sku, "SHE-R16") == 0) relay_count = 16;
+    else if (strcmp(sku, "SHE-R24") == 0) relay_count = 24;
 
     ESP_ERROR_CHECK(relay_driver_init(relay_count));
     /* The driver caps itself to the 4 physically wired pins in direct-GPIO mode;

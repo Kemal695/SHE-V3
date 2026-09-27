@@ -100,6 +100,68 @@ a light by room and name, not by expander pin.
 - **`feedback_monitor.c`'s CD4051 path is retained.** The digital input path is added alongside
   it, not instead of it, until we know whether the new board also carries the mux.
 
+## Implementation record (2026-09-27)
+
+Recorded after the code landed, because two parts of the decision above were
+implemented in a way that looked complete but was not reachable at runtime.
+
+### 1. `SHE-R24` was missing from the boot SKU → channel-count map
+
+`main.c` decided the relay count from the factory SKU:
+
+```c
+if (strcmp(sku, "SHE-R4") == 0)  relay_count = 4;
+else if (strcmp(sku, "SHE-R8") == 0)  relay_count = 8;
+else if (strcmp(sku, "SHE-R16") == 0) relay_count = 16;
+```
+
+`SHE-R24` was absent, so a 24-relay board fell through to the `8` default. The
+driver still probed all three expanders (probing is unconditional) and then
+refused every channel ≥ 8 with `ESP_ERR_INVALID_ARG`. The R24 profile built 24
+relay devices the driver would not operate, and the masters fanning out over
+`RELAY_GROUP_*` silently lost two thirds of their mask.
+
+This is the failure mode this ADR should have anticipated: **the profile existing
+is not what enables channels — the count passed to `relay_driver_init()` is.**
+Both must be kept in step, and a new SKU now needs an entry in both places.
+
+### 2. The group intents had no command path
+
+`relay_apply_group()` and the `RELAY_GROUP_*` masks were defined and correct, but
+nothing called them — no MQTT command reached them and the backend allowlist had
+no entry for one. So `Light Master` / `Socket Master` / `ALL OFF` were
+unreachable from the cloud despite being described in the Decision above.
+
+Added:
+
+| Layer | Change |
+|---|---|
+| Firmware (`she_mqtt.c`) | `group_set` command — `{"cmd":"group_set","group":"lights"\|"sockets"\|"all","on":bool}` |
+| Backend (`NodeServiceImpl`) | `group_set` added to `ALLOWED_COMMANDS`; `group` restricted to the closed set; `on` must be explicit |
+| Backend (`NodeDtos`) | `CommandRequest` gains `group` and `on` |
+| Mobile (`NodeService`) | `setGroup()` + the `nodeCommands` endpoint constant |
+
+Deliberate choices, and why:
+
+- **A command, not a params write.** 24 individual channel writes are neither
+  atomic nor survivable across a dropped connection; a half-applied group leaves
+  part of a bank energised.
+- **A closed set of names, not a bitmask.** A client able to send an arbitrary
+  mask could energise circuits the UI never offers. On a board switching mains
+  loads that is not cosmetic.
+- **`on` must be explicit.** Neither default is safe: ON energises unexpectedly,
+  OFF silently ignores the operator. (Contrast `schedule_add`, where defaulting
+  `days_mask` to every-day and `action` to ON is the obviously-intended case.)
+- **Validated at the API as well as the device.** A typo like `"light"` would
+  otherwise look accepted and do nothing.
+
+Verified: firmware build exit 0; backend `compile` exit 0; `GroupSetCommandTest`
+7 tests run, 0 failures.
+
+Still not verified: **anything that requires the real board.** The I2C addresses
+and pins remain placeholders per the Open item above, and the 24-channel map has
+never been exercised against physical relays.
+
 ## Consequences
 
 **Positive**

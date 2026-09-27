@@ -24,9 +24,14 @@ extern "C" {
 #define SHE_FCTRY_KEY_POP           "device_pop"      /* 9-digit numeric PoP (P1-26) */
 #define SHE_FCTRY_KEY_MAC           "device_mac"      /* AA:BB:CC:DD:EE:FF */
 #define SHE_FCTRY_KEY_NODE_ID       "node_id"         /* SHE-R8-AABBCC */
-#define SHE_FCTRY_KEY_SKU           "device_sku"      /* SHE-R4 | SHE-R8 | SHE-R16 */
+#define SHE_FCTRY_KEY_SKU           "device_sku"      /* SHE-R4 | SHE-R8 | SHE-R16 | SHE-R24 */
 #define SHE_FCTRY_KEY_HW_REV        "hw_rev"          /* rev-a | rev-b | rev-c */
 #define SHE_FCTRY_KEY_PROVISIONED   "provisioned"     /* bool — set after BLE provisioning */
+
+/* ⚠️ SKU strings are read into an 8-byte buffer in main.c ("SHE-R24" is exactly
+ * 7 chars + NUL). Any future SKU longer than 7 characters silently truncates
+ * there and would fall through to the default relay count. Grow that buffer in
+ * the same change if you add one. */
 
 /* Factory-reset-proof copies of the connectivity config.
  *

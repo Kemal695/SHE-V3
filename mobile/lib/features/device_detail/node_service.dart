@@ -97,6 +97,47 @@ class NodeService {
     return response.data['data'];
   }
 
+  /// POST /api/v3/nodes/{id}/commands — out-of-band system command
+  /// (V3-MQTT-STANDARDS §3.2). Fire-and-forget: a 200 means "queued", not "done".
+  Future<Map<String, dynamic>> executeCommand(
+    String nodeId,
+    String cmd, {
+    String? reason,
+  }) async {
+    final response = await _dio.post(
+      ApiConstants.nodeCommands(nodeId),
+      data: {
+        'cmd': cmd,
+        if (reason != null) 'reason': reason,
+      },
+    );
+    return response.data['data'];
+  }
+
+  /// Drive a master/group intent (ADR-015) — "lights" | "sockets" | "all".
+  ///
+  /// Deliberately not a loop of per-channel [writeParams] calls. On the 24-relay
+  /// board the lights are channels 0-7 and 16-23 with the sockets in between, so
+  /// "all lights off" sent as "every channel off" would also kill the sockets;
+  /// the device applies the group mask atomically instead.
+  Future<Map<String, dynamic>> setGroup(
+    String nodeId,
+    String group,
+    bool on, {
+    String? reason,
+  }) async {
+    final response = await _dio.post(
+      ApiConstants.nodeCommands(nodeId),
+      data: {
+        'cmd': 'group_set',
+        'group': group,
+        'on': on,
+        if (reason != null) 'reason': reason,
+      },
+    );
+    return response.data['data'];
+  }
+
   /// POST /api/v3/auth/claim-token — 10-min TTL claim JWT (P1-3).
   Future<String> claimToken() async {
     final response = await _dio.post('/api/v3/auth/claim-token');

@@ -375,6 +375,54 @@ static void handle_command(const char *data, size_t len) {
                 mqtt_publish_schedules();
             }
         }
+    } else if (strcmp(cmd->valuestring, "group_set") == 0) {
+        /* Master control — an intent over a GROUP of channels (ADR-015).
+         *
+         *   {"cmd":"group_set","group":"lights"|"sockets"|"all","on":true}
+         *
+         * This is what "Light Master" / "Socket Master" / "ALL OFF" resolve to.
+         * It exists as its own command rather than a loop of per-channel writes
+         * because it must be atomic: a client setting 24 channels one at a time
+         * through params/remote takes 24 round trips and can be interrupted
+         * halfway, leaving half a group energised.
+         *
+         * Deliberately NOT relay_set_all(): on this board the lights are
+         * ch 0-7 + 16-23, with the sockets in between, so "all lights off"
+         * implemented as "all relays off" would black out the sockets too.
+         * relay_apply_group() is read-modify-write and cannot do that.
+         *
+         * An unknown group name is rejected rather than defaulted — guessing
+         * here means energising circuits the operator did not ask for.
+         */
+        const cJSON *j_group = cJSON_GetObjectItem(root, "group");
+        const cJSON *j_on    = cJSON_GetObjectItem(root, "on");
+
+        if (!cJSON_IsString(j_group)) {
+            ESP_LOGE(TAG, "command: group_set needs a string 'group' "
+                          "(lights|sockets|all)");
+        } else if (!cJSON_IsBool(j_on)) {
+            ESP_LOGE(TAG, "command: group_set needs a boolean 'on'");
+        } else {
+            uint32_t mask = 0;
+            const char *g = j_group->valuestring;
+            if (strcmp(g, "lights") == 0)       mask = RELAY_GROUP_LIGHTS_R24;
+            else if (strcmp(g, "sockets") == 0) mask = RELAY_GROUP_SOCKETS_R24;
+            else if (strcmp(g, "all") == 0)     mask = RELAY_GROUP_ALL_R24;
+
+            if (mask == 0) {
+                ESP_LOGE(TAG, "command: group_set unknown group '%s' — ignored "
+                              "(expected lights|sockets|all)", g);
+            } else {
+                const bool on = cJSON_IsTrue(j_on);
+                ESP_LOGW(TAG, "command: group_set %s -> %s (reason=%s)",
+                         g, on ? "ON" : "OFF", reason_str ? reason_str : "none");
+                relay_apply_group(mask, on);
+                relay_save_state();
+                /* Report the resulting mask so the client can confirm the whole
+                 * group moved and not just its first channel. */
+                mqtt_publish_status(true);
+            }
+        }
     } else if (strcmp(cmd->valuestring, "relay_test") == 0) {
         // Bench self-test: walk every channel ON/OFF one at a time, logging each
         // with its channel number and expander. Watch which relay actually clicks

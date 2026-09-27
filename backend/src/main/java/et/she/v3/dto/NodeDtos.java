@@ -162,7 +162,18 @@ public class NodeDtos {
             Integer minute,
             Integer days_mask,
             Integer relay,
-            Integer action
+            Integer action,
+            /**
+             * group_set only: which master to drive — "lights" | "sockets" | "all".
+             *
+             * A master is an intent over a GROUP of channels, not a channel of its
+             * own (ADR-015), so it cannot be expressed as a params write. Kept as a
+             * closed set of names rather than a raw bitmask so a client cannot
+             * energise an arbitrary combination of circuits by guessing bits.
+             */
+            String group,
+            /** group_set only: target state for the whole group. */
+            Boolean on
     ) {}
 
     public record CommandResponse(UUID nodeId, String cmd, boolean accepted, String topic) {}

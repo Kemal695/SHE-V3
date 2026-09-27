@@ -418,7 +418,12 @@ public class NodeServiceImpl implements NodeService {
                    "schedule_add", "schedule_clear", "schedule_list",
                    // Bench self-test: walks every relay channel ON/OFF so a new
                    // board's channel map can be verified against what actually clicks.
-                   "relay_test");
+                   "relay_test",
+                   // Master/group control (ADR-015): one atomic intent over a group
+                   // of channels ("lights" | "sockets" | "all"). Separate from
+                   // per-channel writes because 24 individual writes are neither
+                   // atomic nor survivable across a dropped connection.
+                   "group_set");
 
     @Override
     public NodeDtos.CommandResponse executeCommand(UUID nodeId, NodeDtos.CommandRequest req) {
@@ -463,6 +468,22 @@ public class NodeServiceImpl implements NodeService {
             extra.put("days_mask", req.days_mask() != null ? req.days_mask() : 127);
             extra.put("relay", req.relay() != null ? req.relay() : 0);
             extra.put("action", req.action() != null ? req.action() : 1);
+        } else if ("group_set".equals(cmd)) {
+            // Validate the group name at the API rather than letting the device
+            // silently ignore it: a typo like "light" would otherwise look accepted
+            // and do nothing, which on a mains board is the worst kind of failure.
+            String group = req.group() == null ? "" : req.group().trim().toLowerCase();
+            if (!Set.of("lights", "sockets", "all").contains(group)) {
+                throw new SheException("VALIDATION_ERROR",
+                        "group_set requires 'group' to be one of: lights, sockets, all", 422);
+            }
+            if (req.on() == null) {
+                throw new SheException("VALIDATION_ERROR",
+                        "group_set requires 'on' (true/false)", 422);
+            }
+            extra = new java.util.HashMap<>();
+            extra.put("group", group);
+            extra.put("on", req.on());
         }
 
         try {
