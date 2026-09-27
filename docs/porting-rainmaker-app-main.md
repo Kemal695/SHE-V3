@@ -289,6 +289,15 @@ sockets off. Using `relay_set_all()` for a master would do exactly that.
   hardware fault. Now `u32`.
 - `profile_build_r24()`: 26 devices, sku `SHE-R24`.
 - `ADR-015` written (status **Proposed**).
+- **SKU → relay count mapping fixed for R24.** `main.c` listed R4/R8/R16 but not R24, so an R24
+  board fell through to the `8` default and the driver refused every channel ≥ 8
+  (`ESP_ERR_INVALID_ARG`). The profile existed; the channels were not enabled. This one line
+  gated the entire board.
+- **`group_set` command path** (`{"cmd":"group_set","group":"lights"|"sockets"|"all","on":bool}`)
+  wired through firmware → backend allowlist → mobile. `relay_apply_group()` and the
+  `RELAY_GROUP_*` masks were previously unreachable — nothing called them, so Light Master /
+  Socket Master / ALL OFF could not be driven from the cloud. Backend unit test:
+  `GroupSetCommandTest`, 7 run / 0 failures.
 
 ### Blocked — needs values only the hardware owner has
 
