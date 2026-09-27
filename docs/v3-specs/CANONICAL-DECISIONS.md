@@ -501,6 +501,38 @@ Configure via `EMQX_AUTHORIZATION__SOURCES` env var (JSON) or `cluster-override.
 
 ---
 
+## P3 — ADR-driven supersessions
+
+### P3-1: Object storage — the minio/minio image no longer exists
+
+**Issue:** `V3-ARCHITECTURE.md` §5.3 names MinIO as the S3-compatible object store for OTA
+firmware images and the bucket catalog, and the stack pinned
+`minio/minio:RELEASE.2024-10-13T13-34-11Z`. MinIO announced maintenance mode (2025-12), then
+removed the open-source community edition and deleted every image from Docker Hub (~2026-09);
+all tags now return 404. `quay.io/minio/minio` returns 401, and `bitnami/minio` was withdrawn
+at the same time.
+
+**Resolution:** Superseded by **ADR-017**. Local development runs
+`bitnamilegacy/minio:2024.10.13-debian-12-r1`, which is built from the *same* upstream MinIO
+release and so introduces no version drift. Two adjustments were required because Bitnami's
+build is not a drop-in: an explicit `entrypoint` (Bitnami's entrypoint execs its arguments
+verbatim, so the original `command: server /data ...` died with `exec: server: not found`,
+exit 127) and `user: "0"` (Bitnami defaults to uid 1001, which cannot write the root-owned
+`she-minio-data` volume that the previous root-running image had been using).
+
+**Scope limit — read this before citing it.** ADR-017 **explicitly rejects the bitnamilegacy
+archive for production**, because it receives no further security updates. Production object
+storage is therefore **UNRESOLVED** and must not be treated as settled by any other document.
+The constraint set for the follow-up decision — S3-compatible API, fully self-hosted per
+ADR-001, actively maintained, acceptable licence, bucket lifecycle rules — is recorded in
+ADR-017 §3, and ADR-017 §4 requires a new ADR before Phase 5 (GA).
+
+**Supersedes:** `V3-ARCHITECTURE.md` §5.3 object-storage statement, for local development only.
+
+**ADR:** ADR-017 — `docs/ADRs/017-object-storage-image-replacement.md`
+
+---
+
 ## Cleanup items
 
 - **Dates:** All "Last updated: 2024-Q4" → "Last updated: 2025-Q1"
