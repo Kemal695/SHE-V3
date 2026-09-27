@@ -1,0 +1,55 @@
+# Line-ending policy.
+#
+# core.autocrlf is true on this Windows box, so without these rules git rewrites
+# every text file to CRLF on checkout. That breaks the shell scripts: bash then
+# sees a trailing CR on every line and dies with "$'\r': command not found",
+# including on the shebang. These scripts are run from Git Bash on Windows, so
+# LF is correct for them even though the platform is Windows.
+
+# --- Scripts and source: always LF -----------------------------------------
+*.sh          text eol=lf
+*.bash        text eol=lf
+*.py          text eol=lf
+
+# --- Config / docs: always LF ----------------------------------------------
+Dockerfile*   text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.conf        text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.txt         text eol=lf
+*.env         text eol=lf
+*.example     text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+
+# --- Windows-native scripts: keep CRLF -------------------------------------
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# --- Never convert binary content ------------------------------------------
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.svg         binary
+*.pdf         binary
+*.zip         binary
+*.jar         binary
+*.bin         binary
+*.elf         binary
+*.exe         binary
+*.dll         binary
+*.so          binary
+*.a           binary
+
+# Certificates and keys: byte-exact or they are worthless.
+*.pem         binary
+*.key         binary
+*.crt         binary
+*.der         binary
+*.p12         binary
+*.jks         binary
