@@ -16,11 +16,18 @@ public class MqttAuthDtos {
      * POST /internal/mqtt/auth
      * { "clientid": "aabbccddeeff", "cn": "aabbccddeeff", "fingerprint": "sha256:ab12cd34..." }
      * </pre>
+     *
+     * `fingerprint` is deliberately NOT @NotBlank. EMQX 5.x exposes no
+     * cert-fingerprint placeholder for HTTP authn bodies (only ${clientid},
+     * ${cert_common_name}, ${cert_subject}), so it always sends "" here. Requiring
+     * a non-blank value made every device CONNECT fail 400 at the @Valid gate —
+     * before the controller's empty-fingerprint→CN fallback could run — which
+     * silently denied the whole fleet. See MqttAuthController.authenticate().
      */
     public record AuthRequest(
             @NotBlank String clientid,
             @NotBlank String cn,
-            @NotBlank String fingerprint
+            String fingerprint
     ) {}
 
     /**

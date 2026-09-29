@@ -50,8 +50,14 @@ import java.util.regex.Pattern;
 public class MqttAuthController {
 
     private static final Logger log = LoggerFactory.getLogger(MqttAuthController.class);
+    // The direction segment may itself contain slashes: "params/remote",
+    // "params/local", "ota/url", "ota/status", "ota/progress". Capturing it with
+    // [^/]+ truncated multi-segment directions to their first element ("params",
+    // "ota"), which then failed isDirectionAllowed() and denied the subscribe for
+    // every device — the firmware subscribes to she/.../params/remote at boot
+    // (she_mqtt.c). Match the whole tail greedily instead.
     private static final Pattern TOPIC_PATTERN = Pattern.compile(
-            "^she/(?<tenant>[^/]+)/(?<home>[^/]+)/(?<room>[^/]+)/(?<mac>[^/]+)/(?<direction>[^/]+)(/.*)?$"
+            "^she/(?<tenant>[^/]+)/(?<home>[^/]+)/(?<room>[^/]+)/(?<mac>[^/]+)/(?<direction>.+)$"
     );
 
     private final DeviceCertRepository deviceCertRepository;
