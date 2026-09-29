@@ -32,6 +32,7 @@
 #include "local_ctrl.h"
 #include "relay_driver.h"
 #include "feedback_monitor.h"
+#include "input_monitor.h"
 #include "energy_monitor.h"
 #include "button_task.h"
 #include "schedule_store.h"
@@ -291,13 +292,43 @@ void app_main(void) {
 
     /* The feedback monitor drives GPIO 18 as its CD4051 mux-select C. In direct
      * GPIO relay mode that pin is a relay output instead, so the two would fight
-     * over it — skip the monitor rather than have it stomp relay state. */
+     * over it — skip the monitor rather than have it stomp relay state.
+     *
+     * SHE-R24 is skipped for a DIFFERENT reason (BUILD-R24.md §1 / ADR-017): this
+     * board does not use the CD4051 at all. Its contact feedback comes from four
+     * PCF8574 INPUT expanders on I2C bus 1 (SDA=4 / SCL=5, addresses 0x20-0x23),
+     * and the mux's own pins are unusable anyway — GPIO 4/5 are that input bus
+     * and GPIO 10-12 are the classic-ESP32 SPI-flash group. Running the mux here
+     * would drive GPIO 4/5 as outputs and fight the input bus. */
+#if defined(CONFIG_SHE_R24)
+    ESP_LOGI(TAG, "Step 3b: CD4051 feedback monitor not used on SHE-R24 — "
+                  "contact feedback comes from the bus-1 PCF8574 input expanders");
+    /* R24's feedback is DIGITAL, not analog: four PCF8574 input expanders on
+     * I2C bus 1 (SDA=4 / SCL=5, 0x20-0x23), fed by the custom feedback PCB —
+     * one AC sense line per light, taken from the switched live at the lamp.
+     * Bring that bus up here; the poll task starts once the node profile exists
+     * (Step 5). Tolerate a missing expander: relay control must still work. */
+    if (input_monitor_init() != ESP_OK) {
+        ESP_LOGW(TAG, "Step 3b: input expander bus unavailable — relay feedback "
+                      "disabled (relay control is unaffected)");
+    }
+#else
     if (relay_driver_is_direct_gpio()) {
         ESP_LOGW(TAG, "Step 3b: feedback monitor SKIPPED — GPIO 18 is a direct relay output");
     } else {
         ESP_ERROR_CHECK(feedback_monitor_init(relay_count));
         ESP_LOGI(TAG, "Step 3b: CD4051 feedback monitor initialized");
     }
+#endif
+
+#if defined(CONFIG_SHE_R24)
+    /* ---- TEMPORARY BENCH TEST (remove once the relay wiring is confirmed) ----
+     * Walks all 24 channels ON/OFF one at a time, logging each channel with its
+     * expander address and pin. Runs BEFORE Wi-Fi/MQTT on purpose: the Wi-Fi path
+     * has been hanging on this board and the relay test must still work when it
+     * does. Watch/listen for 24 clicks in channel order. */
+    relay_selftest(400);
+#endif
 
 #ifdef CONFIG_SHE_HAS_PZEM
     ESP_ERROR_CHECK(energy_monitor_init());
@@ -340,6 +371,21 @@ void app_main(void) {
     update_node_identity(node, mac, profile_sku, node_id);
     ESP_LOGI(TAG, "Step 5: Node profile built — node_id=%s mac=%s sku=%s (%d devices)",
              node->node_id, node->mac, node->sku, node->device_count);
+
+#if defined(CONFIG_SHE_R24)
+    /* Start the AC-feedback poll task now that the profile exists. It reads the
+     * lamp-side AC sense lines and, when one disagrees with the cached Power
+     * value, updates that param and republishes params/local — so the app shows
+     * what is ACTUALLY energised (e.g. after a wall-switch flip) rather than what
+     * was last commanded. It deliberately does NOT drive the relay: reporting the
+     * divergence is the point, and silently re-asserting the command would hide
+     * a real fault. */
+    if (input_monitor_start(node) != ESP_OK) {
+        ESP_LOGW(TAG, "Step 5b: input feedback task not started");
+    } else {
+        ESP_LOGI(TAG, "Step 5b: AC feedback task started (Light 1-16, 1 s poll)");
+    }
+#endif
 
     /* Re-sync the profile's cached param values against the hardware.
      *
@@ -442,12 +488,18 @@ void app_main(void) {
      * mux-select C, which is a relay output in that mode. Guarding only the
      * init() was not enough — the task is started separately here and was still
      * clobbering the pin. */
+#if defined(CONFIG_SHE_R24)
+    /* No CD4051 on SHE-R24 — see the Step 3b note above. Do not start its task
+     * either; it would drive GPIO 4/5 and fight the bus-1 input expanders. */
+    ESP_LOGI(TAG, "Feedback monitor task not started (SHE-R24 uses bus-1 input expanders)");
+#else
     if (relay_driver_is_direct_gpio()) {
         ESP_LOGW(TAG, "Feedback monitor task SKIPPED — GPIO 18 is a direct relay output");
     } else {
         feedback_monitor_start();
         ESP_LOGI(TAG, "Feedback monitor task started");
     }
+#endif
 
     /* Start button task */
     button_task_start();

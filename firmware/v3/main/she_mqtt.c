@@ -8,6 +8,7 @@
 #include "she_mqtt.h"
 #include "nvs_keys.h"
 #include "relay_driver.h"    /* relay_set()/relay_save_state() for params/remote commands */
+#include "input_monitor.h"   /* absolute light set over a 2-way wall switch (SHE-R24) */
 #include "schedule_store.h"  /* device-local schedules (schedule_add/clear via cmd topic) */
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
@@ -259,15 +260,28 @@ static void handle_params_remote(const char *data, size_t len) {
                 p->last_value.val.b = on;
                 p->dirty = true;
 
-                esp_err_t err = relay_set(d->channel, on);
-                if (err != ESP_OK) {
-                    ESP_LOGW(TAG, "relay_set(ch=%d, %s) failed: %s",
-                             d->channel, on ? "ON" : "OFF", esp_err_to_name(err));
-                } else {
-                    ESP_LOGI(TAG, "%s (ch %d) -> %s",
-                             d->name, d->channel, on ? "ON" : "OFF");
+#if defined(CONFIG_SHE_R24)
+                /* 2-way wall switch: the relay is a TOGGLE (lamp = wall XOR
+                 * relay), so a blind relay_set() flips the lamp RELATIVE to the
+                 * wall switch — that is why the app's "ON" could turn a lamp OFF
+                 * after someone had used the wall switch. Make the write
+                 * absolute by consulting the lamp-side AC feedback. */
+                if (input_monitor_is_light_channel(d->channel)) {
+                    input_monitor_set_light_absolute(d->channel, on);
+                    changed = true;
+                } else
+#endif
+                {
+                    esp_err_t err = relay_set(d->channel, on);
+                    if (err != ESP_OK) {
+                        ESP_LOGW(TAG, "relay_set(ch=%d, %s) failed: %s",
+                                 d->channel, on ? "ON" : "OFF", esp_err_to_name(err));
+                    } else {
+                        ESP_LOGI(TAG, "%s (ch %d) -> %s",
+                                 d->name, d->channel, on ? "ON" : "OFF");
+                    }
+                    changed = true;
                 }
-                changed = true;
             }
         }
     }
@@ -277,6 +291,33 @@ static void handle_params_remote(const char *data, size_t len) {
     if (changed) {
         relay_save_state();
         mqtt_publish_params_local(g_node);
+    }
+}
+
+/* ---- Update the cached params for a group mask ----------------------------
+ *
+ * group_set applies the mask to the HARDWARE but used to leave the profile's
+ * params untouched — so the params/local publish that follows reported the OLD
+ * values. For the LIGHTS that was masked by the AC feedback task, which syncs
+ * them from the lamp; the SOCKETS have no sense line, so their stale value went
+ * to the cloud and overwrote the correct state — which is why a master
+ * Sockets/All press never moved the app's socket switches.
+ *
+ * Keyed off the CHANNEL (not the device name) so it tracks the relay map.
+ * -------------------------------------------------------------------------- */
+static void sync_group_params(she_node_t *node, uint32_t mask, bool on) {
+    if (!node) return;
+    for (int i = 0; i < node->device_count; i++) {
+        node_device_t *d = &node->devices[i];
+        if (!(mask & (1u << d->channel))) continue;
+        for (int j = 0; j < d->param_count; j++) {
+            node_param_t *p = &d->params[j];
+            if (strcmp(p->name, "Power") != 0) continue;
+            p->last_value.type = DATA_BOOL;
+            p->last_value.val.b = on;
+            p->dirty = true;
+            ESP_LOGI(TAG, "group_set: %s cached -> %s", d->name, on ? "ON" : "OFF");
+        }
     }
 }
 
@@ -416,11 +457,36 @@ static void handle_command(const char *data, size_t len) {
                 const bool on = cJSON_IsTrue(j_on);
                 ESP_LOGW(TAG, "command: group_set %s -> %s (reason=%s)",
                          g, on ? "ON" : "OFF", reason_str ? reason_str : "none");
+#if defined(CONFIG_SHE_R24)
+                /* 2-way wall switches: relay_apply_group() sets the RELAY
+                 * positions, which flips each lamp RELATIVE to its wall switch —
+                 * the same trap the per-device write had, and the reason a master
+                 * "lights off" left lamps on. Derive the target relay mask from
+                 * the lamp-side AC feedback and apply it in ONE atomic write. */
+                input_monitor_set_group_absolute(mask, on);
+#else
                 relay_apply_group(mask, on);
+#endif
                 relay_save_state();
+                /* Cache the new state BEFORE publishing: without this the
+                 * params/local below reports the pre-command values, and the
+                 * sockets (no feedback to correct them) would stay stale in the
+                 * cloud and in the app. */
+                sync_group_params(g_node, mask, on);
                 /* Report the resulting mask so the client can confirm the whole
                  * group moved and not just its first channel. */
                 mqtt_publish_status(true);
+                /* ALSO republish params/local.
+                 *
+                 * publish_status() carries node presence only — NOT per-param
+                 * values — so without this the cloud's cached Power values stayed
+                 * stale after a master-control press: the device applied the group
+                 * but never told anyone the new per-channel state, and every app
+                 * switch failed to follow. params/remote (scenes, individual
+                 * toggles) already republishes params/local; group_set was the one
+                 * path that did not, which is why scenes updated the app and the
+                 * master buttons did not. */
+                mqtt_publish_params_local(g_node);
             }
         }
     } else if (strcmp(cmd->valuestring, "relay_test") == 0) {

@@ -16,6 +16,7 @@ idf_component_register(
         "local_ctrl.c"
         "relay_driver.c"
         "feedback_monitor.c"
+        "input_monitor.c"
         "energy_monitor.c"
         "device_profiles.c"
         "system_service.c"

@@ -22,10 +22,11 @@ static const char *relay_names_r8[]  = {"Relay 1", "Relay 2", "Relay 3", "Relay 
 /* R24 board (ADR-015): 16 lights + 8 sockets across 3 × PCF8574.
  *
  * Channel map — note the sockets sit BETWEEN the two light banks, because that
- * is how the expanders are physically wired:
- *    ch  0-7  Light 1-8    (expander 0x20)
- *    ch  8-15 Socket 1-8   (expander 0x21)
- *    ch 16-23 Light 9-16   (expander 0x22)
+ * is how the expanders are physically wired, AND the addresses are not in
+ * ascending bank order (0x25 is OUT_3, not OUT_2):
+ *    ch  0-7  Light 1-8    (expander 0x24 = OUT_1)
+ *    ch  8-15 Socket 1-8   (expander 0x26 = OUT_2)
+ *    ch 16-23 Light 9-16   (expander 0x25 = OUT_3)
  *
  * Names are the cloud-facing contract: a person finds a light by room and name,
  * not by expander pin. Room labels (bilingual) go in the device attributes. */

@@ -15,11 +15,38 @@
 
 static const char *TAG = "she_feedback";
 
-/* CD4051 mux select pins (GPIO 10, 11, 12 on S3, C3-safe GPIO 4, 5, 6 on R4).
- * Classic ESP32-D0WD DevKit uses 4, 5, 18 — GPIO 6-11 on ESP32-D0WD are wired
- * to the integrated SPI flash and MUST NOT be repurposed (flash corruption +
- * WDT reset, same hazard as relay_driver I2C pins). */
-#if defined(CONFIG_SHE_R4)
+/* CD4051 mux select pins.
+ *
+ * ⚠️ HAZARD — this is the SAME class of bug that took the R24 board down through
+ * relay_driver.c, and it was still live here. On a classic ESP32-D0WD (which is
+ * the chip actually fitted on the bench SHE-IOT24 board), **GPIO 6-11 are wired
+ * to the integrated SPI flash**. Calling gpio_config() on any of them re-muxes a
+ * pad the live flash controller owns, so the chip hard-resets with NO panic:
+ *
+ *     rst:0x8 (TG1WDT_SYS_RESET) ... repeating
+ *
+ * The old `#else` branch below used GPIO 10, 11, 12 — two of which (10, 11) are
+ * flash pins — and R24 fell into that `#else`. The first boot of the fixed R24
+ * image died at exactly this point, right after "Step 3a: relay driver
+ * initialized", on the `GPIO[10]| ... OutputEn: 1` line.
+ *
+ * So the pin choice is now keyed off the TARGET first, not the SKU: the S3/C3
+ * production boards can keep the spec pins, but a classic ESP32 always gets
+ * safe pins regardless of which SKU is selected. A compile-time guard below
+ * refuses to build if a flash pin ever creeps back in.
+ *
+ * Safe classic-ESP32 GPIOs for this purpose: 4, 5, 18, 19, 23, 25, 26, 27,
+ * 32, 33 (none are flash or strapping pins used at boot). We use 4/5/18 to keep
+ * the DevKit choice that is already known to work on this bench board.
+ */
+#if defined(CONFIG_IDF_TARGET_ESP32)
+/* Classic ESP32 (incl. the bench R24 board): never use 6-11. */
+#define MUX_SEL_A_GPIO    4
+#define MUX_SEL_B_GPIO    5
+#define MUX_SEL_C_GPIO    18
+#define MUX_ADC_CHANNEL   ADC1_CHANNEL_2
+#elif defined(CONFIG_SHE_R4)
+/* ESP32-C3 / S3 production board per spec. */
 #define MUX_SEL_A_GPIO    4
 #define MUX_SEL_B_GPIO    5
 #define MUX_SEL_C_GPIO    6
@@ -30,10 +57,20 @@ static const char *TAG = "she_feedback";
 #define MUX_SEL_C_GPIO    18
 #define MUX_ADC_CHANNEL   ADC1_CHANNEL_2
 #else
+/* R8/R16/R24 on their intended ESP32-S3 parts: spec pins are safe here. */
 #define MUX_SEL_A_GPIO    10
 #define MUX_SEL_B_GPIO    11
 #define MUX_SEL_C_GPIO    12
 #define MUX_ADC_CHANNEL   ADC1_CHANNEL_0
+#endif
+
+/* Compile-time guard: refuse to build a classic-ESP32 image whose mux-select
+ * pins land in the SPI-flash group. Mirrors the guard in relay_driver.c. */
+#if defined(CONFIG_IDF_TARGET_ESP32) \
+ && ((MUX_SEL_A_GPIO >= 6 && MUX_SEL_A_GPIO <= 11) \
+  || (MUX_SEL_B_GPIO >= 6 && MUX_SEL_B_GPIO <= 11) \
+  || (MUX_SEL_C_GPIO >= 6 && MUX_SEL_C_GPIO <= 11))
+#error "CD4051 mux-select pin is in the classic-ESP32 SPI-flash range (GPIO 6-11). This hard-resets the chip with no panic. See feedback_monitor.c."
 #endif
 
 static uint8_t g_relay_count = 0;

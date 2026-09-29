@@ -152,8 +152,11 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
     wifi_prov_mgr_config_t cfg = {
         .scheme = wifi_prov_scheme_ble,
 #if defined(CONFIG_SHE_R4) || defined(CONFIG_SHE_DEVKIT_ESP32)
+        /* R4 is a C3 (BLE-only radio) and the DevKit has no BT controller use —
+         * freeing BLE alone is correct and frees the most RAM. */
         .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BLE,
 #else
+        /* R8 / R16 / R24 are S3 parts with a full BTDM controller. */
         .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
 #endif
     };

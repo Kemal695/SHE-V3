@@ -8,6 +8,7 @@
 #include "relay_driver.h"
 #include "nvs_keys.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"     /* esp_rom_delay_us — bus-settle delay in the pre-init probe */
 #include "driver/i2c.h"
 #include "driver/gpio.h"     /* direct-GPIO fallback when no PCF8574 is present */
 #include "nvs_flash.h"
@@ -37,16 +38,62 @@ static const char *TAG = "she_relay";
  * board that puts both sides on one bus. (See ADR-016.)
  *
  * Addresses: PCF8574 straps A0/A1/A2 to set its address; 0x20 = all three low.
+ * This board's output banks sit at 0x24/0x26/0x25 (A2=1, A1/A0 differing) — see
+ * the provenance note below before touching them.
  * Chip 2 is the 24-relay board's third output expander.
  *
- * ⚠️ The ADDRESSES BELOW ARE ASSUMED. 0x20/0x21 came from the pre-existing file;
- * 0x22 is a guess. A wrong address writes to whatever chip IS at that address —
- * on a relay board, the wrong circuit. Confirm against the board's pcf8574.h
- * before flashing anything that drives real expanders.
+ * ⚠️ ADDRESS PROVENANCE — read this before changing a number.
+ *
+ * The user physically straps the R24 output expanders to **0x24 / 0x25 / 0x26**
+ * and has confirmed this directly ("i use 0x24 adress"). That is the value this
+ * firmware must look for on the real board.
+ *
+ * Note the hardware spec (docs/v3-docs-final/V3-HARDWARE.md §3.2) documents the
+ * ladder only up to SHE-R16 (0x20 + 0x21) and never covers a 24-channel part, so
+ * for R24 the spec is silent and the **bench-strapped address wins**.
+ *
+ * Map (from Project X/app_main.c, which is the reference firmware for THIS
+ * `SHE-IOT24-hw-v1.0` board — only its defining header is missing):
+ *     pcf8574_OUT_1 -> 0x24
+ *     pcf8574_OUT_3 -> 0x25      <-- note: the SECOND address is OUT_3, not OUT_2
+ *     pcf8574_OUT_2 -> 0x26
+ * Paired with device_profiles.c's bank order that gives:
+ *     bank 0 (Light 1-8)   = OUT_1 @ 0x24
+ *     bank 1 (Socket 1-8)  = OUT_2 @ 0x26
+ *     bank 2 (Light 9-16)  = OUT_3 @ 0x25
+ * i.e. the addresses are NOT in ascending bank order. Do not "tidy" them into
+ * 0x24/0x25/0x26 = bank0/1/2 — that silently swaps the sockets and Light 9-16.
+ *
+ * The driver still does not trust these blindly: relay_driver_init() scans the
+ * strap range first and adopts only what actually answered (see
+ * relay_driver_scan_bus()). These macros are the expected map, used as the
+ * tie-breaker, and a mismatch is logged loudly rather than silently applied.
+ * This matters here because the board exposes a SECOND I2C bus (`SDA II`/`SCL II`)
+ * with DC/AC *input*-sense expanders on it — buses 1 and 2 can answer on the same
+ * strap range, so "three chips replied" is not by itself proof of the outputs.
  */
+#if defined(CONFIG_SHE_R24)
+/* SHE-R24 — from the board's own pcf8574.h (BUILD-R24.md §1, ADR-017). Note the
+ * order is NOT ascending: 0x25 is OUT_3 (Light 9-16), 0x26 is OUT_2 (Sockets). */
+#define PCF8574_ADDR_CHIP0    0x24   /* ch 0-7   (Light 1-8)   = OUT_1 */
+#define PCF8574_ADDR_CHIP1    0x26   /* ch 8-15  (Socket 1-8)  = OUT_2 */
+#define PCF8574_ADDR_CHIP2    0x25   /* ch 16-23 (Light 9-16)  = OUT_3 */
+#else
+/* R4/R8/R16 — the documented ladder in V3-HARDWARE.md §3.2. */
 #define PCF8574_ADDR_CHIP0    0x20
 #define PCF8574_ADDR_CHIP1    0x21
 #define PCF8574_ADDR_CHIP2    0x22
+#endif
+
+/* Addresses we are willing to probe. 0x20-0x27 is the full PCF8574 A2..A0 strap
+ * range, so the R24 banks at 0x24/0x25/0x26 fall inside it. Scanning the whole
+ * range on every boot would be wrong for a different reason: this board also
+ * carries DC/AC *input*-sense expanders (and exposes a second bus, `SDA II`/
+ * `SCL II`), so blindly adopting "the first three chips that answer" could bind a
+ * relay bank to an input expander. Only addresses in this range are considered,
+ * and they are candidates, not conclusions. */
+#define PCF8574_SCAN_FIRST     0x20
+#define PCF8574_SCAN_LAST      0x27
 
 #define RELAY_CHIPS           3
 #define RELAY_CHANNELS_MAX    (RELAY_CHIPS * 8)   /* 24 */
@@ -71,19 +118,75 @@ static bool     g_chip_present[RELAY_CHIPS] = { false, false, false };
  * bring-up path (and relay_driver_is_direct_gpio fallback) keys off it. */
 static bool g_pcf8574_present = false;
 
-/* I2C pins: production SKUs use GPIO 8/9. Classic ESP32-D0WD DevKit uses
- * GPIO 21/22 — GPIO 6-11 on ESP32-D0WD are wired to the integrated SPI
- * flash and MUST NOT be repurposed (bus hangs + WDT reset). */
-#if defined(CONFIG_SHE_DEVKIT_ESP32)
+/* I2C pins.
+ *
+ * ⚠️ THE PINS DEPEND ON THE SILICON, NOT JUST THE SKU. Read this before editing.
+ *
+ * The V3 hardware spec (`docs/v3-docs-final/V3-HARDWARE.md` §4.2) says the
+ * expanders sit on **GPIO 8 (SDA) / GPIO 9 (SCL)**, and every production SKU in
+ * that spec except R4 is an **ESP32-S3**. On an S3 those pins are ordinary GPIO
+ * and 8/9 is correct.
+ *
+ * On the **classic ESP32 (D0WD / WROOM-32)** — which is what the bench board
+ * actually is (boot log: `boot.esp32:`, Multicore, rev v1.1, DIO flash) — the
+ * **GPIO 6-11 group belongs to the SPI flash**. Calling `gpio_config()` or
+ * `i2c_param_config()` on GPIO 8/9 re-muxes pads the live flash controller owns
+ * and **hard-resets the chip instantly with NO panic output**, in an endless
+ * `TG1WDT_SYS_RESET` boot loop. That was observed on real hardware on
+ * 2026-09-28 and cost several flash cycles to identify.
+ *
+ * So: on a classic ESP32 we MUST fall back to GPIO 21/22 (the Arduino I2C
+ * default; also the pins this project used before the spec was applied), and we
+ * do it in code rather than by remembering, because forgetting it bricks boot.
+ *
+ * HISTORY / DO NOT REPEAT: this block once keyed the pins purely off the DevKit
+ * flag via an #else. Because the Kconfig SKU list had no SHE_R24 entry, an R24
+ * build had to start from the DevKit baseline and silently inherited 21/22 —
+ * so the scan probed pins with nothing on them and the board came up as SHE-R4
+ * with "0 device(s) responded". SHE_R24 is now explicit, and the classic-ESP32
+ * flash-pin hazard is guarded separately so neither can regress silently.
+ */
+#if defined(CONFIG_SHE_R24)
+/* SHE-R24 — the REAL board pins, from the board's own build guide
+ * (`she-v3-r24-source/v3/BUILD-R24.md` §1 + ADR-017):
+ *     output expanders, bus 0:  SDA=15 / SCL=13   (0x24/0x26/0x25)
+ *     input expanders,  bus 1:  SDA=4  / SCL=5    (0x20-0x23, input_monitor.c)
+ * This is a classic ESP32-D0WD, but it does NOT use the 21/22 Arduino default —
+ * 15/13 are the board's own routed I2C pins. Both are outside the 6-11 flash
+ * group, so they are safe. This branch MUST come first: R24 is also
+ * CONFIG_IDF_TARGET_ESP32, and the classic-ESP32 branch below would otherwise
+ * grab 21/22 (which is what the earlier failed attempts did). */
+#define I2C_MASTER_SDA_IO     15
+#define I2C_MASTER_SCL_IO     13
+#define I2C_MASTER_FREQ_HZ    100000
+#define I2C_MASTER_NUM        0
+#elif defined(CONFIG_IDF_TARGET_ESP32)
+/* Classic ESP32 (non-R24): GPIO 8/9 are flash pins and are lethal. Use 21/22. */
+#define I2C_MASTER_SDA_IO     21
+#define I2C_MASTER_SCL_IO     22
+#define I2C_MASTER_FREQ_HZ    100000
+#define I2C_MASTER_NUM        0
+#elif defined(CONFIG_SHE_R16) || defined(CONFIG_SHE_R8) || defined(CONFIG_SHE_R4)
+/* ESP32-S3 (and C3 for R4) production boards: spec pins are safe here. */
+#define I2C_MASTER_SDA_IO     8
+#define I2C_MASTER_SCL_IO     9
+#define I2C_MASTER_FREQ_HZ    100000
+#define I2C_MASTER_NUM        0
+#elif defined(CONFIG_SHE_DEVKIT_ESP32)
 #define I2C_MASTER_SDA_IO     21
 #define I2C_MASTER_SCL_IO     22
 #define I2C_MASTER_FREQ_HZ    100000
 #define I2C_MASTER_NUM        0
 #else
-#define I2C_MASTER_SDA_IO     8
-#define I2C_MASTER_SCL_IO     9
-#define I2C_MASTER_FREQ_HZ    100000
-#define I2C_MASTER_NUM        0
+#error "No SHE SKU selected — set CONFIG_SHE_R4/R8/R16/R24 or CONFIG_SHE_DEVKIT_ESP32"
+#endif
+
+/* Compile-time guard: refuse to build a classic-ESP32 image that points I2C at
+ * the flash pin group, whatever the SKU says. Cheap insurance against exactly
+ * the hang documented above. */
+#if defined(CONFIG_IDF_TARGET_ESP32) \
+ && (I2C_MASTER_SDA_IO >= 6 && I2C_MASTER_SDA_IO <= 11)
+#error "I2C_MASTER_SDA_IO is in the classic-ESP32 SPI-flash range (GPIO 6-11). This will hard-reset the chip with no panic. See the comment above."
 #endif
 
 static uint8_t g_relay_count = 0;
@@ -101,11 +204,20 @@ static uint8_t g_relay_count = 0;
  * GPIO 18 is normally the CD4051 mux select C for the feedback monitor, so
  * feedback_monitor_init() MUST be skipped while direct mode is active — see
  * relay_driver_is_direct_gpio() and its call site in main.c.
+ *
+ * NOTE on the #if guards below: the direct-GPIO *pins* only exist on a DevKit,
+ * but the flag `g_direct_gpio` is referenced from functions that are compiled on
+ * every SKU (relay_driver_readback, relay_driver_verify_shadow). It used to be
+ * declared inside the DevKit-only block, so building any production SKU
+ * (SHE_R4/R8/R16/R24) failed with "'g_direct_gpio' undeclared". The flag is now
+ * always defined and simply never set true off-DevKit, which is also the honest
+ * answer: "are we in direct-GPIO mode?" is false on every production board.
  */
+static bool g_direct_gpio = false;   /* set true only by the DevKit fallback path */
+
 #if defined(CONFIG_SHE_DEVKIT_ESP32)
 #define DIRECT_RELAY_COUNT 4
 static const int DIRECT_RELAY_PINS[DIRECT_RELAY_COUNT] = { 21, 22, 18, 19 };
-static bool g_direct_gpio = false;
 
 /* Shadow of the levels we last drove.
  *
@@ -123,20 +235,300 @@ static uint16_t g_direct_state = 0;
 #endif
 
 bool relay_driver_is_direct_gpio(void) {
-#if defined(CONFIG_SHE_DEVKIT_ESP32)
+    /* g_direct_gpio is false on every production SKU (it is only ever set by the
+     * DevKit fallback branch in relay_driver_init), so no #if is needed here. */
     return g_direct_gpio;
-#else
-    return false;
-#endif
 }
 
-/* Forward declaration (defined below) */
+/* Forward declarations (defined below) */
 static esp_err_t pcf8574_write_raw(uint8_t bus, uint8_t addr, uint8_t data);
+static esp_err_t pcf8574_read_raw(uint8_t bus, uint8_t addr, uint8_t *out);
+
+/* ---- Safe I2C bus scan (replaces writing to guessed addresses) ------------
+ *
+ * Strategy: read-only probe of the strap range (a PCF8574 has no register
+ * address, so a 1-byte read IS the presence test — no state is disturbed). Then:
+ *   1. If all three expected addresses (0x24/0x26/0x25) answered, use them.
+ *   2. Otherwise adopt the responding addresses in ascending order, but only if
+ *      exactly three responded AND the board's address order is ascending.
+ *      Any other count is reported and the banks are left absent.
+ *
+ * ⚠️ Why step 2 refuses on this board: the R24 map is NOT ascending
+ * (0x24=OUT_1, 0x25=OUT_3, 0x26=OUT_2), so sorting responders positionally would
+ * bind bank 1 to OUT_3 and bank 2 to OUT_2 — silently swapping the sockets with
+ * Light 9-16. That is a live-loads-toggling-on-the-wrong-circuit bug, so the
+ * positional fallback is only allowed when the map really is monotonic
+ * (i.e. the R4/R8/R16 0x20/0x21/0x22 ladder). Otherwise we refuse and log.
+ *
+ * The "exactly three" guard exists because a populated board may carry more I2C
+ * devices than the three relay banks — this board physically exposes a second
+ * bus (`SDA II`/`SCL II`) for DC/AC input-sense expanders, and binding a relay
+ * bank to a sense chip would report the wrong circuit and a later write would
+ * toggle it.
+ *
+ * Deliberately no assignment when a bank is absent: relay_set() then returns
+ * ESP_ERR_NOT_FOUND and the caller reports failure honestly, rather than
+ * energising whatever is at a stale address. */
+static void relay_driver_scan_bus(void) {
+    uint8_t responders[PCF8574_SCAN_LAST - PCF8574_SCAN_FIRST + 1];
+    uint8_t n = 0;
+
+    for (uint8_t a = PCF8574_SCAN_FIRST; a <= PCF8574_SCAN_LAST; a++) {
+        uint8_t dummy = 0;
+        /* Log BEFORE the probe, not after: a bus stuck low blocks inside this
+         * call, so a marker printed after it would never appear and the log would
+         * look identical to a hang in the loop above. */
+        ESP_LOGI(TAG, "  probing 0x%02X…", a);
+        if (pcf8574_read_raw(RELAY_CHIP_BUS, a, &dummy) == ESP_OK) {
+            responders[n++] = a;
+            ESP_LOGI(TAG, "  → 0x%02X ACKed", a);
+        }
+    }
+
+    ESP_LOGI(TAG, "I2C scan 0x%02X-0x%02X: %u device(s) responded",
+             PCF8574_SCAN_FIRST, PCF8574_SCAN_LAST, (unsigned)n);
+
+    if (n == 0) {
+        ESP_LOGW(TAG, "No I2C device answered — check SDA=%d SCL=%d and 3V3",
+                 I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
+        for (int i = 0; i < RELAY_CHIPS; i++) g_chip_addr[i] = 0x00;
+        return;
+    }
+
+    /* Preferred: the reference map answered verbatim. Trust it and stop. */
+    const uint8_t want[RELAY_CHIPS] = {
+        PCF8574_ADDR_CHIP0, PCF8574_ADDR_CHIP1, PCF8574_ADDR_CHIP2
+    };
+    bool exact = true;
+    for (int i = 0; i < RELAY_CHIPS; i++) {
+        bool seen = false;
+        for (uint8_t j = 0; j < n; j++) {
+            if (responders[j] == want[i]) { seen = true; break; }
+        }
+        if (!seen) { exact = false; break; }
+    }
+    if (exact) {
+        ESP_LOGI(TAG, "Relay expanders match the reference map 0x%02X/0x%02X/0x%02X",
+                 want[0], want[1], want[2]);
+        for (int i = 0; i < RELAY_CHIPS; i++) g_chip_addr[i] = want[i];
+        return;
+    }
+
+    /* Guard: positional adoption is only meaningful if the reference map is
+     * ascending. On R24 it is not, and guessing would cross the banks. */
+    if (!(want[0] < want[1] && want[1] < want[2])) {
+        ESP_LOGE(TAG, "Expected 0x%02X/0x%02X/0x%02X all answered but they did not. "
+                      "The R24 address map is non-ascending (0x24/0x26/0x25), so I will "
+                      "not adopt %u responders positionally — that would swap the socket "
+                      "bank with Light 9-16. Check the expander straps and whether the "
+                      "chips are on the expected bus.",
+                 want[0], want[1], want[2], (unsigned)n);
+        for (int i = 0; i < RELAY_CHIPS; i++) g_chip_addr[i] = 0x00;
+        return;
+    }
+
+    /* Fallback: only adopt a positional mapping when the bus holds EXACTLY the
+     * three relay banks AND the map is ascending (R4/R8/R16). A different count
+     * means sense chips are present too and we cannot tell which is which. */
+    if (n == RELAY_CHIPS) {
+        ESP_LOGW(TAG, "Reference addresses absent; adopting the 3 responders in "
+                      "ascending order as banks 0/1/2");
+        for (int i = 0; i < RELAY_CHIPS; i++) g_chip_addr[i] = responders[i];
+        return;
+    }
+
+    ESP_LOGE(TAG, "%u devices on the bus but not the expected relay map — refusing to "
+                  "guess which are outputs. Relay control disabled; run an I2C scan "
+                  "and set PCF8574_ADDR_CHIP0/1/2 from the real board.", (unsigned)n);
+    for (int i = 0; i < RELAY_CHIPS; i++) g_chip_addr[i] = 0x00;
+}
+
+/* ---- TEMPORARY bench instrument: I2C pin hunt ----------------------------
+ *
+ * Why this exists: the previous boot proved the configured pins (21/22) carry a
+ * *live but empty* bus — both lines idle HIGH (pull-ups present) but no PCF8574
+ * ACKs. The relay chips are written over I2C_NUM_0 in the vendor firmware
+ * (`pcf8574_write8` → `i2c_master_write_to_device(I2C_NUM_0, …)`), so they are
+ * on bus 0 — just not on whatever physical pins we assumed. The board's own
+ * header (`pcf8574.h`) that named the pins is not in this repo, and the GPIO
+ * silkscreen is not legible on the photo, so there is nothing left to read:
+ * we have to *measure*.
+ *
+ * How it works: for each candidate (SDA, SCL) pair, install a throwaway I2C
+ * master, read-probe 0x24/0x25/0x26 (a PCF8574 has no register pointer, so a
+ * 1-byte read is a safe, non-disturbing presence test), then uninstall. Any pair
+ * that sees an ACK is the relay bus. Nothing is written, so an ACK on a wrong
+ * guess toggles no load.
+ *
+ * This runs BEFORE the real bus install and always tears its driver down, so it
+ * cannot fight the production path. Remove once the true pins are known and
+ * hard-coded (this is scaffolding, not a shipping feature).
+ *
+ * The candidate list deliberately avoids GPIO 6-11 (classic-ESP32 flash pins —
+ * touching them hard-resets the chip, the bug that caused the original boot
+ * loop) and inputs-only GPIO 34-39.
+ *
+ * COMPILED OUT by default (#if 0). It is scaffolding, kept in-tree so the survey
+ * can be re-enabled with a one-line change, but NOT part of a shipping image:
+ * the build that carried it was never observed to boot, and it is suspected of
+ * wedging the chip. Do not re-enable without re-confirming against a known-good
+ * boot first.
+ */
+#if 0
+static const int HUNT_PINS[][2] = {
+    /* {SDA, SCL} — most-likely-first */
+    { 21, 22 },   /* Arduino default / current config (already proven empty) */
+    { 16, 17 },   /* common board pairing */
+    { 18, 19 },   /* DevKit fallback pair */
+    { 25, 26 },   /* free pins */
+    { 32, 33 },   /* free pins */
+    { 4,  5  },   /* pins now used by the feedback mux — checked to rule out */
+    { 13, 14 }, { 15, 2 }, { 12, 27 }, { 23, 5 }, { 26, 27 }, { 33, 25 },
+    { 27, 14 }, { 14, 27 }, { 2,  15 }, { 17, 16 }, { 19, 18 }, { 22, 21 },
+    { 23, 19 }, { 5,  17 }, { 13, 15 }, { 15, 13 },
+};
+#define HUNT_PIN_PAIRS (sizeof(HUNT_PINS) / sizeof(HUNT_PINS[0]))
+
+static void relay_driver_hunt_i2c_pins(void) {
+    const uint8_t probes[] = {
+        PCF8574_ADDR_CHIP0, PCF8574_ADDR_CHIP1, PCF8574_ADDR_CHIP2
+    };
+    ESP_LOGW(TAG, "=== I2C PIN HUNT: scanning %u candidate pin pairs for the relay "
+                  "expanders (0x%02X/0x%02X/0x%02X) ===",
+             (unsigned)HUNT_PIN_PAIRS, probes[0], probes[1], probes[2]);
+
+    for (size_t k = 0; k < HUNT_PIN_PAIRS; k++) {
+        int sda = HUNT_PINS[k][0];
+        int scl = HUNT_PINS[k][1];
+
+        /* Never touch the classic-ESP32 flash group: it hard-resets with no panic. */
+        if ((sda >= 6 && sda <= 11) || (scl >= 6 && scl <= 11)) continue;
+
+        /* --- Electrical survey BEFORE probing ---------------------------------
+         * An I2C ACK can only happen if the bus is pulled up by EXTERNAL
+         * resistors — the ESP32's internal ~45k pull-ups are far too weak to
+         * drive a real bus at 100 kHz, and a floating line reads HIGH in BOTH
+         * cases, which is exactly the false positive that fooled the first
+         * attempt: 21/22 read "idle high" only because *we* enabled the internal
+         * pull-up. So sample each line twice:
+         *   float : pull-up OFF -> HIGH means a real external pull-up exists
+         *   pull  : pull-up ON  -> LOW  means something is actively holding it down
+         * Only "float=HIGH" is evidence of a genuinely wired bus. */
+        gpio_config_t off = {
+            .pin_bit_mask = (1ULL << sda) | (1ULL << scl),
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&off);
+        esp_rom_delay_us(2000);
+        int f_sda = gpio_get_level(sda);
+        int f_scl = gpio_get_level(scl);
+
+        gpio_config_t on = off;
+        on.pull_up_en = GPIO_PULLUP_ENABLE;
+        gpio_config(&on);
+        esp_rom_delay_us(2000);
+        int p_sda = gpio_get_level(sda);
+        int p_scl = gpio_get_level(scl);
+
+        ESP_LOGI(TAG, "  [SDA=%d SCL=%d] float(SDA=%d SCL=%d) with-pullup(SDA=%d SCL=%d)%s",
+                 sda, scl, f_sda, f_scl, p_sda, p_scl,
+                 (f_sda && f_scl) ? "  <-- EXTERNAL PULL-UPS PRESENT" : "");
+
+        i2c_config_t c = {
+            .mode = I2C_MODE_MASTER,
+            .sda_io_num = sda,
+            .scl_io_num = scl,
+            .sda_pullup_en = GPIO_PULLUP_ENABLE,
+            .scl_pullup_en = GPIO_PULLUP_ENABLE,
+            .master.clk_speed = 100000,
+        };
+        if (i2c_param_config(I2C_MASTER_NUM, &c) != ESP_OK) {
+            ESP_LOGW(TAG, "  [SDA=%d SCL=%d] param_config failed", sda, scl);
+            continue;
+        }
+        if (i2c_driver_install(I2C_MASTER_NUM, c.mode, 0, 0, 0) != ESP_OK) {
+            ESP_LOGW(TAG, "  [SDA=%d SCL=%d] driver_install failed", sda, scl);
+            continue;
+        }
+
+        int hits = 0;
+        char hit_list[48] = {0};
+        for (size_t p = 0; p < sizeof(probes); p++) {
+            uint8_t dummy = 0;
+            if (pcf8574_read_raw(I2C_MASTER_NUM, probes[p], &dummy) == ESP_OK) {
+                hits++;
+                size_t len = strlen(hit_list);
+                snprintf(hit_list + len, sizeof(hit_list) - len, " 0x%02X", probes[p]);
+            }
+        }
+        ESP_LOGI(TAG, "  [SDA=%d SCL=%d] %d/%u relay addr(s) ACKed%s",
+                 sda, scl, hits, (unsigned)sizeof(probes),
+                 hits ? hit_list : "");
+
+        i2c_driver_delete(I2C_MASTER_NUM);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    ESP_LOGW(TAG, "=== I2C PIN HUNT done — a pair with EXTERNAL PULL-UPS + hits>0 is "
+                  "the relay bus; if NONE has external pull-ups, the expanders are "
+                  "unpowered or on a bus wired to different pins ===");
+}
+#endif /* 0 — hunt compiled out; see the note above */
 
 esp_err_t relay_driver_init(uint8_t relay_count) {
     g_relay_count = relay_count;
     ESP_LOGI(TAG, "Initializing PCF8574 for %d relays (SDA=%d SCL=%d)",
              relay_count, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
+
+    /* TEMPORARY: locate the real bus pins before trusting the configured ones.
+     * Disabled while recovering the board — the survey build is suspected of
+     * wedging the chip (never booted cleanly). Re-enable deliberately once the
+     * known-good image is confirmed booting again. */
+    /* relay_driver_hunt_i2c_pins(); */
+
+    /* ---- Pre-init bus health check (plain GPIO, BEFORE the I2C peripheral) ----
+     *
+     * Why this exists: a previous boot printed this init line and then hung; the
+     * task watchdog reset the chip in a loop and no panic ever appeared. That
+     * symptom is indistinguishable between "the I2C peripheral blocked" and "the
+     * bus is physically stuck", so sample the two lines as plain inputs first.
+     *
+     * A healthy IDLE I2C bus reads HIGH on both lines (pull-ups dominate). If
+     * either reads LOW with the pins released, something is holding it down —
+     * no pull-ups fitted, a short, a chip held in reset, or the expanders not
+     * actually wired to these GPIOs. That is a hardware finding, and it is far
+     * more useful than a watchdog loop.
+     *
+     * Safe now that the pin-selection block above refuses to put I2C on the
+     * classic-ESP32 flash group (GPIO 6-11). If those pins were ever selected,
+     * touching them here would reset the chip with no panic. */
+    {
+        gpio_config_t probe = {
+            .pin_bit_mask = (1ULL << I2C_MASTER_SDA_IO) | (1ULL << I2C_MASTER_SCL_IO),
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,   /* internal weak pull-up */
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&probe);
+        esp_rom_delay_us(2000);                 /* let the lines settle */
+        int sda = gpio_get_level(I2C_MASTER_SDA_IO);
+        int scl = gpio_get_level(I2C_MASTER_SCL_IO);
+        ESP_LOGI(TAG, "I2C idle levels: SDA(GPIO%d)=%d SCL(GPIO%d)=%d",
+                 I2C_MASTER_SDA_IO, sda, I2C_MASTER_SCL_IO, scl);
+        if (sda == 0 || scl == 0) {
+            ESP_LOGE(TAG, "I2C bus is STUCK LOW (SDA=%d SCL=%d) before any transfer. "
+                          "Check: 3V3 present, pull-ups fitted, expanders actually on "
+                          "GPIO %d/%d, no short. Continuing — the scan will fail fast.",
+                     sda, scl, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
+        } else {
+            ESP_LOGI(TAG, "I2C bus idle-high — wiring looks electrically sane, probing");
+        }
+        gpio_reset_pin(I2C_MASTER_SDA_IO);
+        gpio_reset_pin(I2C_MASTER_SCL_IO);
+    }
 
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
@@ -146,21 +538,37 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = I2C_MASTER_FREQ_HZ,
     };
+    /* Fine-grained progress logs. A previous boot hung with this init message as
+     * the LAST line ever printed and no panic — the watchdog simply reset the chip
+     * in a loop. Without a marker either side of each call there is no way to tell
+     * a hang in i2c_param_config from one in i2c_driver_install from one in the bus
+     * scan. These make that unambiguous, and they are cheap. */
+    ESP_LOGI(TAG, "[i2c] param_config…");
     ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
+    ESP_LOGI(TAG, "[i2c] driver_install…");
     ESP_ERROR_CHECK(i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0));
+    ESP_LOGI(TAG, "[i2c] installed; scanning bus…");
 
     /* Probe every expander. Tolerate missing chips — dev bring-up without
      * peripherals, loose wiring, or one dead chip on a 24-relay board. Boot must
      * continue and the working chips must keep working; that is why each is
-     * probed individually rather than assuming they are all-or-nothing. */
+     * probed individually rather than assuming they are all-or-nothing.
+     *
+     * Nothing is written before the scan: see pcf8574_scan_bus(). Writing 0xFF
+     * to a guessed address is how the previous version could have driven the
+     * wrong circuit on a real board. */
+    relay_driver_scan_bus();
+
     uint8_t found = 0;
     for (int i = 0; i < RELAY_CHIPS; i++) {
-        g_chip_present[i] = (pcf8574_write_raw(g_chip_bus[i], g_chip_addr[i], 0xFF) == ESP_OK);
+        g_chip_present[i] = (g_chip_addr[i] != 0x00);
         if (g_chip_present[i]) {
             found++;
+            ESP_LOGI(TAG, "Relay expander %d = 0x%02X (ch %d-%d)",
+                     i, g_chip_addr[i], i * 8, i * 8 + 7);
         } else {
-            ESP_LOGW(TAG, "PCF8574 chip %d @0x%02X not found — its 8 channels "
-                          "will report as unavailable", i, g_chip_addr[i]);
+            ESP_LOGW(TAG, "Relay expander %d not found — its 8 channels "
+                          "will report as unavailable", i);
         }
     }
     g_pcf8574_present = (found > 0);
@@ -173,8 +581,7 @@ esp_err_t relay_driver_init(uint8_t relay_count) {
          * no-op. Requires releasing the I2C driver first — it owns 21/22. */
         ESP_LOGW(TAG, "PCF8574 NOT FOUND at 0x%02X — falling back to DIRECT GPIO on "
                       "21/22/18/19 (active-HIGH: ON = 3.3V)",
-                 PCF8574_ADDR_CHIP0);
-        i2c_driver_delete(I2C_MASTER_NUM);
+                 PCF8574_ADDR_CHIP0);        i2c_driver_delete(I2C_MASTER_NUM);
 
         gpio_config_t io_conf = {
             .pin_bit_mask = 0,

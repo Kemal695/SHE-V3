@@ -21,6 +21,8 @@ extern "C" {
 /**
  * Initialize PCF8574 I2C expander(s).
  * R4/R8: 1 chip at I2C address 0x20. R16: 2 chips at 0x20 + 0x21.
+ * R24: 3 chips at 0x24 (Light 1-8) / 0x26 (Socket 1-8) / 0x25 (Light 9-16) —
+ * note the middle bank is 0x26, NOT 0x25. See relay_driver.c for provenance.
  */
 esp_err_t relay_driver_init(uint8_t relay_count);
 
