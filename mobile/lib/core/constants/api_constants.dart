@@ -42,6 +42,14 @@ class ApiConstants {
   static String nodeCommands(String id) => '$apiPrefix/nodes/$id/commands';
   static const String nodeClaim = '$apiPrefix/nodes/claim';
 
+  // Device groups + device rename (custom device groups, migration V36)
+  static String homeDeviceGroups(String homeId) =>
+      '$apiPrefix/homes/$homeId/device-groups';
+  static String deviceGroup(String id) => '$apiPrefix/device-groups/$id';
+  static String deviceGroupSet(String id) => '$apiPrefix/device-groups/$id/set';
+  static String nodeDevice(String nodeId, String deviceId) =>
+      '$apiPrefix/nodes/$nodeId/devices/$deviceId';
+
   // Scenes (V3-API-SPECIFICATION §8.1)
   static String homeScenes(String homeId) => '$apiPrefix/homes/$homeId/scenes';
   static String scene(String id) => '$apiPrefix/scenes/$id';

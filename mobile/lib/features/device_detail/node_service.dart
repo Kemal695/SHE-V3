@@ -138,6 +138,62 @@ class NodeService {
     return response.data['data'];
   }
 
+  // ─── Device rename + custom device groups (migration V36) ─────────────────
+
+  /// PATCH /api/v3/nodes/{nodeId}/devices/{deviceId} — set display_name.
+  /// Passing null/empty clears the custom name (the UI falls back to device_name).
+  Future<Map<String, dynamic>> renameDevice(
+      String nodeId, String deviceId, String? displayName) async {
+    final response = await _dio.patch(
+      ApiConstants.nodeDevice(nodeId, deviceId),
+      data: {'display_name': displayName},
+    );
+    return response.data['data'];
+  }
+
+  /// GET /api/v3/homes/{homeId}/device-groups
+  Future<List<Map<String, dynamic>>> listDeviceGroups(String homeId) async {
+    final response = await _dio.get(ApiConstants.homeDeviceGroups(homeId));
+    return List<Map<String, dynamic>>.from(response.data['data']);
+  }
+
+  /// POST /api/v3/homes/{homeId}/device-groups — {name, device_ids[]}
+  Future<Map<String, dynamic>> createDeviceGroup(
+      String homeId, String name, List<String> deviceIds) async {
+    final response = await _dio.post(
+      ApiConstants.homeDeviceGroups(homeId),
+      data: {'name': name, 'device_ids': deviceIds},
+    );
+    return response.data['data'];
+  }
+
+  /// PATCH /api/v3/device-groups/{id} — {name?, device_ids?}
+  Future<Map<String, dynamic>> updateDeviceGroup(
+      String groupId, String? name, List<String>? deviceIds) async {
+    final response = await _dio.patch(
+      ApiConstants.deviceGroup(groupId),
+      data: {
+        if (name != null) 'name': name,
+        if (deviceIds != null) 'device_ids': deviceIds,
+      },
+    );
+    return response.data['data'];
+  }
+
+  /// DELETE /api/v3/device-groups/{id}
+  Future<void> deleteDeviceGroup(String groupId) async {
+    await _dio.delete(ApiConstants.deviceGroup(groupId));
+  }
+
+  /// POST /api/v3/device-groups/{id}/set — {on}
+  Future<Map<String, dynamic>> setDeviceGroup(String groupId, bool on) async {
+    final response = await _dio.post(
+      ApiConstants.deviceGroupSet(groupId),
+      data: {'on': on},
+    );
+    return response.data['data'];
+  }
+
   /// POST /api/v3/auth/claim-token — 10-min TTL claim JWT (P1-3).
   Future<String> claimToken() async {
     final response = await _dio.post('/api/v3/auth/claim-token');

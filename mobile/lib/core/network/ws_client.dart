@@ -204,8 +204,21 @@ class WsClient {
 
       // M3 fix: dispatch WS events into Riverpod so the UI updates live.
       final nodeId = data['nodeId'] as String?;
+      final deviceId = data['deviceId'] as String?;
       switch (event) {
         case 'node.state':
+          // THE live-state path. The device reported a param (params/local), so
+          // refetch exactly that device's params. Invalidating nodeDevicesProvider
+          // alone was NOT enough: DeviceResponse carries no params, so the
+          // per-device switches stayed stale — that was the "the toggle is not
+          // changing the state" bug.
+          if (nodeId != null) {
+            ref.invalidate(nodeDevicesProvider(nodeId));
+            if (deviceId != null) {
+              ref.invalidate(nodeDeviceParamsProvider('$nodeId|$deviceId'));
+            }
+          }
+          break;
         case 'energy.update':
           if (nodeId != null) ref.invalidate(nodeDevicesProvider(nodeId));
           break;

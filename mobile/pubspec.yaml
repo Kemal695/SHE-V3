@@ -40,7 +40,10 @@ dependencies:
   multicast_dns: ^0.3.2+7
 
   # ---- Charts ----
-  fl_chart: ^0.68.0
+  # Bumped 0.68.0 -> 1.2.0: 0.68.0 does not compile on Dart 3.13 / Flutter 3.47.5
+  # (errors in fl_chart's own source: 'TextDirection'/'Offset' "isn't a type",
+  # switch-exhaustiveness). 1.x keeps the same charting API this app uses.
+  fl_chart: ^1.2.0
 
   # ---- Push notifications ----
   firebase_messaging: ^15.0.0
