@@ -23,6 +23,20 @@ import os
 import runpy
 import sys
 
+
+def _first_existing(*candidates):
+    """Return the first candidate directory that exists, else the last one.
+
+    Used for tool dirs whose version is not pinned by this repo (ninja). Falling
+    back to the last candidate keeps the PATH entry present-but-wrong rather than
+    dropping it, so the eventual error still names the tool.
+    """
+    for c in candidates:
+        if os.path.isdir(c) and os.path.exists(os.path.join(c, "ninja.exe")):
+            return c
+    return candidates[-1]
+
+
 IDF_PATH = r"C:\Espressif\frameworks\esp-idf-v5.1.4"
 IDF_PY = os.path.join(IDF_PATH, "tools", "idf.py")
 
@@ -33,7 +47,16 @@ TOOL_BINS = [
     # when spawned from this environment, which makes idf.py report
     # '"cmake" must be available on the PATH'.
     r"C:\Espressif\tools\cmake\3.30.2\bin",
-    r"C:\Espressif\tools\ninja\1.12.1",
+    # Version is whatever this machine actually has. It was pinned to 1.12.1 but
+    # only 1.10.2 is installed here, and a wrong path does not fail loudly: idf.py
+    # reports `FileNotFoundError: [WinError 2] The system cannot find the file
+    # specified` from deep inside asyncio's create_subprocess_exec, which reads
+    # like a broken IDF install rather than one bad PATH entry. _first_existing()
+    # below picks whichever is present so a version bump cannot reintroduce it.
+    _first_existing(
+        r"C:\Espressif\tools\ninja\1.12.1",
+        r"C:\Espressif\tools\ninja\1.10.2",
+    ),
 ]
 
 os.environ["IDF_PATH"] = IDF_PATH

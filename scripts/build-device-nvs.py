@@ -39,7 +39,17 @@ FCTRY_OFFSET, FCTRY_SIZE = 0x5C0000, 0x10000   # 64 KB
 NVS_OFFSET, NVS_SIZE = 0x9000, 0x6000          # 24 KB
 
 DEFAULT_TENANT = "00000000-0000-0000-0000-000000000001"
-DEFAULT_HOME = "7600e8c7-1567-40c1-8de7-7a1334c0d61b"
+# ⚠️ This must match the home the device is actually assigned to in the backend.
+# It was stale (7600e8c7-…) while the node's real home was 69b4294f-…, and the
+# mismatch is silent: the device connects, then publishes to a topic under a home
+# the backend has no `homes` row for, so it never appears online and every
+# command 404s. Always pass --home explicitly for a real device; this default is
+# only a bring-up convenience.
+DEFAULT_HOME = "69b4294f-c1bf-4a68-838e-b906892174ab"
+# The CH340 on this bench enumerates as COM3. Every other script in scripts/
+# still defaults to COM4 (the now-absent DevKit), which fails with
+# "could not open port COM4". Change this if the board moves.
+DEFAULT_PORT = "COM3"
 
 
 def normalize_mac(mac: str) -> str:
@@ -96,6 +106,8 @@ def main() -> int:
                     help="also set provisioned=1 in fctry, so re-flashing does not "
                          "kick an already-provisioned device back into BLE mode")
     ap.add_argument("--out", default=str(here / "nvs-build"))
+    ap.add_argument("--port", default=DEFAULT_PORT,
+                    help="serial port only used in the printed esptool hint")
     args = ap.parse_args()
 
     clean = normalize_mac(args.mac)
@@ -160,9 +172,9 @@ def main() -> int:
     print(f"nvs   image  : {nvs_bin}  {nsz} bytes  -> flash @ {hex(NVS_OFFSET)}")
     print()
     print("Flash with (device must be in download mode: hold BOOT, tap EN, release BOOT):")
-    print(f"  esptool.py --chip esp32 --port COM4 --baud 460800 write_flash "
+    print(f"  esptool.py --chip esp32 --port {args.port} --baud 460800 write_flash "
           f"{hex(FCTRY_OFFSET)} {fctry_bin.as_posix()}")
-    print(f"  esptool.py --chip esp32 --port COM4 --baud 460800 write_flash "
+    print(f"  esptool.py --chip esp32 --port {args.port} --baud 460800 write_flash "
           f"{hex(NVS_OFFSET)} {nvs_bin.as_posix()}")
     return 0
 
