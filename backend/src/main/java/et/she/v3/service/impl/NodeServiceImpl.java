@@ -45,6 +45,7 @@ public class NodeServiceImpl implements NodeService {
     private final JwtService jwtService;
     private final SheProperties props;
     private final AuditService auditService;
+    private final et.she.v3.websocket.WsEventBus wsEventBus;
 
     public NodeServiceImpl(NodeRepository nodeRepository,
                            NodeDeviceRepository nodeDeviceRepository,
@@ -58,7 +59,8 @@ public class NodeServiceImpl implements NodeService {
                            TenantContextInterceptor tenantContextInterceptor,
                            JwtService jwtService,
                            SheProperties props,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           et.she.v3.websocket.WsEventBus wsEventBus) {
         this.nodeRepository = nodeRepository;
         this.nodeDeviceRepository = nodeDeviceRepository;
         this.nodeParamRepository = nodeParamRepository;
@@ -68,6 +70,7 @@ public class NodeServiceImpl implements NodeService {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.mqttPublishService = mqttPublishService;
+        this.wsEventBus = wsEventBus;
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.jwtService = jwtService;
         this.props = props;
@@ -494,6 +497,20 @@ public class NodeServiceImpl implements NodeService {
             throw new SheException("MQTT_PUBLISH_FAILED", "Failed to publish command to device", 502, e);
         }
 
+        // group_set: reflect the intent into the cached params + push node.state.
+        //
+        // The DEVICE applies a group atomically but (as of firmware 3.0.9) only
+        // republishes its STATUS afterwards, not params/local — so the cached
+        // Power values went stale and no client's switches followed a master-
+        // control press. Scenes worked because they use params/remote, which DOES
+        // republish params/local. Mirror writeParams' desired-state semantics here
+        // so the UI is right even on a device that has not been re-flashed yet.
+        if ("group_set".equals(cmd)) {
+            applyGroupDesiredState(node,
+                    (String) extra.get("group"),
+                    Boolean.TRUE.equals(extra.get("on")));
+        }
+
         // P1-19: a system command is a privileged action. Record which one and why —
         // "someone rebooted the device" is exactly the kind of thing an audit log exists for.
         Map<String, Object> auditDetails = new java.util.HashMap<>();
@@ -509,6 +526,38 @@ public class NodeServiceImpl implements NodeService {
                 tenantShort, homeShort, roomShort, node.getNormalizedMac());
         log.info("Command {} queued for node {} (seq={})", cmd, node.getNodeId(), seq);
         return new NodeDtos.CommandResponse(nodeId, cmd, true, topic);
+    }
+
+    /**
+     * Reflect a master-control (group_set) intent into the cached param state and
+     * push node.state to the tenant's WebSocket sessions.
+     *
+     * Group → device-name mapping matches the firmware's RELAY_GROUP_*_R24 masks:
+     * lights = "Light *" (ch 0-7 + 16-23), sockets = "Socket *" (ch 8-15).
+     */
+    private void applyGroupDesiredState(Node node, String group, boolean on) {
+        if (group == null) return;
+        Instant now = Instant.now();
+        for (NodeDevice d : nodeDeviceRepository.findAllByNodeId(node.getId())) {
+            if (d.isService()) continue;
+            String name = d.getDeviceName() == null ? "" : d.getDeviceName();
+            boolean inGroup = switch (group) {
+                case "lights" -> name.startsWith("Light");
+                case "sockets" -> name.startsWith("Socket");
+                default -> name.startsWith("Light") || name.startsWith("Socket");
+            };
+            if (!inGroup) continue;
+
+            nodeParamRepository.findByDeviceAndName(d.getId(), "Power").ifPresent(param -> {
+                nodeParamRepository.updateLastValue(param.getId(), on, now);
+                try {
+                    wsEventBus.publishNodeState(node.getTenantId(), node.getHomeId(), node.getId(),
+                            d.getId(), d.getDeviceName(), "Power", objectMapper.valueToTree(on));
+                } catch (Exception e) {
+                    log.debug("group_set WS push failed for device {}: {}", d.getId(), e.getMessage());
+                }
+            });
+        }
     }
 
     // =========================================================================
