@@ -20,34 +20,29 @@ subprojects {
 }
 
 // ---------------------------------------------------------------------------
-// Kotlin incremental compilation cannot span drives (fixed 2026-10-02)
+// Kotlin / Android build failures on this WDAC-hardened box
 // ---------------------------------------------------------------------------
-// The pub cache lives on C: (C:\Users\hp\AppData\Local\Pub\Cache\...) while this
-// project lives on D:. Kotlin's incremental compiler stores *relative* paths in
-// its cache, so it tries to relativise
-//   C:\...\speech_to_text-7.5.0\android\src\main\kotlin\...\SpeechToTextPlugin.kt
-// against the project root on D:. No relative path exists between two drives, so
-// it throws:
-//   IllegalArgumentException: this and base files have different roots
-// and then fails to close the incremental caches:
-//   :speech_to_text:compileDebugKotlin ... Could not close incremental caches
+// If `flutter build apk` fails at `:gradle:compileKotlin` with
 //
-// This is a Kotlin-on-Windows limitation, not a problem with the plugin or with
-// our code — it would hit any Kotlin-source plugin while the cache and the
-// project sit on different drives. Opting these subprojects out of Kotlin
-// incremental compilation makes them compile non-incrementally, which needs no
-// cross-drive relative path.
+//   IOException: Unable to delete directory
+//     '<flutterSdk>/packages/flutter_tools/gradle/build/classes/kotlin/main'
+//     Failed to delete some children. This might happen because a process has
+//     files open or has its working directory set in the target directory.
 //
-// Cost: recompiling these plugin sources on each build instead of reusing the
-// cache. They are small and change only when the dependency version bumps.
+// ignore the "files open" wording — it is a red herring. The Kotlin daemon is
+// actually being refused DELETE permission there by Windows Defender Application
+// Control (verified: java.nio.file.AccessDeniedException in the Kotlin daemon
+// log, against a path where icacls grants full control and the user can delete
+// by hand). The Flutter Gradle plugin is an *included* build that lives inside
+// the SDK, and there is no supported Gradle API to redirect an included build's
+// output directory — so it cannot be fixed from this file.
 //
-// If a future Kotlin/Gradle release fixes the underlying issue, this block can
-// be deleted and the build should still work.
-subprojects {
-    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-        incremental = false
-    }
-}
+// Fix it with the junction, which relocates those bytes off the protected path:
+//
+//     python scripts/prepare-flutter-gradle-dir.py
+//
+// See the build-verify skill for the full diagnosis.
+// ---------------------------------------------------------------------------
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
