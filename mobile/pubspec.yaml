@@ -58,6 +58,14 @@ dependencies:
   # ---- UI ----
   cupertino_icons: ^1.0.8
 
+  # ---- Voice control (phone-side) ----
+  # On-device wake word / speech recognition. Deliberately NOT the firmware
+  # Picovoice path (Phase 4C, R16-only): this runs on the phone, so it works
+  # with any SKU including the R24, needs no extra hardware and no mic on the
+  # board, and reuses the same REST API the UI already calls.
+  speech_to_text: ^7.0.0
+  permission_handler: ^11.3.1
+
   # ---- BLE provisioning (Espressif wifi_prov_mgr, Security 1 + PoP) ----
   # Vendored from flutter_esp_ble_prov 0.1.7 + modernized Android build
   # (AGP 8 / namespace) under plugins/. Upstream android/build.gradle

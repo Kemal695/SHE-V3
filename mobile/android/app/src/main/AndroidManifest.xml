@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voice control (phone-side speech recognition) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Optional: lets the recognizer keep working if the user backgrounds the
+         app mid-utterance. Not required for the normal foreground flow. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+
     <application
         android:label="she_mobile"
         android:name="${applicationName}"
@@ -40,6 +47,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+ package visibility: without this, speech_to_text's
+             availability check cannot see the system speech recognizer and
+             initialize() reports "not available" even on devices that have one
+             (and on any Google Play Services build). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>
