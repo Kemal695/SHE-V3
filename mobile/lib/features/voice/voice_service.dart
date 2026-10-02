@@ -20,7 +20,6 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../core/network/dio_client.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';

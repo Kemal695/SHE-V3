@@ -1,19 +1,27 @@
 // Standalone harness for voice_intent.dart.
 //
-// WHY THIS EXISTS: `flutter test` cannot run in the agent shell on this box —
+// WHY THIS EXISTS: `flutter test` could not run in the agent shell on this box —
 // Flutter's native-asset hooks die with ERROR_PIPE_BUSY 231 before any test
 // executes, and `pub get` is killed the same way. That is an environment
-// limitation, not a code problem.
+// limitation, not a code problem. (On a normal machine `flutter test
+// test/voice_intent_test.dart` is the one to use; this harness is the fallback
+// that works anywhere the Dart SDK does.)
 //
 // voice_intent.dart imports nothing but dart:core, so it can be exercised
 // directly with the standalone Dart SDK and no package resolution at all. That
 // is the whole reason the parser was kept free of Flutter imports.
 //
-// Run:
-//   dart run tools/check_voice_intent.dart
+// Run (from mobile/):
+//   dart tools/check_voice_intent.dart
 //
-// The full, idiomatic suite lives in test/voice_intent_test.dart and runs under
-// `flutter test` on a machine where that works.
+// Deliberately a *relative* import, not package:she_mobile/... — using a
+// package: URI would require `pub get` to have resolved and a .dart_tool
+// package_config.json to exist, which is exactly what is unavailable in the
+// environments this harness is meant to work in. The `avoid_relative_lib_imports`
+// lint is therefore suppressed for that one line.
+//
+// ignore_for_file: avoid_print
+// ignore: avoid_relative_lib_imports
 import '../lib/features/voice/voice_intent.dart';
 
 int _pass = 0;

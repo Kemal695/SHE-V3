@@ -16,6 +16,13 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # tools/ holds developer-facing harnesses that deliberately do not follow
+    # app conventions: they print to stdout on purpose (a harness has no logging
+    # framework and no user to notify otherwise) and they import lib/ files by
+    # relative path so they run under a bare `dart` with no package resolution.
+    # Neither is appropriate for shipped code, which is why they are in tools/
+    # and not lib/. Excluded so `flutter analyze` reports only real app issues.
+    - tools/**
 include: package:flutter_lints/flutter.yaml
 
 linter:
