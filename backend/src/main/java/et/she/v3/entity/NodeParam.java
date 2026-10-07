@@ -69,6 +69,17 @@ public class NodeParam {
     @Column(name = "last_value", columnDefinition = "jsonb")
     private JsonNode lastValue;
 
+    /**
+     * Value last REPORTED BY THE DEVICE (params/local) — migration V38.
+     *
+     * <p>Distinct from {@link #lastValue}, which app commands also write (the
+     * desired state). The mobile power switch reads this as the source of truth,
+     * so it can only show ON when the board actually reported ON.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "reported_value", columnDefinition = "jsonb")
+    private JsonNode reportedValue;
+
     @Column(name = "last_reported_at")
     private Instant lastReportedAt;
 
@@ -99,6 +110,8 @@ public class NodeParam {
     public void setMaxValue(Double maxValue) { this.maxValue = maxValue; }
     public JsonNode getLastValue() { return lastValue; }
     public void setLastValue(JsonNode lastValue) { this.lastValue = lastValue; }
+    public JsonNode getReportedValue() { return reportedValue; }
+    public void setReportedValue(JsonNode reportedValue) { this.reportedValue = reportedValue; }
     public Instant getLastReportedAt() { return lastReportedAt; }
     public void setLastReportedAt(Instant lastReportedAt) { this.lastReportedAt = lastReportedAt; }
     public Instant getCreatedAt() { return createdAt; }

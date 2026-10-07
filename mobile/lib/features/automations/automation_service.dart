@@ -19,6 +19,18 @@ import '../scenes/scene_service.dart' show homeDevicesProvider, SceneDeviceOptio
 final automationServiceProvider =
     Provider<AutomationService>((ref) => AutomationService(ref));
 
+/// Automations for a home.
+///
+/// 🔴 LIVES HERE, NOT IN automations_screen.dart (bugfix 2026-10-08).
+/// It used to be declared in the list screen, which meant ONLY that screen could
+/// invalidate it. The detail screen could save an edit and had no way to tell
+/// the list, so going back showed the OLD name / trigger / actions and the edit
+/// looked like it had not happened. Both screens now share this one provider.
+final homeAutomationsProvider =
+    FutureProvider.family<List<Automation>, String>(
+  (ref, homeId) => ref.read(automationServiceProvider).listAutomations(homeId),
+);
+
 /// Trigger types offered by the editor.
 enum AutomationTriggerType { manual, schedule, nodeState }
 
@@ -56,6 +68,14 @@ class Automation {
   final Map<String, dynamic> trigger;
   final List<AutomationRule> rules;
 
+  /// When the scheduler last actually fired this rule, or null if it never has.
+  ///
+  /// The backend has always tracked this; it just was not returned. Without it a
+  /// rule that saves but never fires looks identical to one that fires and whose
+  /// action fails — both simply "do nothing", with nothing on screen to tell them
+  /// apart.
+  final DateTime? lastFiredAt;
+
   const Automation({
     required this.id,
     required this.homeId,
@@ -64,6 +84,7 @@ class Automation {
     required this.enabled,
     required this.trigger,
     required this.rules,
+    this.lastFiredAt,
   });
 
   factory Automation.fromJson(Map<String, dynamic> json) => Automation(
@@ -77,12 +98,32 @@ class Automation {
         rules: (json['actions'] as List<dynamic>? ?? [])
             .map((a) => AutomationRule.fromJson(a as Map<String, dynamic>))
             .toList(),
+        lastFiredAt: DateTime.tryParse(json['lastFiredAt']?.toString() ?? '')
+            ?.toLocal(),
       );
+
+  /// Human-readable "has this run?" line for the list.
+  String get lastRunLabel {
+    final at = lastFiredAt;
+    if (at == null) return 'Never run yet';
+    final now = DateTime.now();
+    final diff = now.difference(at);
+    if (diff.inMinutes < 1) return 'Ran just now';
+    if (diff.inMinutes < 60) return 'Ran ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'Ran ${diff.inHours}h ago';
+    return 'Ran ${diff.inDays}d ago';
+  }
 
   String get triggerLabel {
     final type = trigger['type'] as String? ?? 'MANUAL';
     if (type == 'SCHEDULE') {
       return 'Schedule · cron "${trigger['cron'] ?? ''}"';
+    }
+    // SOLAR is its own stored type; without this branch it fell through to
+    // "Manual" and a sunrise/sunset rule read as a tap-to-run rule.
+    if (type == 'SOLAR') {
+      final event = (trigger['event'] ?? 'sunrise').toString().toLowerCase();
+      return 'At ${event == 'sunset' ? 'sunset' : 'sunrise'}, every day';
     }
     if (type == 'NODE_STATE') {
       return 'When ${trigger['device_name'] ?? 'device'}.'
@@ -91,6 +132,15 @@ class Automation {
     }
     return 'Manual';
   }
+
+  /// True for a sunrise/sunset trigger. Kept separate from [triggerType], which
+  /// collapses SOLAR into `manual` and is therefore wrong for filtering.
+  bool get isSolar => trigger['type'] == 'SOLAR';
+
+  /// True when the rule runs on a clock (fixed cron OR solar). Used by the
+  /// "Scheduled" filter so solar rules are not hidden from it.
+  bool get isTimeBased =>
+      triggerType == AutomationTriggerType.schedule || isSolar;
 
   int get ruleCount => rules.length;
 
@@ -133,18 +183,24 @@ class AutomationTriggerResult {
 class AutomationActionDraft {
   final String nodeId;
   final String deviceName;
+
+  /// Stable device UUID. The backend resolves by this when present, falling
+  /// back to `device_name` for legacy rows — so a rename never orphans the rule.
+  final String nodeDeviceId;
   final Map<String, Object> params;
 
   const AutomationActionDraft({
     required this.nodeId,
     required this.deviceName,
     required this.params,
+    this.nodeDeviceId = '',
   });
 
   Map<String, dynamic> toJson() => {
         'type': 'WRITE_PARAM',
         'node_id': nodeId,
         'device_name': deviceName,
+        if (nodeDeviceId.isNotEmpty) 'node_device_id': nodeDeviceId,
         'params': params,
       };
 }
@@ -186,16 +242,24 @@ class AutomationService {
   }
 
   /// PUT /automations/{id}
+  ///
+  /// `trigger` / `actions` are optional and REPLACE the stored rule when sent —
+  /// without them the editor could only rename an automation, not change what
+  /// it does.
   Future<Automation> updateAutomation(
     String id, {
     String? name,
     String? description,
+    Map<String, Object>? trigger,
+    List<AutomationActionDraft>? actions,
   }) async {
     final response = await _dio.put(
       ApiConstants.automation(id),
       data: {
         if (name != null) 'name': name,
         if (description != null) 'description': description,
+        if (trigger != null) 'trigger': trigger,
+        if (actions != null) 'actions': actions.map((a) => a.toJson()).toList(),
       },
     );
     return Automation.fromJson(response.data['data'] as Map<String, dynamic>);

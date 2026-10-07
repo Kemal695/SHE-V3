@@ -15,6 +15,8 @@ import '../constants/api_constants.dart';
 import 'base_url_provider.dart';
 import 'dio_client.dart';
 import '../../features/device_detail/device_detail_screen.dart';
+import '../../features/dashboard/dashboard_screen.dart' show homeNodesProvider;
+import '../../features/notifications/notification_store.dart';
 import '../../features/payments/subscription_provider.dart';
 
 final wsClientProvider = Provider<WsClient>((ref) {
@@ -30,6 +32,28 @@ final wsClientProvider = Provider<WsClient>((ref) {
 /// that to show a live/offline indicator, so the client mirrors every state
 /// change into this provider via [_WsClientSetConnected].
 final wsConnectedProvider = StateProvider<bool>((ref) => false);
+
+/// Latest Power value the DEVICE reported, per deviceId, taken straight from the
+/// WS `node.state` payload.
+///
+/// Why this exists: after a state change the Devices-tab switch used to wait for
+/// a REST refetch (`nodeDeviceParamsProvider`), and the tab also re-ran
+/// `homeNodesProvider` + `listDevices` per node — several round-trips before the
+/// switch moved. The WS event already carries the new value (`paramName: "Power"`,
+/// `value: true|false`), so applying it here flips the switch instantly and the
+/// refetch becomes a background reconciliation.
+final livePowerProvider =
+    NotifierProvider<LivePower, Map<String, bool>>(LivePower.new);
+
+class LivePower extends Notifier<Map<String, bool>> {
+  @override
+  Map<String, bool> build() => const {};
+
+  void set(String deviceId, bool on) {
+    if (state[deviceId] == on) return;
+    state = {...state, deviceId: on};
+  }
+}
 
 class WsClient {
   final Ref ref;
@@ -202,31 +226,57 @@ class WsClient {
       final data = json['data'];
       if (event == null || data is! Map<String, dynamic>) return;
 
+      // Feed the Notifications screen (design sheet screen 15).
+      //
+      // The backend publishes no notification event of its own, so the feed is
+      // derived from the events it DOES emit (presence, OTA, subscription, and
+      // security-relevant node.state). The factory returns null for anything not
+      // worth surfacing — notably the high-frequency energy.update and the
+      // every-relay-toggle node.state events, which would flood the list.
+      final notification = notificationFromWsEvent(event, data);
+      if (notification != null) {
+        ref.read(notificationStoreProvider.notifier).add(notification);
+      }
+
       // M3 fix: dispatch WS events into Riverpod so the UI updates live.
       final nodeId = data['nodeId'] as String?;
       final deviceId = data['deviceId'] as String?;
       switch (event) {
         case 'node.state':
-          // THE live-state path. The device reported a param (params/local), so
-          // refetch exactly that device's params. Invalidating nodeDevicesProvider
-          // alone was NOT enough: DeviceResponse carries no params, so the
-          // per-device switches stayed stale — that was the "the toggle is not
-          // changing the state" bug.
+          // THE live-state path. The device reported a param (params/local).
           if (nodeId != null) {
+            // Apply the reported Power IMMEDIATELY: the payload already carries
+            // it, so the switch flips with no REST round-trip. Waiting for the
+            // refetch below is what made a wall-switch change take seconds to
+            // show up in the app.
+            final paramName = data['paramName'] as String?;
+            final value = data['value'];
+            if (deviceId != null && paramName == 'Power' && value is bool) {
+              ref.read(livePowerProvider.notifier).set(deviceId, value);
+            }
             ref.invalidate(nodeDevicesProvider(nodeId));
             if (deviceId != null) {
               ref.invalidate(nodeDeviceParamsProvider('$nodeId|$deviceId'));
             }
+            // Home-level lists: the Devices tab renders from homeNodesProvider
+            // (via its flat provider) and the dashboard bento grid reads it
+            // directly. Without this the physical device's ACK updated only the
+            // detail screen, so the list switches never reflected real state.
+            _invalidateHome(nodeId);
           }
           break;
         case 'energy.update':
-          if (nodeId != null) ref.invalidate(nodeDevicesProvider(nodeId));
+          if (nodeId != null) {
+            ref.invalidate(nodeDevicesProvider(nodeId));
+            _invalidateHome(nodeId);
+          }
           break;
         case 'node.presence':
         case 'node.telemetry':
           if (nodeId != null) {
             ref.invalidate(nodeDetailProvider(nodeId));
             ref.invalidate(nodeDevicesProvider(nodeId));
+            _invalidateHome(nodeId);
           }
           break;
         case 'ota.progress':
@@ -239,6 +289,24 @@ class WsClient {
       }
     } catch (e) {
       debugPrint('WS message parse error: $e');
+    }
+  }
+
+  /// Invalidate the home-level node list so the Devices tab and the dashboard
+  /// bento grid pick up a live device change.
+  ///
+  /// `homeNodesProvider` is a `family` keyed by homeId, but a WS event only
+  /// carries a nodeId. We are subscribed to exactly one home at a time
+  /// (`_subscribedHomeId`, set by [subscribeToHome]), and events can only come
+  /// from a home we subscribed to — so that id is the right key. When it is
+  /// unknown we invalidate the whole family, which is cheap (the lists are
+  /// small) and always correct.
+  void _invalidateHome(String nodeId) {
+    final homeId = _subscribedHomeId;
+    if (homeId != null && homeId.isNotEmpty) {
+      ref.invalidate(homeNodesProvider(homeId));
+    } else {
+      ref.invalidate(homeNodesProvider);
     }
   }
 

@@ -17,7 +17,7 @@ final accessTokenProvider = StateProvider<String?>((ref) => null);
 
 // ---- Token refresh mutex (prevents concurrent 401 refresh race) ----
 bool _isRefreshing = false;
-Completer<bool>? _activeRefreshCompleter;
+Completer<RefreshOutcome>? _activeRefreshCompleter;
 
 /// Refresh the access token using the stored refresh token.
 ///
@@ -30,6 +30,17 @@ Completer<bool>? _activeRefreshCompleter;
 ///
 /// Returns true if [accessTokenProvider] now holds a fresh token.
 Future<bool> refreshAccessToken(Ref ref) async {
+  return await refreshAccessTokenDetailed(ref) == RefreshOutcome.success;
+}
+
+/// Mutex-guarded refresh that reports WHY it failed.
+///
+/// Same single-flight guarantee as [refreshAccessToken] — the two share the
+/// one [_isRefreshing] slot, so a REST 401 and a WS reconnect can never fire
+/// two exchanges against the same single-use refresh token. A waiter inherits
+/// the leader's full outcome, so it also learns whether the token was actually
+/// revoked (rather than only "it didn't work").
+Future<RefreshOutcome> refreshAccessTokenDetailed(Ref ref) async {
   // A refresh is already running — wait for its result instead of starting a
   // second one.
   if (_isRefreshing && _activeRefreshCompleter != null) {
@@ -37,49 +48,79 @@ Future<bool> refreshAccessToken(Ref ref) async {
   }
 
   _isRefreshing = true;
-  final completer = Completer<bool>();
+  final completer = Completer<RefreshOutcome>();
   _activeRefreshCompleter = completer;
-  bool ok = false;
+  RefreshOutcome outcome = RefreshOutcome.transient;
   try {
-    ok = await _performRefresh(ref);
+    outcome = await _performRefreshDetailed(ref);
   } finally {
     _isRefreshing = false;
     _activeRefreshCompleter = null;
-    completer.complete(ok);
+    completer.complete(outcome);
   }
-  return ok;
+  return outcome;
 }
 
-Future<bool> _performRefresh(Ref ref) async {
-  try {
-    final refreshToken = await SecureStorage.getRefreshToken();
-    if (refreshToken == null) return false;
+/// Outcome of a refresh attempt.
+///
+/// The distinction matters: [revoked] means the server actively rejected the
+/// refresh token (401/403) and the user really must sign in again. [transient]
+/// means we could not complete the exchange (offline, DNS failure, backend
+/// restarting, 5xx) — the stored refresh token is probably still perfectly
+/// valid, so it MUST NOT be deleted.
+enum RefreshOutcome { success, revoked, transient }
 
-    // Use the effective (possibly user-overridden) base URL, not the
-    // build-time constant, or refresh would silently target a stale host.
-    // A bare Dio instance: going through dioProvider would re-enter
-    // JwtInterceptor and could recurse on a 401 from the refresh call itself.
-    final dio = Dio(BaseOptions(baseUrl: ref.read(apiBaseUrlProvider)));
-    final response = await dio.post(
+/// Attempts a token refresh and reports WHY it failed.
+Future<RefreshOutcome> _performRefreshDetailed(Ref ref) async {
+  final refreshToken = await SecureStorage.getRefreshToken();
+  if (refreshToken == null || refreshToken.isEmpty) {
+    // Nothing to exchange. Not a revocation, but there is no session to keep
+    // either, so the caller treats it as "not logged in".
+    return RefreshOutcome.transient;
+  }
+
+  // Use the effective (possibly user-overridden) base URL, not the
+  // build-time constant, or refresh would silently target a stale host.
+  // A bare Dio instance: going through dioProvider would re-enter
+  // JwtInterceptor and could recurse on a 401 from the refresh call itself.
+  final dio = Dio(BaseOptions(baseUrl: ref.read(apiBaseUrlProvider)));
+
+  Response<dynamic> response;
+  try {
+    response = await dio.post(
       ApiConstants.authRefresh,
       data: {'refresh_token': refreshToken},
     );
-
-    if (response.statusCode != null &&
-        response.statusCode! >= 200 && response.statusCode! < 300) {
-      final data = response.data['data'];
-      if (data == null) return false;
-      final newAccess = data['access_token'];
-      final newRefresh = data['refresh_token'];
-      if (newAccess is! String || newRefresh is! String) return false;
-      ref.read(accessTokenProvider.notifier).state = newAccess;
-      await SecureStorage.saveRefreshToken(newRefresh);
-      return true;
+  } on DioException catch (e) {
+    final status = e.response?.statusCode;
+    if (status == 401 || status == 403) {
+      // The server looked at the refresh token and refused it.
+      return RefreshOutcome.revoked;
     }
-  } catch (e) {
-    // Refresh failed (network error, revoked/expired refresh token, ...)
+    // No response at all (socket/timeout/connection error) or a 5xx: the
+    // server never accepted or rejected our token. Keep it.
+    return RefreshOutcome.transient;
+  } catch (_) {
+    return RefreshOutcome.transient;
   }
-  return false;
+
+  final status = response.statusCode;
+  if (status == 401 || status == 403) return RefreshOutcome.revoked;
+  if (status == null || status < 200 || status >= 300) {
+    return RefreshOutcome.transient;
+  }
+
+  final data = response.data['data'];
+  if (data == null) return RefreshOutcome.transient;
+  final newAccess = data['access_token'];
+  final newRefresh = data['refresh_token'];
+  if (newAccess is! String || newRefresh is! String) {
+    return RefreshOutcome.transient;
+  }
+
+  ref.read(accessTokenProvider.notifier).state = newAccess;
+  await SecureStorage.saveRefreshToken(newRefresh);
+  return RefreshOutcome.success;
 }
 
 // ---- Dio provider ----
@@ -98,6 +139,53 @@ final dioProvider = Provider<Dio>((ref) {
 
   dio.interceptors.add(JwtInterceptor(ref));
   return dio;
+});
+
+/// Startup session restore.
+///
+/// Called ONCE from `main()` before `runApp`, so the very first router
+/// evaluation already sees the restored token and the user lands on /dashboard
+/// instead of /login.
+///
+/// WHY THIS IS A PLAIN FUNCTION AND NOT A PROVIDER (hardening, 2026-10-04):
+/// the first version was a `FutureProvider` read once via `container.read(...)`.
+/// Nothing watched it, so Riverpod auto-disposed it right after the read — and
+/// because it performed a token refresh, any later re-execution burned the
+/// SINGLE-USE rotating refresh token and logged the user out. A plain function
+/// has no lifecycle to get wrong: it runs exactly when `main()` calls it.
+///
+/// Deliberately does NOT clear stored credentials on failure. A boot-time
+/// refresh can fail for purely transient reasons (offline, backend restarting);
+/// wiping the refresh token there would turn "no network yet" into "you are
+/// logged out forever". Genuine revocation is still handled later by the 401
+/// interceptor, which is the layer that actually knows the server said no.
+///
+/// Returns true when [accessTokenProvider] now holds a fresh token.
+Future<bool> restoreSession(ProviderContainer container) async {
+  try {
+    final refreshToken = await SecureStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) return false;
+
+    // `refreshAccessToken` needs a `Ref`; providers' bodies are the only place
+    // one exists. Reading a throwaway provider's value gives us a live Ref
+    // without introducing a cached token-refresh provider.
+    final ok = await container.read(_sessionRestoreRunnerProvider.future);
+    return ok;
+  } catch (_) {
+    // Stay logged out quietly — the guard shows /login and the user can sign in.
+    return false;
+  }
+}
+
+/// Internal one-shot used only to obtain a `Ref` for [restoreSession].
+///
+/// `keepAlive: true` is essential: an auto-disposed provider would re-run the
+/// refresh (and rotate the single-use refresh token) if anything read it again.
+final _sessionRestoreRunnerProvider = FutureProvider<bool>((ref) async {
+  ref.keepAlive();
+  final refreshToken = await SecureStorage.getRefreshToken();
+  if (refreshToken == null || refreshToken.isEmpty) return false;
+  return refreshAccessToken(ref);
 });
 
 // ---- JWT interceptor — adds Authorization header + auto-refresh on 401 ----
@@ -121,9 +209,9 @@ class JwtInterceptor extends Interceptor {
       // refreshAccessToken() owns the mutex: if a refresh (REST or WS-initiated)
       // is already in flight this awaits that same result instead of starting a
       // second one and burning the single-use refresh token.
-      final refreshed = await refreshAccessToken(ref);
+      final outcome = await refreshAccessTokenDetailed(ref);
 
-      if (refreshed) {
+      if (outcome == RefreshOutcome.success) {
         final token = ref.read(accessTokenProvider);
         if (token != null) {
           final opts = err.requestOptions
@@ -137,8 +225,15 @@ class JwtInterceptor extends Interceptor {
             // Retry failed — fall through to the error path.
           }
         }
-      } else {
-        // Refresh genuinely failed (no/revoked refresh token) — log the user out.
+      } else if (outcome == RefreshOutcome.revoked) {
+        // The SERVER rejected the refresh token (401/403) — this really is the
+        // end of the session, so clear it and let the guard show /login.
+        //
+        // NOTE: deliberately NOT done for RefreshOutcome.transient. The previous
+        // code cleared credentials whenever refresh returned false, which
+        // included plain network failures — so a momentary connectivity blip on
+        // any request silently logged the user out and deleted their refresh
+        // token. Only an explicit server rejection may do that.
         await SecureStorage.clearAll();
         ref.read(accessTokenProvider.notifier).state = null;
       }

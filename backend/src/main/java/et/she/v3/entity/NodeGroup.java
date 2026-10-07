@@ -49,6 +49,22 @@ public class NodeGroup {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    /**
+     * Icon key for the card (e.g. "lights", "folder"). The mobile app resolves
+     * these to bundled icons; a NULL means "derive from member role names" so
+     * groups authored before V37 keep working unchanged.
+     */
+    @Column(name = "icon", length = 64)
+    private String icon;
+
+    /**
+     * Hero image key for the detail page (e.g. "home-dusk"). NULL → the hero
+     * shows only the icon, no photo. Same fallback story as icon: pre-V37
+     * groups have no image and just render the gradient + icon.
+     */
+    @Column(name = "image", length = 64)
+    private String image;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
@@ -85,4 +101,10 @@ public class NodeGroup {
 
     public Instant getDeletedAt() { return deletedAt; }
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
+
+    public String getIcon() { return icon; }
+    public void setIcon(String icon) { this.icon = icon; }
+
+    public String getImage() { return image; }
+    public void setImage(String image) { this.image = image; }
 }

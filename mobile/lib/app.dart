@@ -97,6 +97,14 @@ class SheApp extends ConsumerWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: V3Colors.primary,
           foregroundColor: Colors.white,
+          // 🔴 REQUIRED. `ElevatedButton.styleFrom` overrides the Material
+          // disabled colours as well as the enabled ones. Without these two,
+          // EVERY disabled ElevatedButton in the app rendered in full bright
+          // primary — indistinguishable from a live button, so tapping it
+          // silently did nothing. That is the "the button does not work" class
+          // of bug (e.g. the automation wizard's Next/Save).
+          disabledBackgroundColor: V3Colors.primary.withValues(alpha: 0.18),
+          disabledForegroundColor: V3Colors.textSecondary.withValues(alpha: 0.5),
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(V3Radius.md),

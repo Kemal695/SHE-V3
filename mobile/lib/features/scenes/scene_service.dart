@@ -42,6 +42,8 @@ final homeDevicesProvider =
         nodeName: nodeName,
         deviceName: name,
         deviceType: d['device_type']?.toString() ?? '',
+        deviceId: d['id']?.toString() ?? '',
+        displayName: (d['display_name'] ?? d['displayName'] ?? '').toString(),
       ));
     }
   }
@@ -55,16 +57,96 @@ class SceneDeviceOption {
   final String deviceName;
   final String deviceType;
 
+  /// The device's STABLE UUID (`node_devices.id`).
+  ///
+  /// Automations and scenes must reference a device by this, not by name: a
+  /// rename otherwise leaves the stored `device_name` stale, and the rule stops
+  /// finding its own device.
+  final String deviceId;
+
+  /// What the USER sees. Renaming a device writes `display_name` (the technical
+  /// `device_name` is immutable), so anything user-facing must show this — using
+  /// `deviceName` is why a renamed device kept showing its OLD name.
+  final String displayName;
+
   const SceneDeviceOption({
     required this.nodeId,
     required this.nodeName,
     required this.deviceName,
     required this.deviceType,
+    this.deviceId = '',
+    this.displayName = '',
   });
 
-  String get label => '$deviceName · $nodeName';
+  /// The user-facing name, falling back to the technical one.
+  String get shownName => displayName.isNotEmpty ? displayName : deviceName;
+
+  String get label => '$shownName · $nodeName';
   bool get isSwitch => deviceType == 'esp.device.switch';
 }
+
+/// A device resolved by its id, used to label scene actions.
+///
+/// Scene actions store only `nodeDeviceId` (a UUID) — the API returns no device
+/// name with them — so the Scene Detail screen has to look names up itself.
+class DeviceLookup {
+  final String name;
+  final String kind;
+  final String nodeId;
+
+  const DeviceLookup({
+    required this.name,
+    required this.kind,
+    required this.nodeId,
+  });
+}
+
+/// deviceId -> [DeviceLookup] for every device in a home.
+///
+/// Walks the home's nodes and their device lists. Mirrors the flattening the
+/// Devices tab does, but keyed by device id because that is what a
+/// [SceneAction] carries.
+final homeDeviceLookupProvider =
+    FutureProvider.family<Map<String, DeviceLookup>, String>(
+  (ref, homeId) async {
+    final out = <String, DeviceLookup>{};
+    try {
+      final nodes = await ref.read(nodeServiceProvider).listNodesByHome(homeId);
+      for (final n in nodes) {
+        final nodeId = n['id']?.toString();
+        if (nodeId == null) continue;
+        List<Map<String, dynamic>> devices;
+        try {
+          devices = await ref.read(nodeServiceProvider).listDevices(nodeId);
+        } catch (_) {
+          continue;
+        }
+        for (final d in devices) {
+          final id = d['id']?.toString();
+          if (id == null) continue;
+          out[id] = DeviceLookup(
+            name: d['display_name']?.toString() ??
+                d['device_name']?.toString() ??
+                'Device',
+            kind: d['device_type']?.toString() ?? '',
+            nodeId: nodeId,
+          );
+        }
+      }
+    } catch (_) {
+      // A failure just means actions render with their raw id.
+    }
+    return out;
+  },
+);
+
+/// A single scene by id — backs the Scene Detail screen.
+///
+/// Separate from [homeScenesProvider] so opening a detail page does not refetch
+/// the whole home's scenes, and so a deep link works without one.
+final sceneByIdProvider = FutureProvider.family<Scene?, String>(
+  (ref, id) => ref.read(sceneServiceProvider).getScene(id),
+);
 
 /// A scene returned by the API. `actions` holds the individual device+param writes.
 class Scene {
@@ -164,6 +246,22 @@ class SceneService {
     return list
         .map((s) => Scene.fromJson(s as Map<String, dynamic>))
         .toList();
+  }
+
+  /// GET /scenes/{id} — a single scene.
+  ///
+  /// Returns null on 404 rather than throwing, so the detail screen can show a
+  /// "scene no longer exists" state (a deep link can outlive its scene).
+  Future<Scene?> getScene(String id) async {
+    try {
+      final response = await _dio.get(ApiConstants.scene(id));
+      final data = response.data['data'];
+      if (data is! Map<String, dynamic>) return null;
+      return Scene.fromJson(data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
   /// POST /homes/{homeId}/scenes

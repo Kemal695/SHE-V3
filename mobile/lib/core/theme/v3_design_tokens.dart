@@ -18,6 +18,50 @@ class V3Colors {
   static const error = Color(0xFFD50000);
   static const warning = Color(0xFFFFAB00);
 
+  // ===========================================================================
+  // Prototype palette (SHE-V3 UI/UX redesign, 2026-10-03)
+  // ===========================================================================
+  // The Next.js prototype at Desktop/SHE-V3-prototype-download locks a slightly
+  // richer set than ADR-009. Additive only — every name above is unchanged, so
+  // existing features keep compiling. These are the values the new screens use.
+  //
+  // Token map (prototype name -> here):
+  //   #0B1D37 bg        -> background (already identical)
+  //   #152946 surface   -> surface    (already identical)
+  //   #1B3555 surface_2 -> surface2   (new — raised cards / active bento tiles)
+  //   #56B4FA primary   -> primary    (already identical)
+  //   #F5F9FF text_1    -> ink        (new — body copy; softer than pure white)
+  //   #A8B8CC text_2    -> text2      (new; textSecondary above is #A0AEC0)
+  //   #71839A text_muted-> dim        (new)
+  //   #42D392 success   -> successAlt (new; success above is #00C853)
+  //   #F5B84B warning   -> warningAlt (new; warning above is #FFAB00)
+  //   #FF6678 error     -> errorAlt   (new; error above is #D50000)
+  //   #8ED1FF sky       -> sky        (new — gradient tail on sliders/bars)
+  //   #081527 night     -> night      (new — deeper than bg; on-primary text)
+  static const surface2 = Color(0xFF1B3555);
+  static const ink = Color(0xFFF5F9FF);
+  static const text2 = Color(0xFFA8B8CC);
+  static const dim = Color(0xFF71839A);
+  static const successAlt = Color(0xFF42D392);
+  static const warningAlt = Color(0xFFF5B84B);
+  static const errorAlt = Color(0xFFFF6678);
+  static const sky = Color(0xFF8ED1FF);
+  static const night = Color(0xFF081527);
+
+  // ---- Hairline / elevated surfaces ----
+  // The prototype leans on white-at-low-alpha for borders and fills rather than
+  // solid hex. These keep that consistent instead of each screen re-picking an
+  // alpha (they had drifted between 0.06 and 0.12).
+  static const border = Color(0x0FFFFFFF);        // white @ 6%  — default card edge
+  static const borderStrong = Color(0x1FFFFFFF);  // white @ 12% — hover / active edge
+  static const fill = Color(0x0DFFFFFF);          // white @ 5%  — inset rows, chips
+  static const fillStrong = Color(0x17FFFFFF);    // white @ 9%  — pressed / selected
+
+  // ---- Gradient stops used by the hero card, sliders and bars ----
+  static const heroTop = Color(0xFF183457);
+  static const heroMid = Color(0xFF122B4C);
+  static const heroBottom = Color(0xFF0F2342);
+
   // Light mode (accessibility fallback)
   static const lightBackground = Color(0xFFF5F7FA);
   static const lightSurface = Color(0xFFFFFFFF);
@@ -44,6 +88,50 @@ class V3Colors {
     }
     return false;
   }
+
+  /// Prototype `KIND_MAP`: the tint a device kind glows with when active.
+  ///
+  /// Kept here (rather than in the widget) so the dashboard, the devices list
+  /// and any future screen theme a given kind identically — the prototype
+  /// defines this exactly once and every surface reads from it.
+  static const Map<String, Color> deviceTint = {
+    'light': warningAlt,       // #F5B84B
+    'outlet': primary,         // #56B4FA
+    'gate': sky,               // #8ED1FF
+    'irrigation': successAlt,  // #42D392
+    'camera': primary,
+    'appliance': successAlt,
+    'climate': sky,
+    'meter': warningAlt,
+    'sensor': text2,           // #A8B8CC
+    'tv': primary,
+    'generic': text2,
+  };
+
+  /// Fallback tint for an unknown kind — matches the prototype's `?? generic`.
+  static Color tintForKind(String? kind) =>
+      deviceTint[kind] ?? text2;
+
+  /// A translucent wash of [color] at the prototype's `22` alpha (13%).
+  ///
+  /// `withValues` is the Flutter 3.27+ replacement for the deprecated
+  /// `withOpacity`; the repo already standardised on it (see activeGlow).
+  static Color wash(Color color, {double alpha = 0.13}) =>
+      color.withValues(alpha: alpha);
+
+  /// The glow the prototype uses on active device icons: `0 0 16px -4px tint55`.
+  static List<BoxShadow> iconGlow(Color tint) => [
+        BoxShadow(color: tint.withValues(alpha: 0.33), blurRadius: 16, spreadRadius: -4),
+      ];
+
+  /// Stronger card glow for an actively-lit tile (`0 0 24px -6px primary55`).
+  static List<BoxShadow> cardGlow([Color? tint]) => [
+        BoxShadow(
+          color: (tint ?? primary).withValues(alpha: 0.35),
+          blurRadius: 24,
+          spreadRadius: -6,
+        ),
+      ];
 }
 
 class V3Spacing {
@@ -98,4 +186,22 @@ class V3Typography {
   // Amharic line height is 1.6 (vs 1.4-1.5 for English)
   static double bodyLineHeight(String locale) =>
       locale == 'am' ? 1.6 : 1.5;
+
+  // ---------------------------------------------------------------------------
+  // Prototype micro-scale (SHE-V3 UI/UX redesign)
+  // ---------------------------------------------------------------------------
+  // The redesign uses a denser, phone-tuned scale than the §1.3 table above
+  // (17px app-bar titles, 13.5px bento names, 11px meta rows). Named so screens
+  // stop hand-rolling font sizes — that drift is what made the old screens
+  // inconsistent. The §1.3 names above are untouched.
+  static const appBarTitle = 17.0;   // SHEAppBar h1
+  static const cardTitle = 13.5;     // bento / list item name
+  static const body = 13.0;          // card body, empty-state copy
+  static const meta = 11.0;          // room · state line
+  static const chip = 12.5;          // filter chips, secondary buttons
+  static const navLabel = 9.5;       // bottom-nav captions
+  static const badge = 10.0;         // status pills
+  static const micro = 9.0;          // axis labels
+  static const metric = 24.0;        // energy numbers
+  static const metricLg = 34.0;      // gauge centre
 }

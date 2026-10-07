@@ -59,7 +59,19 @@ public class DeviceGroupService {
     /** Field names are snake_case on the wire; the project's Jackson strategy is camelCase. */
     public record GroupRequest(
             String name,
-            @JsonProperty("device_ids") List<UUID> deviceIds
+            @JsonProperty("device_ids") List<UUID> deviceIds,
+            /**
+             * Optional icon key for the card (e.g. "lights"). Null leaves the
+             * existing value untouched on update; the client falls back to
+             * deriving an icon from the members' role names when it is absent.
+             * (Migration V37.)
+             */
+            String icon,
+            /**
+             * Optional hero image key for the detail page (e.g. "home-dusk").
+             * Null → the hero shows the icon only, no photo. (Migration V37.)
+             */
+            String image
     ) {}
 
     public record SetRequest(boolean on) {}
@@ -76,6 +88,8 @@ public class DeviceGroupService {
      */
     public record GroupOut(UUID id, UUID homeId, String name,
                            @JsonProperty("device_ids") List<UUID> deviceIds,
+                           String icon,
+                           String image,
                            Instant createdAt) {}
 
     public record SetResult(UUID groupId, int accepted, List<String> failed) {}
@@ -97,6 +111,10 @@ public class DeviceGroupService {
         g.setHomeId(homeId);
         g.setName(req.name().trim());
         g.setGroupType(NodeGroup.TYPE_CUSTOM);
+        // V37 — icon + hero image keys. Optional; null simply means "derive the
+        // icon from the members" / "no hero photo".
+        g.setIcon(req.icon());
+        g.setImage(req.image());
         g = groupRepository.save(g);
         replaceMembers(g, req.deviceIds());
         return toOut(g);
@@ -106,6 +124,11 @@ public class DeviceGroupService {
     public GroupOut update(UUID id, GroupRequest req) {
         NodeGroup g = requireGroup(id);
         if (req != null && req.name() != null && !req.name().isBlank()) g.setName(req.name().trim());
+        // Only overwrite when the key was actually supplied — an update that
+        // omits the fields (e.g. a rename from an older client) must not wipe
+        // a previously chosen icon or hero image.
+        if (req != null && req.icon() != null) g.setIcon(req.icon());
+        if (req != null && req.image() != null) g.setImage(req.image());
         g = groupRepository.save(g);
         if (req != null && req.deviceIds() != null) replaceMembers(g, req.deviceIds());
         return toOut(g);
@@ -206,7 +229,8 @@ public class DeviceGroupService {
                 .map(NodeGroupMember::getDeviceId)
                 .filter(Objects::nonNull)
                 .toList();
-        return new GroupOut(g.getId(), g.getHomeId(), g.getName(), deviceIds, g.getCreatedAt());
+        return new GroupOut(g.getId(), g.getHomeId(), g.getName(), deviceIds,
+                            g.getIcon(), g.getImage(), g.getCreatedAt());
     }
 
     private UUID currentTenantId() {

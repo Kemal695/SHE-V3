@@ -349,4 +349,122 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noAccountRegister => 'Don\'t have an account? Register';
+
+  @override
+  String get loading => 'Loading';
+
+  @override
+  String get skip => 'Skip';
+
+  @override
+  String get next => 'Next';
+
+  @override
+  String get getStarted => 'Get Started';
+
+  @override
+  String get haveAccount => 'I already have an account';
+
+  @override
+  String get welcomeBack => 'Welcome back';
+
+  @override
+  String get signInSubtitle => 'Sign in to control your home';
+
+  @override
+  String get emailOrPhone => 'Email or phone';
+
+  @override
+  String get emailHint => 'you@example.com';
+
+  @override
+  String get forgotPassword => 'Forgot password?';
+
+  @override
+  String get or => 'or';
+
+  @override
+  String get google => 'Google';
+
+  @override
+  String get apple => 'Apple';
+
+  @override
+  String get noAccount => 'Don\'t have an account?';
+
+  @override
+  String get signingIn => 'Signing in…';
+
+  @override
+  String get ob1Title => 'Your home, in your hand';
+
+  @override
+  String get ob1Body =>
+      'Control lights, sockets and appliances from anywhere in Ethiopia.';
+
+  @override
+  String get ob2Title => 'Built for Ethiopian homes';
+
+  @override
+  String get ob2Intro => 'Everything you need to run a modern smart home.';
+
+  @override
+  String get ob3Title2 => 'Ready when you are';
+
+  @override
+  String get ob3Body2 => 'Set up your first SHE device in under two minutes.';
+
+  @override
+  String get featRemote => 'Remote control';
+
+  @override
+  String get featRemoteBody => 'Turn anything on or off from your phone';
+
+  @override
+  String get featEnergyM => 'Energy monitoring';
+
+  @override
+  String get featEnergyMBody => 'See what each device costs you in ETB';
+
+  @override
+  String get featAuto => 'Automations';
+
+  @override
+  String get featAutoBody => 'Schedules, scenes and triggers';
+
+  @override
+  String get navHome => 'Home';
+
+  @override
+  String get navDevices => 'Devices';
+
+  @override
+  String get navAutomations => 'Automations';
+
+  @override
+  String get navEnergy => 'Energy';
+
+  @override
+  String get navMore => 'More';
+
+  @override
+  String get moreTitle => 'More';
+
+  @override
+  String get settingsSubtitle => 'Language, server, account';
+
+  @override
+  String get notifications => 'Notifications';
+
+  @override
+  String get unread => 'unread';
+
+  @override
+  String get markAllRead => 'Mark all read';
+
+  @override
+  String get noNotifications => 'No notifications yet';
+
+  @override
+  String get activate => 'Activate';
 }

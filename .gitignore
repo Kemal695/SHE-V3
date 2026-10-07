@@ -66,6 +66,11 @@ docker-compose.override.yml
 # Provisioner / CA secrets (plaintext, local only — rotate before any real deploy)
 infra/ca/step-ca-provisioner-password.txt
 infra/ca/provisioner-key.json
+# A timestamped BACKUP of the provisioner key still contains `encryptedKey`, so it
+# must be ignored too — the plain `provisioner-key.json` rule above did not cover it.
+infra/ca/provisioner-key.json.bak-*
+infra/ca/stack/intermediate_id.txt
+infra/ca/stack/root_ca_fingerprint.txt
 
 # ESP-IDF build outputs (hundreds of MB) + generated sdkconfig
 firmware/*/build/
@@ -92,6 +97,14 @@ mobile/android/build/
 mobile/android/app/build/
 mobile/build/
 
+# Real storage behind the Flutter Gradle plugin's junction
+# (<flutterSdk>/packages/flutter_tools/gradle/build -> here), created by
+# scripts/prepare-flutter-gradle-dir.py. Deliberately NOT under mobile/build:
+# `flutter clean` / `./gradlew clean` delete that tree, which used to destroy the
+# junction's target, leave it dangling, and break the build with no way for the
+# script to repair it. See the script's docstring.
+mobile/.flutter-gradle-plugin-build/
+
 # Local scratch / one-off artifacts
 _backup_*.dump
 _hw.txt
@@ -102,6 +115,38 @@ backend/final-5.sh
 # Python
 __pycache__/
 *.py[cod]
+
+# node_modules — admin-web ships no .gitignore of its own, so without this a
+# plain `git add -A` tries to commit ~24,000 vendored dependency files.
+node_modules/
+.next/
+
+# ---- Local scratch: assistant-generated screenshots, probe output, throwaways ----
+# These accumulated during adb/logcat debugging sessions. Anchored per-directory
+# rather than globally so a real `_foo.dart`/`_foo.py` in scripts/ is never hidden.
+/_*.png
+/_*.txt
+/_*.py
+/_*.json
+/_*.md
+/_*.dill
+/_*.out
+run-backend.out
+
+mobile/_*.png
+mobile/_*.txt
+mobile/_*.dill
+mobile/_*.out
+mobile/.flutter-plugins-dependencies.bak-*
+
+backend/_*.txt
+backend/_*.out
+backend/_*.md
+
+admin-web/_*.log
+admin-web/_*.png
+admin-web/package-lock.json.old
+*.tsbuildinfo
 
 # Assistant workspace
 .workbuddy-ai/

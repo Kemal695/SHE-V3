@@ -1,0 +1,47 @@
+@import "tailwindcss";
+/* Points at the .cjs file: package.json declares "type": "module", so a .js
+   config would be parsed as ESM and its `module.exports` would throw. */
+@config "../tailwind.config.cjs";
+
+/* V3-DESIGN-SYSTEM — dark mode first, no indigo/blue-purple */
+:root {
+  --bg: #0B1D37;
+  --surface: #152946;
+  --primary: #56B4FA;
+  --text: #FFFFFF;
+  --text-secondary: #A0AEC0;
+  --error: #D50000;
+  --success: #00C853;
+  --warning: #FFAB00;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar — premium dark */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* Focus — premium feel */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Card hover — subtle lift */
+.she-card {
+  background: var(--surface);
+  border-radius: 1rem;
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+.she-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(86, 180, 250, 0.1);
+}

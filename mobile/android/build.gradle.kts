@@ -22,18 +22,32 @@ subprojects {
 // ---------------------------------------------------------------------------
 // TWO independent Kotlin failures hit `flutter build apk` on this box
 // ---------------------------------------------------------------------------
-// 1) `:gradle:compileKotlin` — WDAC denies the Kotlin daemon delete access under
-//    <flutterSdk>/packages/flutter_tools/gradle/build, so the
+// 1) `:gradle:compileKotlin` — the Kotlin daemon is denied write/delete access
+//    under <flutterSdk>/packages/flutter_tools/gradle/build, so the
 //    delete-before-recompile step always fails. The reported error ("Unable to
 //    delete ... a process has files open") is misleading; the real cause is
 //    java.nio.file.AccessDeniedException in the Kotlin daemon log against a path
-//    where the user has full control, i.e. enforced WDAC.
-//    That one CANNOT be fixed from this file — the Flutter Gradle plugin is an
+//    where the user has full control.
+//
+//    This was originally blamed on WDAC. That was NOT proven (corrected
+//    2026-10-02). The reproducible cause is a process-scoped write denial
+//    outside the project tree — a child process cannot write into the Flutter
+//    SDK even though the interactive shell can:
+//        cmd /c "echo x > <flutterSdk>\packages\flutter_tools\gradle\__t__.tmp"
+//        -> Access is denied.
+//    Don't go chasing Event ID 3033 again without re-testing that first.
+//
+//    It CANNOT be fixed from this file — the Flutter Gradle plugin is an
 //    *included* build and Gradle offers no API to redirect an included build's
-//    output. Fix it with the junction, which moves those bytes off the protected
-//    path:
+//    output. Fix it with the junction, which moves those bytes into the project
+//    tree (writable from both a sandboxed build and a normal one):
 //
 //        python scripts/prepare-flutter-gradle-dir.py
+//
+//    The junction target is `mobile/.flutter-gradle-plugin-build` — NOT under
+//    `mobile/build`, which `clean` deletes (that used to leave the junction
+//    dangling and break the build unrecoverably). Re-run the script any time the
+//    build fails here; it is idempotent and repairs a dangling junction.
 //
 //    (See the build-verify skill for the full evidence chain.)
 //

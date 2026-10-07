@@ -494,6 +494,8 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                 }
                 if (paramNode.has("value")) {
                     param.setLastValue(paramNode.path("value"));
+                    // V38 — the config value is the DEVICE's own report too.
+                    param.setReportedValue(paramNode.path("value"));
                     param.setLastReportedAt(Instant.now());
                 }
                 // Derive a UI hint when the device doesn't send one. The firmware's
@@ -633,6 +635,11 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                           // Update last_value (JSONB cache)
                           Object value = objectMapper.convertValue(valueNode, Object.class);
                           nodeParamRepository.updateLastValue(param.getId(), value, Instant.now());
+                          // V38 — also record what the DEVICE reported. last_value is
+                          // also written by our own commands, so the mobile switch reads
+                          // reported_value as the source of truth (ON only when the
+                          // board says so).
+                          nodeParamRepository.updateReportedValue(param.getId(), value, Instant.now());
 
                           // Transition baseline from what the DEVICE previously reported (not from
                           // last_value, which our own writes also set.

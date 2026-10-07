@@ -72,6 +72,7 @@ public class NodeDtos {
             String ui_hint,                  // toggle | slider | segmented | read_only
             java.util.List<String> properties,  // ["read","write","persist"]
             Object last_value,
+            Object reported_value,           // V38 — device-reported only (source of truth)
             String last_reported_at,
             Double min_value,
             Double max_value

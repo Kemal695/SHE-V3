@@ -25,6 +25,7 @@ import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_toggle.dart';
 import '../../core/widgets/haptic_slider.dart';
+import '../voice/voice_hold_button.dart';
 import 'group_control_panel.dart';
 import 'node_service.dart';
 
@@ -112,6 +113,10 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
           ),
         ],
       ),
+      // Push-to-talk voice control, on the board page itself: hold to record,
+      // release to send. It lives here as well as on /voice so a command can be
+      // given while looking at the devices it controls.
+      floatingActionButton: const VoiceHoldButton(),
       body: SafeArea(
         child: nodeAsync.when(
           loading: () => const Center(
@@ -162,6 +167,90 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
     return ListView(
       padding: const EdgeInsets.all(V3Spacing.md),
       children: [
+        // ---- Hero image ----
+        // Same treatment as the Scene detail page: a photo under a bottom-up
+        // night gradient so the name and status stay legible on top of it. If
+        // the asset is ever missing the errorBuilder swaps in the brand
+        // gradient, so a broken image can never blank the page.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(V3Radius.xl),
+          child: SizedBox(
+            height: 168,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.asset(
+                  'assets/img/home-dusk.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [V3Colors.heroTop, V3Colors.heroBottom],
+                      ),
+                    ),
+                  ),
+                ),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, V3Colors.night],
+                      stops: [0.35, 1.0],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: V3Spacing.md,
+                  right: V3Spacing.md,
+                  bottom: V3Spacing.md,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        node['name']?.toString() ?? 'Device',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: V3Colors.ink,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: isOnline
+                                  ? V3Colors.successAlt
+                                  : V3Colors.dim,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$sku · ${isOnline ? 'Online' : 'Offline'}',
+                            style: const TextStyle(
+                                color: V3Colors.text2, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: V3Spacing.md),
+
         // ---- Node info card ----
         Card(
           child: Padding(
@@ -237,7 +326,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
 
         // ---- Custom device groups ----
         if (homeId != null && homeId.isNotEmpty)
-          _GroupsSection(
+          GroupsSection(
             homeId: homeId,
             nodeId: widget.nodeId,
             devices: devices,
@@ -274,15 +363,15 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
 }
 
 // =============================================================================
-// _GroupsSection — custom device groups (create / edit / delete / on / off)
+// GroupsSection — custom device groups (create / edit / delete / on / off)
 // =============================================================================
-class _GroupsSection extends ConsumerStatefulWidget {
+class GroupsSection extends ConsumerStatefulWidget {
   final String homeId;
   final String nodeId;
   final List<Map<String, dynamic>> devices;
   final VoidCallback onChanged;
 
-  const _GroupsSection({
+  const GroupsSection({
     required this.homeId,
     required this.nodeId,
     required this.devices,
@@ -290,10 +379,10 @@ class _GroupsSection extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_GroupsSection> createState() => _GroupsSectionState();
+  ConsumerState<GroupsSection> createState() => GroupsSectionState();
 }
 
-class _GroupsSectionState extends ConsumerState<_GroupsSection> {
+class GroupsSectionState extends ConsumerState<GroupsSection> {
   String? _busyId;
 
   /// Groups whose member devices are revealed inline (so each relay in the group
@@ -301,9 +390,9 @@ class _GroupsSectionState extends ConsumerState<_GroupsSection> {
   final Set<String> _expanded = {};
 
   Future<void> _openEditor({Map<String, dynamic>? existing}) async {
-    final result = await showDialog<_GroupEditResult>(
+    final result = await showDialog<GroupEditResult>(
       context: context,
-      builder: (_) => _GroupEditorDialog(
+      builder: (_) => GroupEditorDialog(
         devices: widget.devices,
         existing: existing,
       ),
@@ -314,10 +403,20 @@ class _GroupsSectionState extends ConsumerState<_GroupsSection> {
       final svc = ref.read(nodeServiceProvider);
       if (existing == null) {
         await svc.createDeviceGroup(
-            widget.homeId, result.name, result.deviceIds);
+          widget.homeId,
+          result.name,
+          result.deviceIds,
+          icon: result.icon,
+          image: result.image,
+        );
       } else {
         await svc.updateDeviceGroup(
-            existing['id'].toString(), result.name, result.deviceIds);
+          existing['id'].toString(),
+          result.name,
+          result.deviceIds,
+          icon: result.icon,
+          image: result.image,
+        );
       }
       ref.invalidate(nodeDeviceGroupsProvider(widget.homeId));
       if (!mounted) return;
@@ -493,11 +592,23 @@ class _GroupsSectionState extends ConsumerState<_GroupsSection> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Leading icon — fixed width so every title lines up.
-                  const SizedBox(
+                  // Leading icon — fixed width so every title lines up. Uses the
+                  // group's chosen icon when set, else the generic folder.
+                  SizedBox(
                     width: 28,
-                    child: Icon(Icons.folder_special_outlined,
-                        size: 22, color: V3Colors.primary),
+                    child: Icon(
+                      (() {
+                        final k = group['icon']?.toString();
+                        if (k != null &&
+                            k != 'auto' &&
+                            kGroupIconChoices.containsKey(k)) {
+                          return kGroupIconChoices[k]!;
+                        }
+                        return Icons.folder_special_outlined;
+                      })(),
+                      size: 22,
+                      color: V3Colors.primary,
+                    ),
                   ),
                   const SizedBox(width: V3Spacing.sm),
                   // Title block
@@ -622,25 +733,66 @@ class _GroupsSectionState extends ConsumerState<_GroupsSection> {
   }
 }
 
-class _GroupEditResult {
+class GroupEditResult {
   final String name;
   final List<String> deviceIds;
-  const _GroupEditResult(this.name, this.deviceIds);
+
+  /// Bundled icon key for the card. Null → the card derives an icon from the
+  /// members' role names, as it always has.
+  final String? icon;
+
+  /// Bundled photo key for the detail hero. Null → the hero shows the icon only.
+  final String? image;
+
+  const GroupEditResult(this.name, this.deviceIds, {this.icon, this.image});
 }
 
-class _GroupEditorDialog extends StatefulWidget {
+/// Icon keys the group editor offers, mapped to Material glyphs.
+///
+/// Keys are what get stored (migration V37 stores a short string, not a code
+/// point), so they must stay stable — a glyph can change freely, a key cannot.
+const Map<String, IconData> kGroupIconChoices = {
+  'auto': Icons.auto_awesome_outlined,
+  'lights': Icons.lightbulb_outline,
+  'sockets': Icons.power_outlined,
+  'folder': Icons.folder_special_outlined,
+  'bed': Icons.bed_outlined,
+  'sofa': Icons.weekend_outlined,
+  'kitchen': Icons.kitchen_outlined,
+  'garage': Icons.garage_outlined,
+  'tv': Icons.tv_outlined,
+  'security': Icons.shield_outlined,
+  'water': Icons.water_drop_outlined,
+  'fan': Icons.mode_fan_off_outlined,
+};
+
+/// Bundled photos the group editor offers for the detail hero.
+const Map<String, String> kGroupImageChoices = {
+  'none': '',
+  'home-dusk': 'assets/img/home-dusk.png',
+  'living-room': 'assets/img/living-room.png',
+  'skyline': 'assets/img/skyline.png',
+};
+
+class GroupEditorDialog extends StatefulWidget {
   final List<Map<String, dynamic>> devices;
   final Map<String, dynamic>? existing;
 
-  const _GroupEditorDialog({required this.devices, this.existing});
+  const GroupEditorDialog({required this.devices, this.existing});
 
   @override
-  State<_GroupEditorDialog> createState() => _GroupEditorDialogState();
+  State<GroupEditorDialog> createState() => GroupEditorDialogState();
 }
 
-class _GroupEditorDialogState extends State<_GroupEditorDialog> {
+class GroupEditorDialogState extends State<GroupEditorDialog> {
   late final TextEditingController _name;
   late final Set<String> _selected;
+
+  /// Chosen icon key ('auto' = derive from members) and hero image key
+  /// ('none' = no photo). Both default to the existing group's values, or the
+  /// permissive defaults for a new group.
+  late String _icon;
+  late String _image;
 
   /// Inline validation. The previous build returned silently on an empty name,
   /// which reads exactly like "the Create button does nothing".
@@ -654,6 +806,12 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
     final raw = (widget.existing?['device_ids'] ??
         widget.existing?['deviceIds']) as List<dynamic>? ?? const <dynamic>[];
     _selected = {...raw.map((e) => e.toString())};
+    _icon = widget.existing?['icon']?.toString() ?? 'auto';
+    _image = widget.existing?['image']?.toString() ?? 'none';
+    // An unknown key (say a future upload URL) must not crash the picker —
+    // fall back to the permissive default instead of an unselected state.
+    if (!kGroupIconChoices.containsKey(_icon)) _icon = 'auto';
+    if (!kGroupImageChoices.containsKey(_image)) _image = 'none';
   }
 
   @override
@@ -669,7 +827,65 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
       setState(() => _nameError = 'Enter a group name');
       return;
     }
-    Navigator.pop(context, _GroupEditResult(name, _selected.toList()));
+    // 'auto' / 'none' are UI sentinels meaning "no explicit choice" — send null
+    // so the backend leaves the column NULL and the client keeps its fallback.
+    Navigator.pop(
+      context,
+      GroupEditResult(
+        name,
+        _selected.toList(),
+        icon: _icon == 'auto' ? null : _icon,
+        image: _image == 'none' ? null : _image,
+      ),
+    );
+  }
+
+  /// Selectable chip used by the icon + cover-image pickers.
+  ///
+  /// [label] is optional: a null label renders just the [child] (used for the
+  /// icon grid, where the glyph is self-explanatory), while a non-null label
+  /// (e.g. "None" for the cover picker) shows a text beside it.
+  Widget _Pill({
+    required bool selected,
+    required String? label,
+    required Widget child,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(V3Radius.md),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: V3Spacing.sm, vertical: V3Spacing.xs),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(V3Radius.md),
+          color: selected
+              ? V3Colors.primary.withValues(alpha: 0.15)
+              : V3Colors.background,
+          border: Border.all(
+            color: selected
+                ? V3Colors.primary
+                : V3Colors.textSecondary.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            child,
+            if (label != null) ...[
+              const SizedBox(width: 6),
+              Text(label!,
+                  style: TextStyle(
+                    color: selected
+                        ? V3Colors.primary
+                        : V3Colors.textSecondary,
+                    fontSize: 12,
+                  )),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -714,6 +930,70 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
                   if (_nameError != null) setState(() => _nameError = null);
                 },
               ),
+              const SizedBox(height: V3Spacing.md),
+
+              // ---- Icon ----
+              // Choosing an icon overrides the card's auto-derived glyph; 'auto'
+              // keeps the existing behaviour of reading role names off the
+              // members. Stored as a key, never a code point (migration V37).
+              const Text('Icon',
+                  style: TextStyle(
+                      color: V3Colors.textSecondary,
+                      fontSize: V3Typography.captionSize)),
+              const SizedBox(height: V3Spacing.xs),
+              Wrap(
+                spacing: V3Spacing.xs,
+                runSpacing: V3Spacing.xs,
+                children: [
+                  for (final e in kGroupIconChoices.entries)
+                    _Pill(
+                      selected: _icon == e.key,
+                      label: e.key == 'auto' ? null : '',
+                      child: Icon(e.value, size: 18),
+                      onTap: () => setState(() => _icon = e.key),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: V3Spacing.md),
+
+              // ---- Hero image ----
+              // 'none' = the detail hero shows the icon only, no photo. The
+              // thumbnails are the same bundled assets the Scene detail uses,
+              // so a group and a scene of the same room look consistent.
+              const Text('Cover image',
+                  style: TextStyle(
+                      color: V3Colors.textSecondary,
+                      fontSize: V3Typography.captionSize)),
+              const SizedBox(height: V3Spacing.xs),
+              Wrap(
+                spacing: V3Spacing.xs,
+                runSpacing: V3Spacing.xs,
+                children: [
+                  for (final e in kGroupImageChoices.entries)
+                    _Pill(
+                      selected: _image == e.key,
+                      label: e.key == 'none' ? 'None' : null,
+                      child: e.key == 'none'
+                          ? const Icon(Icons.block_outlined, size: 18)
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.asset(
+                                e.value,
+                                width: 34,
+                                height: 34,
+                                fit: BoxFit.cover,
+                                // A missing asset must not break the picker.
+                                errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 18),
+                              ),
+                            ),
+                      onTap: () => setState(() => _image = e.key),
+                    ),
+                ],
+              ),
+
               const SizedBox(height: V3Spacing.md),
               Row(
                 children: [

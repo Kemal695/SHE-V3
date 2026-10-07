@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Make the Flutter Gradle plugin buildable on a WDAC-hardened Windows box.
+"""Make the Flutter Gradle plugin buildable when its own build dir is not writable.
 
 WHY THIS EXISTS
 ---------------
-`flutter build apk` fails on this machine before compiling any project code:
+`flutter build apk` can fail on this box before compiling any project code:
 
     Execution failed for task ':gradle:compileKotlin'.
     > java.io.IOException: Unable to delete directory
@@ -19,19 +19,32 @@ in the Kotlin daemon log (``%TEMP%\\kotlin-daemon.*.log``)::
         cacheable/dirty-sources.txt
 
 ``AccessDeniedException`` — not a sharing violation. The Kotlin daemon is denied
-DELETE on that path even though ``icacls`` grants the user full control and the
-same user can delete the files by hand from a shell. That combination points at
-Windows Defender Application Control rather than NTFS permissions:
+write/delete on that path even though ``icacls`` grants the user full control and
+the same user can create and delete files there by hand from a shell.
 
-    <System32>/CodeIntegrity/CIPolicies/Active/{784C4414-...}.cip
-    <System32>/CodeIntegrity/CIPolicies/Active/{60FD87F8-...}.cip
+WHAT IS ACTUALLY DENYING IT (corrected 2026-10-02)
+--------------------------------------------------
+An earlier revision of this file blamed WDAC. That was never proven. The
+reproducible cause is a **process-scoped write denial outside the project tree**:
+measured on this box, a *child* process cannot write into the Flutter SDK, while
+the interactive shell can.
 
-with matching Event ID 3033 blocks in
-Microsoft-Windows-CodeIntegrity/Operational.
+    # child process (this is the Kotlin daemon's situation)
+    cmd /c "echo x > C:\\ProgramData\\flutter\\packages\\flutter_tools\\gradle\\__t__.tmp"
+    -> Access is denied.
+
+    # the same shell that spawned it
+    echo x > /c/ProgramData/flutter/packages/flutter_tools/gradle/__t__.tmp
+    -> OK
+
+The agent sandbox enforces that split. The two WDAC policy files
+(``{784C4414-...}.cip``, ``{60FD87F8-...}.cip``) do exist on this machine, but no
+direct evidence was ever found that they block this path, so do not go chasing
+Event ID 3033 again before re-testing the child-process case above.
 
 Flutter includes ``packages/flutter_tools/gradle`` *inside the SDK* as a build.
 The usual trick of redirecting subproject build directories does not reach an
-included build, so the Flutter Gradle plugin keeps compiling into the protected
+included build, so the Flutter Gradle plugin keeps compiling into the restricted
 path and keeps failing. There is no supported Gradle API to point an included
 build's directory elsewhere: ``settings.rootProject`` is only a
 ``ProjectDescriptor`` at ``beforeSettings`` time (no build dir at all), and
@@ -40,10 +53,25 @@ build's directory elsewhere: ``settings.rootProject`` is only a
 WHAT THIS SCRIPT DOES
 ---------------------
 Replaces ``<flutterSdk>/packages/flutter_tools/gradle/build`` with a directory
-junction onto a writable location. Writes and deletes then physically happen
-outside the WDAC-protected tree, which is all the Kotlin daemon needs. The
-Flutter SDK's source files are untouched, so ``flutter upgrade`` still works —
-though an upgrade may delete the junction, in which case just re-run this.
+junction onto a writable location *inside this checkout*. Writes and deletes then
+physically happen in the project tree, which both a sandboxed build and a normal
+one can write. The Flutter SDK's source files are untouched, so ``flutter
+upgrade`` still works — though an upgrade may delete the junction, in which case
+just re-run this.
+
+WHY THE TARGET LIVES WHERE IT DOES (fixed 2026-10-02)
+----------------------------------------------------
+The target used to be ``mobile/build/flutter-gradle-plugin``. That was a bug:
+``mobile/build`` is exactly what ``flutter clean`` and ``./gradlew clean`` delete,
+so every clean destroyed the junction's target, left the junction dangling, and
+broke the build — with no way back, because the old ``is_junction()`` checked
+``path.exists()`` first and a dangling junction reports ``exists() == False``.
+The script then decided "not a junction", tried to create one, and failed with
+``Cannot create a file when that file already exists`` (verified: mklink rc=1).
+
+So the target now sits in ``mobile/.flutter-gradle-plugin-build`` — outside the
+``clean`` blast radius — and ``is_junction()`` no longer consults ``exists()``,
+so a dangling junction is recognised and repaired instead of wedging the build.
 
 Run it whenever the build starts failing at ``:gradle:compileKotlin``.
 """
@@ -54,10 +82,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Where to put the real data. Defaults to the project's own build/ tree, which is
-# already gitignored and cleared by `flutter clean`. Override with
+# Where to put the real data. Defaults to ``mobile/.flutter-gradle-plugin-build``
+# — deliberately NOT under ``mobile/build``, which `clean` deletes. Override with
 # SHE_FLUTTER_GRADLE_BUILD_DIR if you want it somewhere else (e.g. a scratch SSD).
 TARGET_ENV = "SHE_FLUTTER_GRADLE_BUILD_DIR"
+
+# FILE_ATTRIBUTE_REPARSE_POINT — set on junctions and symlinks alike.
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
 
 def find_repo_root(start: Path) -> Path:
@@ -99,27 +130,64 @@ def find_flutter_sdk(explicit: str | None) -> Path | None:
 def is_junction(path: Path) -> bool:
     """True when `path` is a directory reparse point (junction or symlink).
 
-    Deliberately does NOT shell out to `dir /AL`: that requires quoting paths
-    containing spaces, and getting the quoting wrong silently returns "not a
-    junction", which then deletes a working junction. `os.path.islink` alone is
-    not enough either — Windows junctions are not reported as links by older
-    Python builds — so also accept st_reparse_tag when available.
+    Deliberately does NOT consult ``path.exists()`` first. That was the bug that
+    wedged the build: ``exists()`` follows the reparse point, so a junction whose
+    target has been deleted (e.g. by ``clean``) reports False, the old code
+    concluded "not a junction", and ``mklink`` then failed because the link was
+    still there. ``os.lstat`` never follows the link, so it sees the truth.
+
+    Also deliberately does NOT shell out to ``dir /AL``: that requires quoting
+    paths containing spaces, and getting the quoting wrong silently returns "not
+    a junction", which then deletes a working junction. ``os.path.islink`` alone
+    is not enough either — Windows junctions are not reported as links by all
+    Python builds — so accept the reparse-point attribute as well.
     """
-    if not path.exists() and not path.is_symlink():
-        return False
-    try:
-        if os.path.islink(path):
-            return True
-    except OSError:
-        pass
     try:
         st = os.lstat(path)
     except OSError:
         return False
-    # FILE_ATTRIBUTE_REPARSE_POINT
-    if getattr(st, "st_file_attributes", 0) & 0x400:
+    if getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT:
         return True
-    return False
+    try:
+        return os.path.islink(path)
+    except OSError:
+        return False
+
+
+def junction_target(path: Path) -> Path | None:
+    """Best-effort read of a junction's target. None if it cannot be read.
+
+    Windows reports a junction's target with an extended-length prefix
+    (``\\\\?\\D:\\...``), so the raw value never compares equal to a normal path.
+    Strip it, otherwise the caller sees "stale target" on every run and needlessly
+    deletes and recreates a perfectly good junction each time.
+    """
+    try:
+        raw = os.readlink(path)
+    except OSError:
+        return None
+    for prefix in ("\\\\?\\", "\\??\\"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+    return Path(raw)
+
+
+def remove_link(link: Path) -> bool:
+    """Remove a junction/symlink WITHOUT touching its target. True on success.
+
+    ``os.rmdir`` on a reparse point deletes only the link. ``shutil.rmtree`` is
+    never used here: on a junction it can be ambiguous across Python versions and
+    may recurse into the target, which would delete real build output.
+    """
+    try:
+        os.rmdir(link)
+        return True
+    except OSError:
+        pass
+    # Last resort for odd link types.
+    r = subprocess.run(["cmd", "/c", "rmdir", str(link)], capture_output=True, text=True)
+    return r.returncode == 0
 
 
 def main() -> int:
@@ -141,7 +209,7 @@ def main() -> int:
     repo = find_repo_root(Path(__file__).resolve())
     target = Path(os.environ.get(
         TARGET_ENV,
-        repo / "mobile" / "build" / "flutter-gradle-plugin",
+        repo / "mobile" / ".flutter-gradle-plugin-build",
     )).resolve()
 
     print(f"Flutter SDK : {sdk}")
@@ -150,11 +218,27 @@ def main() -> int:
     print()
 
     if is_junction(link):
-        print("Already a junction — nothing to do.")
-        return 0
-
-    if link.exists():
-        print("Removing the existing real directory ...")
+        current = junction_target(link)
+        points_here = current is not None and current.resolve() == target
+        if points_here and target.is_dir():
+            print("Already a junction onto the right target — nothing to do.")
+            return 0
+        if current is None:
+            print("Existing junction has an unreadable target — recreating it.")
+        elif not points_here:
+            print(f"Junction points at a stale target ({current}) — migrating.")
+        else:
+            # points_here but the target is missing: this is the dangling case
+            # that used to wedge the build. Recreating the target is enough.
+            print("Junction is DANGLING (its target was deleted, e.g. by `clean`).")
+            print("Recreating the target directory …")
+        if not remove_link(link):
+            print(f"ERROR: could not remove the existing junction at {link}.", file=sys.stderr)
+            print("       Close any running Gradle/Kotlin daemons and retry:", file=sys.stderr)
+            print("         cd mobile/android && ./gradlew --stop", file=sys.stderr)
+            return 1
+    elif link.exists():
+        print("Removing the existing real directory …")
         shutil.rmtree(link, ignore_errors=True)
         if link.exists():
             print(f"ERROR: could not remove {link}.", file=sys.stderr)
@@ -193,7 +277,7 @@ def main() -> int:
         return 1
 
     print("OK — junction created and verified writable.")
-    print("The Kotlin daemon can now delete/rewrite there without hitting WDAC.")
+    print("The Kotlin daemon can now write/delete there.")
     return 0
 
 

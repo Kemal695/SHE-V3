@@ -57,4 +57,27 @@ public interface NodeParamRepository extends JpaRepository<NodeParam, UUID> {
     int updateLastValueJson(@Param("id") UUID id,
                             @Param("value") String value,
                             @Param("reportedAt") Instant reportedAt);
+
+    /**
+     * Update {@code reported_value} + {@code last_reported_at} with a value the
+     * DEVICE reported (migration V38). Same jsonb CAST caveat as
+     * {@link #updateLastValue}.
+     */
+    default int updateReportedValue(UUID id, Object value, Instant reportedAt) {
+        final String json;
+        try {
+            json = JSON.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "Cannot serialize param value to JSON for node_params.reported_value: " + value, e);
+        }
+        return updateReportedValueJson(id, json, reportedAt);
+    }
+
+    @Modifying
+    @Query(value = "UPDATE node_params SET reported_value = CAST(:value AS jsonb), "
+            + "last_reported_at = :reportedAt WHERE id = :id", nativeQuery = true)
+    int updateReportedValueJson(@Param("id") UUID id,
+                                @Param("value") String value,
+                                @Param("reportedAt") Instant reportedAt);
 }

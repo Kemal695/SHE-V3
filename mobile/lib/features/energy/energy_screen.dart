@@ -40,7 +40,16 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
-          onPressed: () => context.go('/node/${widget.nodeId}'),
+          onPressed: () {
+            // The per-node device page is gone; return to wherever this was
+            // opened from (dashboard long-press, or the Energy tab).
+            final nav = Navigator.of(context);
+            if (nav.canPop()) {
+              nav.pop();
+            } else {
+              context.go('/devices');
+            }
+          },
         ),
         title: const Text('Energy'),
       ),

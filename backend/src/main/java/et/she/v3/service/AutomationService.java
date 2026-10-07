@@ -19,8 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
@@ -78,6 +81,9 @@ public class AutomationService {
             @JsonProperty("type") String type,
             @JsonProperty("node_id") UUID nodeId,
             @JsonProperty("device_name") String deviceName,
+            // STABLE device id. The app sends this so a later rename cannot
+            // orphan the rule; it was being dropped here and never stored.
+            @JsonProperty("node_device_id") UUID nodeDeviceId,
             Map<String, Object> params,
             @JsonProperty("scene_id") UUID sceneId,
             String category,
@@ -93,13 +99,26 @@ public class AutomationService {
             List<AutomationActionIn> actions
     ) {}
 
-    public record UpdateAutomationRequest(String name, String description, Boolean enabled) {}
+    /**
+     * PUT body. `trigger` and `actions` are optional: when present they REPLACE
+     * the stored rule (so the editor can actually change what an automation
+     * does, not just its name), when null the existing rule is left alone.
+     */
+    public record UpdateAutomationRequest(
+            String name, String description, Boolean enabled,
+            Map<String, Object> trigger,
+            List<AutomationActionIn> actions) {}
     public record SetEnabledRequest(Boolean enabled) {}
 
     public record AutomationActionOut(String type, Map<String, Object> config) {}
     public record AutomationOut(UUID id, UUID homeId, String name, String description,
                                Boolean enabled, Map<String, Object> trigger,
-                               List<AutomationActionOut> actions, Instant createdAt) {}
+                               List<AutomationActionOut> actions, Instant createdAt,
+                               // Exposed so the app can answer "has this ever run?".
+                               // Without it, a rule that saves but silently never
+                               // fires is indistinguishable from one that fires and
+                               // whose action fails — both just "do nothing".
+                               Instant lastFiredAt) {}
     public record TriggerResult(UUID automationId, int executed, List<String> failed) {}
 
     // ─── Queries ─────────────────────────────────────────────────────────────
@@ -142,7 +161,12 @@ public class AutomationService {
         if (req.name() != null && !req.name().isBlank()) a.setName(req.name().trim());
         if (req.description() != null) a.setDescription(req.description());
         if (req.enabled() != null) a.setEnabled(req.enabled());
-        return toOut(automationRepository.save(a));
+        // Only touch the trigger when the client actually sent one, so a
+        // name-only PUT (e.g. an inline rename) never wipes the rule.
+        if (req.trigger() != null) a.setTriggerConfig(objectMapper.valueToTree(req.trigger()));
+        Automation saved = automationRepository.save(a);
+        if (req.actions() != null) replaceRules(saved, req.actions());
+        return toOut(saved);
     }
 
     @Transactional
@@ -196,8 +220,14 @@ public class AutomationService {
             if (!paramName.equalsIgnoreCase(t.path("param_name").asText())) continue;
 
             String deviceName = t.path("device_name").asText(null);
-            if (deviceName != null) {
-                // Restrict to a specific device on the node.
+            String trigDeviceId = t.path("node_device_id").asText(null);
+            if (trigDeviceId != null && !trigDeviceId.isBlank()) {
+                // Prefer the STABLE device id. The name in the config goes stale
+                // the moment the device is renamed, which used to stop the
+                // automation matching its own device.
+                if (!UUID.fromString(trigDeviceId).equals(deviceId)) continue;
+            } else if (deviceName != null) {
+                // Legacy configs that only carry a name.
                 UUID trigDevice = nodeDeviceRepository.findByNodeAndName(nodeId, deviceName)
                         .map(NodeDevice::getId).orElse(null);
                 if (trigDevice == null || !trigDevice.equals(deviceId)) continue;
@@ -226,7 +256,26 @@ public class AutomationService {
 
         for (Automation a : automationRepository.findAllEnabled()) {
             JsonNode t = a.getTriggerConfig();
-            if (t == null || !"SCHEDULE".equalsIgnoreCase(t.path("type").asText())) continue;
+            if (t == null) continue;
+
+            // SOLAR — "At sunrise or sunset". The time moves through the year, so
+            // it cannot be a fixed cron; compute today's time for the home's
+            // coordinates and fire on the matching minute.
+            if ("SOLAR".equalsIgnoreCase(t.path("type").asText())) {
+                String event = t.path("event").asText("sunrise");
+                LocalDateTime due = solarTimeFor(event, nowMinute.toLocalDate(), zone);
+                if (due == null || !due.equals(nowMinute)) continue;
+                if (a.getLastFiredAt() != null
+                        && !a.getLastFiredAt().isBefore(due.atZone(zone).toInstant())) continue;
+                log.info("Automation {} fired by SOLAR {} ({})", a.getId(), event, due);
+                execute(a);
+                a.setLastFiredAt(now);
+                automationRepository.save(a);
+                fired++;
+                continue;
+            }
+
+            if (!"SCHEDULE".equalsIgnoreCase(t.path("type").asText())) continue;
             String cron = t.path("cron").asText(null);
 
             // Bounded lookback: start from the last time we actually fired, but
@@ -257,6 +306,56 @@ public class AutomationService {
             fired++;
         }
         return fired;
+    }
+
+    /**
+     * Sunrise/sunset for a date, in the given zone.
+     *
+     * Standard NOAA solar-position algorithm. Coordinates default to Addis Ababa
+     * (9.03 N, 38.74 E) — the launch market — until homes carry their own.
+     */
+    private LocalDateTime solarTimeFor(String event, LocalDate date, ZoneId zone) {
+        final double lat = 9.03, lon = 38.74;
+        final boolean sunrise = !"sunset".equalsIgnoreCase(event);
+        int n = date.getDayOfYear();
+        double lngHour = lon / 15.0;
+        double t = n + ((sunrise ? 6.0 : 18.0) - lngHour) / 24.0;
+        double m = (0.9856 * t) - 3.289;
+        double l = m + (1.916 * Math.sin(Math.toRadians(m)))
+                + (0.020 * Math.sin(Math.toRadians(2 * m))) + 282.634;
+        l = ((l % 360) + 360) % 360;
+
+        double ra = Math.toDegrees(Math.atan(0.91764 * Math.tan(Math.toRadians(l))));
+        ra = ((ra % 360) + 360) % 360;
+        // Put RA in the same quadrant as L.
+        double lQuadrant = Math.floor(l / 90.0) * 90.0;
+        double raQuadrant = Math.floor(ra / 90.0) * 90.0;
+        ra = (ra + (lQuadrant - raQuadrant)) / 15.0;
+
+        double sinDec = 0.39782 * Math.sin(Math.toRadians(l));
+        double cosDec = Math.cos(Math.asin(sinDec));
+        double cosH = (Math.cos(Math.toRadians(90.833))
+                - (sinDec * Math.sin(Math.toRadians(lat))))
+                / (cosDec * Math.cos(Math.toRadians(lat)));
+        if (cosH > 1 || cosH < -1) return null; // sun never rises/sets that day
+
+        double h = sunrise
+                ? 360.0 - Math.toDegrees(Math.acos(cosH))
+                : Math.toDegrees(Math.acos(cosH));
+        h = h / 15.0;
+        double localT = h + ra - (0.06571 * t) - 6.622;
+        double ut = ((localT - lngHour) % 24 + 24) % 24;
+
+        int hour = (int) ut;
+        int minute = (int) Math.round((ut - hour) * 60);
+        if (minute == 60) {
+            minute = 0;
+            hour = (hour + 1) % 24;
+        }
+
+        // The formula yields UTC, so shift into the app's zone.
+        LocalDateTime utc = LocalDateTime.of(date, LocalTime.of(hour, minute));
+        return utc.atZone(ZoneOffset.UTC).withZoneSameInstant(zone).toLocalDateTime();
     }
 
     /**
@@ -415,6 +514,7 @@ public class AutomationService {
             case "WRITE_PARAM" -> {
                 cfg.put("node_id", in.nodeId());
                 cfg.put("device_name", in.deviceName());
+                if (in.nodeDeviceId() != null) cfg.put("node_device_id", in.nodeDeviceId());
                 cfg.put("params", in.params());
             }
             case "ACTIVATE_SCENE" -> cfg.put("scene_id", in.sceneId());
@@ -461,7 +561,8 @@ public class AutomationService {
                 .map(r -> new AutomationActionOut(r.getActionType(), toMap(r.getActionConfig())))
                 .toList();
         return new AutomationOut(a.getId(), a.getHomeId(), a.getName(), a.getDescription(),
-                a.getEnabled(), toMap(a.getTriggerConfig()), outs, a.getCreatedAt());
+                a.getEnabled(), toMap(a.getTriggerConfig()), outs, a.getCreatedAt(),
+                a.getLastFiredAt());
     }
 
     @SuppressWarnings("unchecked")

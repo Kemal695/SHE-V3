@@ -691,6 +691,7 @@ public class NodeServiceImpl implements NodeService {
         return new NodeDtos.ParamResponse(
                 p.getId(), p.getParamName(), p.getParamType(), p.getDataType(),
                 p.getUiHint(), p.getProperties(), p.getLastValue(),
+                p.getReportedValue(),
                 p.getLastReportedAt() != null ? p.getLastReportedAt().toString() : null,
                 p.getMinValue(), p.getMaxValue()
         );

@@ -39,6 +39,17 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   String? _message;
   String _homeId = '00000000-0000-0000-0000-000000000001';
 
+  /// True between pointer-down and the recognizer actually being live.
+  ///
+  /// Push-to-talk makes a fast press/release possible, and `stop()` on a
+  /// recognizer that has not finished starting is a no-op — so without this the
+  /// utterance would be silently dropped. The release handler checks it and
+  /// cancels once startup completes.
+  bool _starting = false;
+
+  /// Set when the user lets go before the recognizer came up.
+  bool _releasePending = false;
+
   @override
   void initState() {
     super.initState();
@@ -82,38 +93,73 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
   bool get _listening => _phase == VoicePhase.listening;
 
-  Future<void> _toggle() async {
-    final service = ref.read(voiceServiceProvider);
-
-    if (_listening) {
-      await service.stopListening();
+  /// Push-to-talk: called on pointer-down. Records until the finger lifts.
+  Future<void> _startListening() async {
+    if (_phase == VoicePhase.unavailable ||
+        _phase == VoicePhase.executing ||
+        _listening ||
+        _starting) {
       return;
     }
+
+    final service = ref.read(voiceServiceProvider);
 
     setState(() {
       _phase = VoicePhase.listening;
       _transcript = null;
       _intent = null;
       _message = null;
+      _releasePending = false;
     });
     _pulseController.repeat(reverse: true);
 
-    await service.startListening(
-      onResult: (text, isFinal) {
-        if (!mounted) return;
-        setState(() => _transcript = text);
-        if (isFinal) _finish(text);
-      },
-      onDone: () {
-        if (!mounted) return;
-        // Nothing finalized (silence, or the user stopped early): do not leave
-        // the screen pulsing forever.
-        if (_phase == VoicePhase.listening) {
-          setState(() => _phase = VoicePhase.idle);
-          _pulseController.stop();
-        }
-      },
-    );
+    _starting = true;
+    try {
+      await service.startListening(
+        // Push-to-talk: the finger lifting ends the recording, not silence.
+        pushToTalk: true,
+        onResult: (text, isFinal) {
+          if (!mounted) return;
+          setState(() => _transcript = text);
+          if (isFinal) _finish(text);
+        },
+        onDone: () {
+          if (!mounted) return;
+          // Nothing finalized (silence, or released before speaking): do not
+          // leave the button pulsing forever.
+          if (_phase == VoicePhase.listening) {
+            setState(() => _phase = VoicePhase.idle);
+            _pulseController.stop();
+          }
+        },
+      );
+    } finally {
+      _starting = false;
+    }
+
+    // The finger came up while the recognizer was still starting, so the release
+    // handler could not act. Stop now that it is live, or we would record until
+    // the 12 s cap.
+    if (_releasePending) {
+      _releasePending = false;
+      await _stopListening();
+    }
+  }
+
+  /// Called on pointer-up / pointer-cancel. Finalizing here (rather than letting
+  /// the recognizer time out) is the whole point of push-to-talk: `stop()`
+  /// flushes the last partial result as final, so a short command is sent the
+  /// instant the button is released.
+  Future<void> _stopListening() async {
+    if (_starting) {
+      // Recognizer not live yet — remember it and let _startListening finish.
+      _releasePending = true;
+      return;
+    }
+    if (!_listening) return;
+
+    _pulseController.stop();
+    await ref.read(voiceServiceProvider).stopListening();
   }
 
   Future<void> _finish(String transcript) async {
@@ -163,10 +209,17 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
           children: [
             const SizedBox(height: V3Spacing.md),
 
-            // ---- Pulsing mic ----
+            // ---- Pulsing mic (push-to-talk) ----
             Center(
-              child: GestureDetector(
-                onTap: _phase == VoicePhase.unavailable ? null : _toggle,
+              child: Listener(
+                // Raw pointer events rather than GestureDetector taps: this sits
+                // inside a ListView, and a tap gesture is claimed by the scroll
+                // arena as soon as the finger drifts a few pixels — which would
+                // cancel the recording mid-sentence. Push-to-talk only cares
+                // about down → up, so bypass the gesture arena entirely.
+                onPointerDown: (_) => _startListening(),
+                onPointerUp: (_) => _stopListening(),
+                onPointerCancel: (_) => _stopListening(),
                 child: AnimatedBuilder(
                   animation: _pulseController,
                   builder: (context, _) {
@@ -331,11 +384,11 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   String _statusText() {
     return switch (_phase) {
       VoicePhase.initializing => 'Checking microphone...',
-      VoicePhase.idle => 'Tap to speak',
-      VoicePhase.listening => 'Listening...',
+      VoicePhase.idle => 'Hold the mic to speak',
+      VoicePhase.listening => 'Listening — release to send',
       VoicePhase.executing => 'Sending the command...',
-      VoicePhase.done => 'Done — tap to speak again',
-      VoicePhase.error => 'Tap to try again',
+      VoicePhase.done => 'Done — hold the mic to speak again',
+      VoicePhase.error => 'Hold the mic to try again',
       VoicePhase.unavailable => 'Voice control unavailable',
     };
   }

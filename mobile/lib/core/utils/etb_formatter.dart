@@ -8,6 +8,21 @@
 // =============================================================================
 
 class EtbFormatter {
+  /// Domestic tariff used when the backend does not supply a cost.
+  ///
+  /// The per-node Energy screen reads `total_cost_etb` straight from the API and
+  /// never needs this. The home-level aggregate (home_energy_screen.dart) DOES
+  /// need it, because `/homes/{id}/energy/summary` is still a Phase 4 stub that
+  /// returns no numbers at all. ~11.5 ETB/kWh is the mid-tier EEU residential
+  /// rate; it is a *display* estimate, not a billing figure, and is labelled as
+  /// such in the UI.
+  static const double defaultTariffEtbPerKwh = 11.5;
+
+  /// Estimated cost of [kwh] at [tariff] (defaults to the domestic rate).
+  static double kwhToEtb(double kwh,
+          {double tariff = defaultTariffEtbPerKwh}) =>
+      kwh * tariff;
+
   /// Format an amount in ETB with locale-aware symbol.
   static String format(double amount, String locale) {
     final formatted = _formatNumber(amount);

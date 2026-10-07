@@ -10,9 +10,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
+import '../../core/widgets/she_kit.dart';
+import '../device_detail/node_service.dart' show nodeServiceProvider;
 import 'scene_service.dart';
 
 class ScenesScreen extends ConsumerStatefulWidget {
@@ -27,11 +30,52 @@ class ScenesScreen extends ConsumerStatefulWidget {
 class _ScenesScreenState extends ConsumerState<ScenesScreen> {
   bool _busy = false;
 
+  /// The home the API calls use.
+  ///
+  /// Same trap as the Automations screen: the router feeds `homeId` from
+  /// `state.uri.queryParameters['homeId']`, and only some entry points set it.
+  /// Reached from anywhere else it is the empty string, the request goes out as
+  /// `/api/v3/homes//scenes`, Spring collapses the double slash and binds the
+  /// path segment to the literal text `"scenes"` -> `Invalid UUID string` -> 500.
+  ///
+  /// Resolved here exactly as `_DevicesScreenState` does it, so no entry point
+  /// can produce a malformed URL.
+  static const _defaultHomeId = '00000000-0000-0000-0000-000000000001';
+
+  late String _homeId;
+
+  /// The scene most recently activated, so its card can show the "running"
+  /// treatment. Local only — the backend has no notion of an active scene, and
+  /// pretending otherwise would show a stale highlight after a restart.
+  String? _activeId;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.homeId;
+    _homeId = initial.isNotEmpty ? initial : _defaultHomeId;
+    if (initial.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _resolveHome());
+    }
+  }
+
+  Future<void> _resolveHome() async {
+    try {
+      final homes = await ref.read(nodeServiceProvider).listHomes();
+      if (homes.isNotEmpty && mounted) {
+        final id = (homes.first['id'] ?? homes.first['home_id'])?.toString();
+        if (id != null && id.isNotEmpty) setState(() => _homeId = id);
+      }
+    } catch (_) {
+      // Keep the seeded default; the provider degrades to an empty list.
+    }
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     setState(() => _busy = true);
     try {
       await action();
-      ref.invalidate(homeScenesProvider(widget.homeId));
+      ref.invalidate(homeScenesProvider(_homeId));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -48,6 +92,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
   Future<void> _activate(Scene scene) async {
     final result = await ref.read(sceneServiceProvider).activate(scene.id);
     if (!mounted) return;
+    setState(() => _activeId = scene.id);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -91,129 +136,352 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scenesAsync = ref.watch(homeScenesProvider(widget.homeId));
+    final scenesAsync = ref.watch(homeScenesProvider(_homeId));
 
     return Scaffold(
       backgroundColor: V3Colors.background,
-      appBar: AppBar(
-        backgroundColor: V3Colors.background,
-        title: const Text('Scenes',
-            style: TextStyle(color: V3Colors.textPrimary)),
-        iconTheme: const IconThemeData(color: V3Colors.textSecondary),
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: V3Colors.primary,
-        onPressed: _busy ? null : () => _openEditor(context, null),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-      body: scenesAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: V3Colors.primary),
-        ),
-        error: (err, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(V3Spacing.xl),
-            child: Text('Could not load scenes: $err',
-                style: const TextStyle(color: V3Colors.textSecondary)),
+      body: SafeArea(
+        child: scenesAsync.when(
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: V3Colors.primary),
           ),
-        ),
-        data: (scenes) {
-          if (scenes.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(V3Spacing.xl),
-                child: Text(
-                  'No scenes yet.\nTap + to create one — pick a device and choose on or off.',
+          error: (err, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(V3Spacing.xl),
+              child: Text('Could not load scenes: $err',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: V3Colors.textSecondary),
-                ),
-              ),
-            );
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.only(bottom: 96),
-            itemCount: scenes.length,
-            itemBuilder: (context, i) {
-              final scene = scenes[i];
-              // Expandable — collapsed shows the summary, expanding reveals
-              // the action row (Activate / Edit / Delete) hidden per the user's
-              // request. Same surface card so it reads identically to the
-              // dashboard device cards.
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: V3Spacing.md, vertical: V3Spacing.xs),
-                child: Material(
-                  color: V3Colors.surface,
-                  borderRadius:
-                      BorderRadius.circular(V3Radius.lg),
-                  clipBehavior: Clip.antiAlias,
-                  child: ExpansionTile(
-                    iconColor: V3Colors.textSecondary,
-                    collapsedIconColor: V3Colors.textSecondary,
-                    tilePadding: const EdgeInsets.symmetric(
-                        horizontal: V3Spacing.md),
-                    leading: const Icon(Icons.auto_awesome,
-                        color: V3Colors.primary),
-                    title: Text(scene.name,
-                        style: const TextStyle(
-                            color: V3Colors.textPrimary,
-                            fontWeight: FontWeight.w600)),
-                    subtitle: Text('${scene.actionCount} action(s)',
-                        style: const TextStyle(
-                            color: V3Colors.textSecondary, fontSize: 12)),
-                    childrenPadding: const EdgeInsets.fromLTRB(
-                        V3Spacing.md, 0, V3Spacing.sm, V3Spacing.sm),
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.play_arrow,
-                                color: V3Colors.success),
-                            tooltip: 'Activate',
-                            onPressed:
-                                _busy ? null : () => _activate(scene),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined,
-                                color: V3Colors.textSecondary),
-                            tooltip: 'Edit',
-                            onPressed: _busy
-                                ? null
-                                : () => _openEditor(context, scene),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline,
-                                color: V3Colors.error),
-                            tooltip: 'Delete',
-                            onPressed: _busy
-                                ? null
-                                : () => _confirmDelete(scene),
-                          ),
-                        ],
-                      ),
-                    ],
+                  style: const TextStyle(color: V3Colors.text2)),
+            ),
+          ),
+          data: (scenes) => RefreshIndicator(
+            color: V3Colors.primary,
+            backgroundColor: V3Colors.surface,
+            onRefresh: () =>
+                ref.refresh(homeScenesProvider(_homeId).future),
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                const SliverToBoxAdapter(
+                  child: SHEAppBar(
+                    title: 'Scenes',
+                    subtitle: 'One tap sets a whole mood',
                   ),
                 ),
-              );
-            },
-          );
-        },
+                if (_activeId != null)
+                  SliverToBoxAdapter(child: _activeBanner(scenes)),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                      V3Spacing.md, V3Spacing.sm, V3Spacing.md, V3Spacing.md),
+                  sliver: SliverGrid(
+                    // 2-up grid, matching the design sheet (panel 11).
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.02,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) {
+                        if (i == scenes.length) return _createCard();
+                        final scene = scenes[i];
+                        return _sceneCard(scene, _activeId == scene.id);
+                      },
+                      childCount: scenes.length + 1,
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        V3Spacing.lg, 0, V3Spacing.lg, V3Spacing.xxl),
+                    child: Text(
+                      'Scenes step through their devices 200 ms apart, so a room '
+                      'changes gradually instead of all at once.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: V3Colors.dim, fontSize: 11, height: 1.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
+  }
+
+  /// Green "a scene is running" strip, as in the design.
+  Widget _activeBanner(List<Scene> scenes) {
+    final running = scenes.where((s) => s.id == _activeId).firstOrNull;
+    if (running == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(V3Spacing.md, V3Spacing.sm, V3Spacing.md, 0),
+      padding: const EdgeInsets.symmetric(
+          horizontal: V3Spacing.md, vertical: V3Spacing.sm),
+      decoration: BoxDecoration(
+        color: V3Colors.successAlt.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(V3Radius.lg),
+        border: Border.all(color: V3Colors.successAlt.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+                color: V3Colors.successAlt, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: V3Spacing.sm),
+          Expanded(
+            child: Text(
+              '${running.name} is running · ${running.actionCount} steps',
+              style: const TextStyle(
+                  color: V3Colors.successAlt,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sceneCard(Scene scene, bool active) {
+    return GestureDetector(
+      onTap: _busy ? null : () => _activate(scene),
+      onLongPress: _busy ? null : () => _showSceneMenu(scene),
+      child: Container(
+        decoration: BoxDecoration(
+          color: active
+              ? V3Colors.primary.withValues(alpha: 0.15)
+              : V3Colors.surface,
+          borderRadius: BorderRadius.circular(V3Radius.xl),
+          border: Border.all(
+            color: active
+                ? V3Colors.primary.withValues(alpha: 0.6)
+                : V3Colors.border,
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: V3Colors.primary.withValues(alpha: 0.45),
+                    blurRadius: 30,
+                    spreadRadius: -6,
+                  ),
+                ]
+              : null,
+        ),
+        child: Stack(
+          children: [
+            // Soft radial accent in the corner — the design's glow.
+            Positioned(
+              right: -24,
+              top: -32,
+              child: Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    V3Colors.primary.withValues(alpha: 0.4),
+                    Colors.transparent,
+                  ]),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(V3Spacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? V3Colors.primary
+                          : V3Colors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(V3Radius.md),
+                    ),
+                    child: Icon(
+                      _sceneIcon(scene.icon),
+                      size: 22,
+                      color: active ? V3Colors.night : V3Colors.primary,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    scene.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: V3Colors.ink,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${scene.actionCount} action(s)',
+                    style: const TextStyle(
+                        color: V3Colors.dim, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              right: 0,
+              top: 0,
+              child: PopupMenuButton<String>(
+                enabled: !_busy,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.more_vert,
+                    size: 18,
+                    color: active ? V3Colors.primary : V3Colors.dim),
+                color: V3Colors.surface2,
+                onSelected: (v) {
+                  switch (v) {
+                    case 'activate':
+                      _activate(scene);
+                    case 'details':
+                      context.push('/scenes/${scene.id}');
+                    case 'edit':
+                      _openEditor(context, scene);
+                    case 'delete':
+                      _confirmDelete(scene);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'activate', child: Text('Activate')),
+                  PopupMenuItem(value: 'details', child: Text('Details')),
+                  PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSceneMenu(Scene scene) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: V3Colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(V3Radius.xl)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.play_arrow, color: V3Colors.successAlt),
+              title: const Text('Activate'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _activate(scene);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline,
+                  color: V3Colors.text2),
+              title: const Text('Details'),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.push('/scenes/${scene.id}');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined, color: V3Colors.text2),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openEditor(context, scene);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline,
+                  color: V3Colors.errorAlt),
+              title: const Text('Delete'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _confirmDelete(scene);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _createCard() {
+    return GestureDetector(
+      onTap: _busy ? null : () => _openEditor(context, null),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(V3Radius.xl),
+          border: Border.all(color: V3Colors.borderStrong),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add, size: 24, color: V3Colors.dim),
+            SizedBox(height: 8),
+            Text('Create Scene',
+                style: TextStyle(
+                    color: V3Colors.dim,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Maps a stored icon name onto a Material glyph. Unknown names fall back to
+  /// the sparkle, so a scene authored elsewhere still renders.
+  IconData _sceneIcon(String? name) {
+    switch (name) {
+      case 'sunrise':
+        return Icons.wb_twilight;
+      case 'sunset':
+        return Icons.nightlight_outlined;
+      case 'moon':
+        return Icons.dark_mode_outlined;
+      case 'door-open':
+        return Icons.meeting_room_outlined;
+      case 'tv':
+        return Icons.tv_outlined;
+      case 'droplets':
+        return Icons.water_drop_outlined;
+      case 'shield':
+        return Icons.shield_outlined;
+      case 'clock':
+        return Icons.schedule;
+      case 'sun':
+        return Icons.wb_sunny_outlined;
+      case 'coffee':
+        return Icons.coffee_outlined;
+      default:
+        return Icons.auto_awesome;
+    }
   }
 
   Future<void> _openEditor(BuildContext context, Scene? existing) async {
     final result = await showDialog<_EditorResult>(
       context: context,
-      builder: (ctx) => _SceneEditorDialog(homeId: widget.homeId, existing: existing),
+      builder: (ctx) => _SceneEditorDialog(homeId: _homeId, existing: existing),
     );
     if (result == null || !mounted) return;
 
     await _run(() async {
       if (existing == null) {
         await ref.read(sceneServiceProvider).createScene(
-              widget.homeId,
+              _homeId,
               name: result.name,
               icon: result.icon,
               actions: result.actions,
@@ -387,7 +655,14 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
               style: TextStyle(color: V3Colors.textSecondary)),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: V3Colors.primary),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: V3Colors.primary,
+            // See app.dart: a local backgroundColor also overrides the disabled
+            // colours, so a disabled button would still look live.
+            disabledBackgroundColor: V3Colors.primary.withValues(alpha: 0.18),
+            disabledForegroundColor:
+                V3Colors.textSecondary.withValues(alpha: 0.5),
+          ),
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(

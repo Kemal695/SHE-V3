@@ -763,6 +763,240 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Don\'t have an account? Register'**
   String get noAccountRegister;
+
+  /// No description provided for @loading.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading'**
+  String get loading;
+
+  /// No description provided for @skip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get skip;
+
+  /// No description provided for @next.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get next;
+
+  /// No description provided for @getStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Get Started'**
+  String get getStarted;
+
+  /// No description provided for @haveAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'I already have an account'**
+  String get haveAccount;
+
+  /// No description provided for @welcomeBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back'**
+  String get welcomeBack;
+
+  /// No description provided for @signInSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to control your home'**
+  String get signInSubtitle;
+
+  /// No description provided for @emailOrPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'Email or phone'**
+  String get emailOrPhone;
+
+  /// No description provided for @emailHint.
+  ///
+  /// In en, this message translates to:
+  /// **'you@example.com'**
+  String get emailHint;
+
+  /// No description provided for @forgotPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Forgot password?'**
+  String get forgotPassword;
+
+  /// No description provided for @or.
+  ///
+  /// In en, this message translates to:
+  /// **'or'**
+  String get or;
+
+  /// No description provided for @google.
+  ///
+  /// In en, this message translates to:
+  /// **'Google'**
+  String get google;
+
+  /// No description provided for @apple.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple'**
+  String get apple;
+
+  /// No description provided for @noAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account?'**
+  String get noAccount;
+
+  /// No description provided for @signingIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Signing in…'**
+  String get signingIn;
+
+  /// No description provided for @ob1Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Your home, in your hand'**
+  String get ob1Title;
+
+  /// No description provided for @ob1Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Control lights, sockets and appliances from anywhere in Ethiopia.'**
+  String get ob1Body;
+
+  /// No description provided for @ob2Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Built for Ethiopian homes'**
+  String get ob2Title;
+
+  /// No description provided for @ob2Intro.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything you need to run a modern smart home.'**
+  String get ob2Intro;
+
+  /// No description provided for @ob3Title2.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready when you are'**
+  String get ob3Title2;
+
+  /// No description provided for @ob3Body2.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up your first SHE device in under two minutes.'**
+  String get ob3Body2;
+
+  /// No description provided for @featRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote control'**
+  String get featRemote;
+
+  /// No description provided for @featRemoteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn anything on or off from your phone'**
+  String get featRemoteBody;
+
+  /// No description provided for @featEnergyM.
+  ///
+  /// In en, this message translates to:
+  /// **'Energy monitoring'**
+  String get featEnergyM;
+
+  /// No description provided for @featEnergyMBody.
+  ///
+  /// In en, this message translates to:
+  /// **'See what each device costs you in ETB'**
+  String get featEnergyMBody;
+
+  /// No description provided for @featAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automations'**
+  String get featAuto;
+
+  /// No description provided for @featAutoBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedules, scenes and triggers'**
+  String get featAutoBody;
+
+  /// No description provided for @navHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navHome;
+
+  /// No description provided for @navDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get navDevices;
+
+  /// No description provided for @navAutomations.
+  ///
+  /// In en, this message translates to:
+  /// **'Automations'**
+  String get navAutomations;
+
+  /// No description provided for @navEnergy.
+  ///
+  /// In en, this message translates to:
+  /// **'Energy'**
+  String get navEnergy;
+
+  /// No description provided for @navMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get navMore;
+
+  /// No description provided for @moreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get moreTitle;
+
+  /// No description provided for @settingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Language, server, account'**
+  String get settingsSubtitle;
+
+  /// No description provided for @notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notifications;
+
+  /// No description provided for @unread.
+  ///
+  /// In en, this message translates to:
+  /// **'unread'**
+  String get unread;
+
+  /// No description provided for @markAllRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all read'**
+  String get markAllRead;
+
+  /// No description provided for @noNotifications.
+  ///
+  /// In en, this message translates to:
+  /// **'No notifications yet'**
+  String get noNotifications;
+
+  /// No description provided for @activate.
+  ///
+  /// In en, this message translates to:
+  /// **'Activate'**
+  String get activate;
 }
 
 class _AppLocalizationsDelegate

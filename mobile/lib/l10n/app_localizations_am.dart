@@ -346,4 +346,121 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get noAccountRegister => 'መለያ የለዎትም? ተመዝገብ';
+
+  @override
+  String get loading => 'በመጫን ላይ';
+
+  @override
+  String get skip => 'ዝለል';
+
+  @override
+  String get next => 'ቀጣይ';
+
+  @override
+  String get getStarted => 'ጀምር';
+
+  @override
+  String get haveAccount => 'መለያ አለኝ';
+
+  @override
+  String get welcomeBack => 'እንኳን ደህና መጡ';
+
+  @override
+  String get signInSubtitle => 'ቤትዎን ለመቆጣጠር ይግቡ';
+
+  @override
+  String get emailOrPhone => 'ኢሜይል ወይም ስልክ';
+
+  @override
+  String get emailHint => 'you@example.com';
+
+  @override
+  String get forgotPassword => 'የይለፍ ቃል ረሱ?';
+
+  @override
+  String get or => 'ወይም';
+
+  @override
+  String get google => 'Google';
+
+  @override
+  String get apple => 'Apple';
+
+  @override
+  String get noAccount => 'መለያ የለዎትም?';
+
+  @override
+  String get signingIn => 'በመግባት ላይ…';
+
+  @override
+  String get ob1Title => 'ቤትዎ በእጅዎ';
+
+  @override
+  String get ob1Body => 'መብራቶችን፣ ሶኬቶችን እና መሣሪያዎችን ከየትኛውም ቦታ ይቆጣጠሩ።';
+
+  @override
+  String get ob2Title => 'ለኢትዮጵያ ቤቶች የተሠራ';
+
+  @override
+  String get ob2Intro => 'ዘመናዊ የቤት ቁጥጥር ለማካሄድ የሚያስፈልግዎ ሁሉ።';
+
+  @override
+  String get ob3Title2 => 'ዝግጁ ሲሆኑ';
+
+  @override
+  String get ob3Body2 => 'የመጀመሪያውን SHE መሣሪያዎን በሁለት ደቂቃ ውስጥ ያዘጋጁ።';
+
+  @override
+  String get featRemote => 'ከርቀት ቁጥጥር';
+
+  @override
+  String get featRemoteBody => 'ማንኛውንም ነገር ከስልክዎ ያብሩ ወይም ያጥፉ';
+
+  @override
+  String get featEnergyM => 'የኃይል ክትትል';
+
+  @override
+  String get featEnergyMBody => 'እያንዳንዱ መሣሪያ በብር ምን ያስከፍልዎታል ይመልከቱ';
+
+  @override
+  String get featAuto => 'ራስ-ሰር ተግባራት';
+
+  @override
+  String get featAutoBody => 'መርሃግብሮች፣ ትዕይንቶች እና ቀስቅሴዎች';
+
+  @override
+  String get navHome => 'መነሻ';
+
+  @override
+  String get navDevices => 'መሣሪያዎች';
+
+  @override
+  String get navAutomations => 'ራስ-ሰር';
+
+  @override
+  String get navEnergy => 'ኃይል';
+
+  @override
+  String get navMore => 'ተጨማሪ';
+
+  @override
+  String get moreTitle => 'ተጨማሪ';
+
+  @override
+  String get settingsSubtitle => 'ቋንቋ፣ ሰርቨር፣ አካውንት';
+
+  @override
+  String get notifications => 'ማሳወቂያዎች';
+
+  @override
+  String get unread => 'ያልተነበቡ';
+
+  @override
+  String get markAllRead => 'ሁሉንም እንደተነበበ ምልክት አድርግ';
+
+  @override
+  String get noNotifications => 'እስካሁን ማሳወቂያ የለም';
+
+  @override
+  String get activate => 'አስጀምር';
 }

@@ -866,7 +866,15 @@ esp_err_t mqtt_publish_params_local(she_node_t *node) {
     }
     char *payload = cJSON_PrintUnformatted(root);
 
-    esp_err_t err = mqtt_publish(topic, payload, 0, false);   /* QoS 0, not retained */
+    /* QoS 1, not retained.
+     *
+     * This carries the WALL-SWITCH feedback (input_monitor syncs a light's
+     * Power from the AC line and republishes here). At QoS 0 a dropped publish
+     * meant the cloud — and therefore the app's switch — kept showing the old
+     * state until the 60 s main-loop republish, which is the "the wall-switch
+     * update sometimes takes too long" symptom. QoS 1 makes the broker ack and
+     * retry, so a state change always lands. */
+    esp_err_t err = mqtt_publish(topic, payload, 1, false);
     free(topic);
     free(payload);
     cJSON_Delete(root);

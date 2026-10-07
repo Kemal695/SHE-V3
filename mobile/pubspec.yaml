@@ -92,3 +92,9 @@ flutter:
 
   # ---- Localization (V3-I18N) ----
   generate: true
+
+  # ---- Prototype image assets (V3-UI-REDESIGN) ----
+  # Ported from SHE-V3-prototype-download/public/img/. Used by the Splash and
+  # Onboarding screens; the app previously shipped no image assets at all.
+  assets:
+    - assets/img/

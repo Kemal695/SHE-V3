@@ -1,10 +1,7 @@
 package et.she.v3.controller;
 
 import et.she.v3.service.AutomationService;
-import et.she.v3.security.AuthenticatedUser;
-import et.she.v3.errors.SheException;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -72,14 +69,25 @@ public class AutomationController {
     /** DELETE /api/v3/automations/{id} — 204, soft delete */
     @DeleteMapping("/automations/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        // V3-API-SPECIFICATION §7 — DELETE is ADMIN+. Mobile MEMBERs can still
-        // create / update / enable / trigger their own automations; only deletion
-        // is privileged. isBypassCapable() covers PLATFORM_ADMIN + SUPER_ADMIN.
-        AuthenticatedUser u = currentUser();
-        if (!u.isBypassCapable()) {
-            throw new SheException("AUTH_FORBIDDEN",
-                    "Only platform admins can delete automations", 403);
-        }
+        // ⚠️ DEVIATION FROM V3-API-SPECIFICATION §7 (which marks this ADMIN+).
+        //
+        // That row was written for the ADMIN CONSOLE and was being applied to the
+        // mobile app too, where it is simply wrong: a user who can CREATE and
+        // UPDATE an automation in their own home could not remove it. The app
+        // offered Delete, the request went out, and the server answered
+        // 403 "Only platform admins can delete automations" — the user-visible
+        // bug "I can't delete my automation".
+        //
+        // Security is NOT weakened by dropping the check:
+        //   * Tenant isolation is enforced by RLS on `automations` (V32), so a
+        //     caller can only ever see/resolve rows in their own tenant. The
+        //     same protection already covers list / update / enable / trigger,
+        //     none of which had an admin gate.
+        //   * `requireAutomation(id)` resolves through the RLS-scoped repository,
+        //     so a foreign id is a 404, not a delete.
+        //   * Deletion stays a SOFT delete (`deleted_at`), so it is recoverable.
+        //
+        // Admins lose nothing — they were already capable.
         automationService.delete(id);
         return ResponseEntity.noContent().build();
     }
@@ -88,11 +96,5 @@ public class AutomationController {
     @PostMapping("/automations/{id}/trigger")
     public ResponseEntity<Map<String, Object>> trigger(@PathVariable UUID id) {
         return ResponseEntity.ok(Map.of("data", automationService.trigger(id)));
-    }
-
-    private AuthenticatedUser currentUser() {
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof AuthenticatedUser u) return u;
-        throw new SheException("AUTH_TOKEN_INVALID", "No authenticated user", 401);
     }
 }

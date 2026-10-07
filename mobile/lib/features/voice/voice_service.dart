@@ -213,9 +213,22 @@ class VoiceService {
 
   // ---- Listening ---------------------------------------------------------
 
+  /// [pushToTalk] changes the *stop* conditions to suit a hold-to-record button.
+  ///
+  /// Default (false) — "listen until the sentence finishes": stop 3 s after the
+  /// user goes quiet, and hard-stop at 12 s. Right for a tap-to-start button.
+  ///
+  /// [pushToTalk] (true) — the RELEASE is the stop. The silence timeout is
+  /// deliberately pushed out to 30 s and the cap to 30 s, because a 3 s
+  /// `pauseFor` cut the recording off *while the user was still holding the
+  /// button*: measured on the TECNO LE6, a 10 s hold produced
+  /// `onStartListening` → `onStopListening` exactly **2.99 s** later, i.e. the
+  /// user pauses to think for three seconds and the mic closes under their
+  /// finger. The 30 s values are only a backstop for a button that is stuck down.
   Future<void> startListening({
     required void Function(String transcript, bool isFinal) onResult,
     required void Function() onDone,
+    bool pushToTalk = false,
   }) async {
     await _speech.listen(
       onResult: (SpeechRecognitionResult r) {
@@ -230,10 +243,11 @@ class VoiceService {
       // top-level args is deprecated and warns on every build.
       listenOptions: SpeechListenOptions(
         localeId: _localeId,
-        listenFor: const Duration(seconds: 12),
+        listenFor: Duration(seconds: pushToTalk ? 30 : 12),
         // Stop after 3 s of silence so a finished sentence does not hold the
-        // mic open until listenFor expires.
-        pauseFor: const Duration(seconds: 3),
+        // mic open until listenFor expires — but NOT while a push-to-talk
+        // button is still held (see the doc comment above).
+        pauseFor: Duration(seconds: pushToTalk ? 30 : 3),
         // Partial results let the user watch the words land as they speak,
         // which is what makes a misheard command obvious immediately.
         partialResults: true,

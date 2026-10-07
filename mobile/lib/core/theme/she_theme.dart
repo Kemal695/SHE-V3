@@ -7,6 +7,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'v3_design_tokens.dart';
+
 class SheTheme {
   // ---- Brand colors (V3-DESIGN-SYSTEM §2) ----
   static const Color deepNavy = Color(0xFF0B1D37);          // background
@@ -18,6 +20,17 @@ class SheTheme {
   static const Color error = Color(0xFFFF5252);
   static const Color success = Color(0xFF4CAF50);
   static const Color warning = Color(0xFFFFC107);
+
+  // ---- Prototype palette (SHE-V3 UI/UX redesign) ----
+  // Mirrors V3Colors so Material-level widgets (snackbars, dialog themes, the
+  // scaffold) land on the same values the hand-built screens use. Without this
+  // the redesign's #42D392 would sit next to Material's #4CAF50.
+  static const Color raisedNavy = V3Colors.surface2;
+  static const Color nightNavy = V3Colors.night;
+  static const Color skyTint = V3Colors.sky;
+  static const Color successGreen = V3Colors.successAlt;
+  static const Color warningAmber = V3Colors.warningAlt;
+  static const Color errorRose = V3Colors.errorAlt;
 
   // ---- Spacing ----
   static const double radiusLg = 16.0;
@@ -70,6 +83,10 @@ class SheTheme {
           style: ElevatedButton.styleFrom(
             backgroundColor: brightSkyBlue,
             foregroundColor: Colors.white,
+            // A disabled ElevatedButton must not look live — see app.dart for
+            // the full explanation.
+            disabledBackgroundColor: brightSkyBlue.withValues(alpha: 0.18),
+            disabledForegroundColor: Colors.white.withValues(alpha: 0.5),
             minimumSize: const Size(double.infinity, 48),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(radiusMd),
@@ -106,6 +123,47 @@ class SheTheme {
               states.contains(WidgetState.selected) ? brightSkyBlue : textMuted),
           trackColor: WidgetStateProperty.resolveWith((states) =>
               states.contains(WidgetState.selected) ? brightSkyBlue.withValues(alpha: 0.3) : textMuted.withValues(alpha: 0.2)),
+        ),
+        // ---- Prototype parity (SHE-V3 UI/UX redesign) ----
+        // Snackbars in the prototype are a raised navy panel with a hairline
+        // edge and a colour dot, not a flat Material pill. Matching that here
+        // means the voice button's SnackBar feedback (voice_hold_button.dart)
+        // and the scene-activation toasts land on the redesign automatically.
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: raisedNavy,
+          contentTextStyle: const TextStyle(
+            color: V3Colors.ink,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+          behavior: SnackBarBehavior.floating,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: V3Colors.borderStrong, width: 1),
+          ),
+        ),
+        // Bottom sheets match SHEBottomSheet: rounded top, raised navy, hairline.
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: V3Colors.surface2,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: V3Colors.surface2,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(V3Radius.xl),
+            side: const BorderSide(color: V3Colors.borderStrong, width: 1),
+          ),
+        ),
+        progressIndicatorTheme: const ProgressIndicatorThemeData(
+          color: brightSkyBlue,
+          linearTrackColor: V3Colors.fillStrong,
         ),
       );
 }

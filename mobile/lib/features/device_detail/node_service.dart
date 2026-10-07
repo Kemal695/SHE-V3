@@ -157,24 +157,49 @@ class NodeService {
     return List<Map<String, dynamic>>.from(response.data['data']);
   }
 
-  /// POST /api/v3/homes/{homeId}/device-groups — {name, device_ids[]}
+  /// POST /api/v3/homes/{homeId}/device-groups — {name, device_ids[], icon?, image?}
+  ///
+  /// `icon` / `image` are short asset keys (migration V37): the icon names a
+  /// bundled glyph for the card, the image names a bundled photo for the detail
+  /// hero. Both are optional — omitting them leaves the group to derive an icon
+  /// from its members and show no hero photo.
   Future<Map<String, dynamic>> createDeviceGroup(
-      String homeId, String name, List<String> deviceIds) async {
+    String homeId,
+    String name,
+    List<String> deviceIds, {
+    String? icon,
+    String? image,
+  }) async {
     final response = await _dio.post(
       ApiConstants.homeDeviceGroups(homeId),
-      data: {'name': name, 'device_ids': deviceIds},
+      data: {
+        'name': name,
+        'device_ids': deviceIds,
+        if (icon != null) 'icon': icon,
+        if (image != null) 'image': image,
+      },
     );
     return response.data['data'];
   }
 
-  /// PATCH /api/v3/device-groups/{id} — {name?, device_ids?}
+  /// PATCH /api/v3/device-groups/{id} — {name?, device_ids?, icon?, image?}
+  ///
+  /// Only the keys you pass are sent, and the backend only overwrites what it
+  /// receives — so a rename alone leaves a previously chosen icon/image intact.
   Future<Map<String, dynamic>> updateDeviceGroup(
-      String groupId, String? name, List<String>? deviceIds) async {
+    String groupId,
+    String? name,
+    List<String>? deviceIds, {
+    String? icon,
+    String? image,
+  }) async {
     final response = await _dio.patch(
       ApiConstants.deviceGroup(groupId),
       data: {
         if (name != null) 'name': name,
         if (deviceIds != null) 'device_ids': deviceIds,
+        if (icon != null) 'icon': icon,
+        if (image != null) 'image': image,
       },
     );
     return response.data['data'];

@@ -115,11 +115,11 @@ class _AutomationEditorDialogState
         ? 'At $_timeLabel ${_repeatLabel}'.trim()
         : _trigger == AutomationTriggerType.manual
             ? 'When you tap Run'
-            : 'When ${_sourceDevice?.deviceName ?? 'a device'} changes';
+            : 'When ${_sourceDevice?.shownName ?? 'a device'} changes';
 
     final action = _actionDevice == null
         ? 'do nothing'
-        : 'turn ${_actionDevice!.deviceName} ${_actionPower ? 'on' : 'off'}';
+        : 'turn ${_actionDevice!.shownName} ${_actionPower ? 'on' : 'off'}';
 
     return '$when → $action';
   }
@@ -151,11 +151,12 @@ class _AutomationEditorDialogState
           await ref.read(homeDevicesProvider(widget.homeId).future);
       if (!mounted || devices.isEmpty) return;
       final e = widget.existing;
+      final sourceId = e?.trigger['node_device_id'] as String?;
       final sourceName = e?.trigger['device_name'] as String?;
-      final actionName = e?.rules
-          .where((r) => r.type == 'WRITE_PARAM')
-          .map((r) => r.config['device_name'] as String?)
-          .firstOrNull;
+      final actionCfg =
+          e?.rules.where((r) => r.type == 'WRITE_PARAM').firstOrNull;
+      final actionId = actionCfg?.config['node_device_id'] as String?;
+      final actionName = actionCfg?.config['device_name'] as String?;
       setState(() {
         // Prefer a controllable switch for the default action — Diagnostics/OTA
         // make no sense to "switch" and confusingly the backend often lists them
@@ -164,8 +165,8 @@ class _AutomationEditorDialogState
           (d) => d.isSwitch,
           orElse: () => devices.first,
         );
-        _sourceDevice = _match(devices, sourceName) ?? firstSwitch;
-        _actionDevice = _match(devices, actionName) ?? firstSwitch;
+        _sourceDevice = _match(devices, sourceId, sourceName) ?? firstSwitch;
+        _actionDevice = _match(devices, actionId, actionName) ?? firstSwitch;
         final cfg =
             e?.rules.where((r) => r.type == 'WRITE_PARAM').firstOrNull;
         final params = (cfg?.config['params'] as Map? ?? const {});
@@ -176,7 +177,18 @@ class _AutomationEditorDialogState
     }
   }
 
-  SceneDeviceOption? _match(List<SceneDeviceOption> devices, String? name) {
+  /// Resolve a stored device reference to a live device.
+  ///
+  /// Prefers the stable `node_device_id`, so a device that has since been
+  /// RENAMED still resolves (and the editor shows its current name). Falls back
+  /// to the legacy stored name for automations saved before ids were recorded.
+  SceneDeviceOption? _match(
+      List<SceneDeviceOption> devices, String? id, String? name) {
+    if (id != null && id.isNotEmpty) {
+      for (final d in devices) {
+        if (d.deviceId == id) return d;
+      }
+    }
     if (name == null) return null;
     for (final d in devices) {
       if (d.deviceName == name) return d;
@@ -227,6 +239,10 @@ class _AutomationEditorDialogState
           'type': 'NODE_STATE',
           'node_id': _sourceDevice?.nodeId ?? '',
           'device_name': _sourceDevice?.deviceName ?? '',
+          // Stable id — the backend prefers it, so a later rename cannot orphan
+          // this trigger (the bug where an automation kept the OLD device name).
+          if ((_sourceDevice?.deviceId ?? '').isNotEmpty)
+            'node_device_id': _sourceDevice!.deviceId,
           'param_name': _paramName,
           'comparator': _comparator,
           'value': _triggerValue,
@@ -240,6 +256,7 @@ class _AutomationEditorDialogState
         AutomationActionDraft(
           nodeId: _actionDevice!.nodeId,
           deviceName: _actionDevice!.deviceName,
+          nodeDeviceId: _actionDevice!.deviceId,
           params: {'Power': _actionPower},
         ),
       );
@@ -546,7 +563,14 @@ class _AutomationEditorDialogState
           ),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: V3Colors.primary),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: V3Colors.primary,
+            // See app.dart: a local backgroundColor also overrides the disabled
+            // colours, so a disabled button would still look live.
+            disabledBackgroundColor: V3Colors.primary.withValues(alpha: 0.18),
+            disabledForegroundColor:
+                V3Colors.textSecondary.withValues(alpha: 0.5),
+          ),
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
