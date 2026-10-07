@@ -1,0 +1,51 @@
+# =============================================================================
+# SHE V3 — Alertmanager config (PagerDuty routing)
+# =============================================================================
+# V3-OPS-RUNBOOK §3. SEV-1 → on-call + backup + Lead. SEV-2 → on-call. SEV-3 → Slack.
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+
+# ---- PagerDuty routing ----
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+  receiver: 'slack'
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: 'pagerduty-sev1'
+      group_wait: 0s
+      repeat_interval: 5m
+    - matchers: ['severity="warning"']
+      receiver: 'pagerduty-sev2'
+      group_wait: 30s
+      repeat_interval: 30m
+    - matchers: ['severity="info"']
+      receiver: 'slack'
+      group_wait: 5m
+
+receivers:
+  - name: 'pagerduty-sev1'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SEV1_KEY}'
+        description: '{{ .CommonLabels.alert }}'
+        severity: critical
+        send_resolved: true
+
+  - name: 'pagerduty-sev2'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SEV2_KEY}'
+        description: '{{ .CommonLabels.alert }}'
+        severity: warning
+        send_resolved: true
+
+  - name: 'slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#engineering-help'
+        title: '[{{ .Status }}] {{ .CommonLabels.alert }}'
+        text: '{{ .CommonAnnotations.summary }}'
+        send_resolved: true

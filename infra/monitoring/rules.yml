@@ -1,0 +1,110 @@
+# =============================================================================
+# SHE V3 — Prometheus alert rules
+# =============================================================================
+# V3-OPS-RUNBOOK §3.4 — 9 alert thresholds.
+# =============================================================================
+
+groups:
+  - name: she_api
+    rules:
+      # API 5xx error rate > 1% sustained 5 min → SEV-2
+      - alert: ApiHighErrorRate
+        expr: |
+          rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+          / rate(http_server_requests_seconds_count[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 5xx error rate > 1% (SEV-2)"
+          description: "5xx errors are {{ $value | humanizePercentage }} of total requests"
+
+      # API down (0 healthy backends) → SEV-1
+      - alert: ApiDown
+        expr: up{job="spring_boot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API DOWN — no healthy backends (SEV-1)"
+          description: "All Spring Boot instances are down"
+
+  - name: she_mqtt
+    rules:
+      # MQTT broker down — any EMQX node down 2 min → SEV-1
+      - alert: EmqxNodeDown
+        expr: up{job="emqx"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EMQX node {{ $labels.instance }} down (SEV-1)"
+          description: "MQTT broker node is unreachable"
+
+  - name: she_database
+    rules:
+      # Postgres connection pool exhausted > 90% → SEV-2
+      - alert: PostgresPoolExhausted
+        expr: |
+          hikaricp_connections_active / hikaricp_connections_max > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres connection pool > 90% (SEV-2)"
+
+      # Postgres replication lag > 60s → SEV-2
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres replication lag > 60s (SEV-2)"
+
+  - name: she_cert
+    rules:
+      # Cert expiry < 14 days → SEV-3
+      - alert: CertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 1209600
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Cert expiring in < 14 days (SEV-3)"
+          description: "{{ $labels.instance }} cert expires soon"
+
+  - name: she_ota
+    rules:
+      # OTA failure rate > 5% in a batch → SEV-2
+      - alert: OtaFailureRateHigh
+        expr: |
+          sum(rate(ota_failures_total[1h]))
+          / sum(rate(ota_attempts_total[1h])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTA failure rate > 5% (SEV-2)"
+
+  - name: she_disk
+    rules:
+      # Disk usage > 80% → SEV-3
+      - alert: DiskUsageHigh
+        expr: 1 - node_filesystem_avail_bytes / node_filesystem_size_bytes > 0.8
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Disk usage > 80% on {{ $labels.instance }} (SEV-3)"
+
+  - name: she_backup
+    rules:
+      # Backup failure → SEV-2
+      - alert: BackupFailed
+        expr: she_backup_status == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Daily backup job failed (SEV-2)"

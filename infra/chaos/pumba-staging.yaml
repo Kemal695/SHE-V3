@@ -1,0 +1,32 @@
+# =============================================================================
+# SHE V3 — Pumba chaos test config (nightly on staging)
+# =============================================================================
+# V3-INTEGRATION-TEST-PLAN §4. Runs nightly on staging.
+# =============================================================================
+
+# Kill backend-1 — Nginx routes to backend-2 within 10s; 0 user-visible errors
+- container: backend-1
+  action: kill
+  schedule: "0 2 * * *"
+
+# Kill emqx-2 — cluster rebalances; devices reconnect to emqx-1/3 within 5 min
+- container: emqx-2
+  action: kill
+  schedule: "30 2 * * *"
+
+# Kill postgres — API returns 503; EMQX continues (cached ACL); recover on restart
+- container: postgres
+  action: kill
+  schedule: "0 3 * * 6"   # Saturday only — more disruptive
+
+# Kill redis-1 — graceful degradation: JWT falls back to DB; rate limiting disabled
+- container: redis-1
+  action: kill
+  schedule: "30 3 * * *"
+
+# Network delay 500ms to app-1 — simulates network partition
+- container: backend-1
+  action: netem-delay
+  delay: 500
+  schedule: "0 4 * * *"
+  duration: 60s

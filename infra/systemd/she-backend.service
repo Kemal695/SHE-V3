@@ -1,0 +1,58 @@
+# =============================================================================
+# SHE V3 — systemd unit for Spring Boot backend
+# =============================================================================
+# V3-CONFIGURATION §8.2, V3-SECURITY-MODEL §8.2
+# Deploy to /etc/systemd/system/she-backend.service on app-1 + app-2.
+# =============================================================================
+
+[Unit]
+Description=SHE V3 Spring Boot Backend
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=she-app
+Group=she-app
+WorkingDirectory=/opt/she-backend
+
+# Environment file (mode 0400 — contains secrets)
+EnvironmentFile=/etc/she/env/spring-backend.env
+
+# JVM flags (V3-CONFIGURATION §2.1)
+ExecStart=/usr/bin/java \
+  -XX:MaxRAMPercentage=75 \
+  -XX:+UseG1GC \
+  -XX:+ExitOnOutOfMemoryError \
+  -Djava.security.egd=file:/dev/./urandom \
+  -jar /opt/she-backend/she-backend.jar
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/she /var/cache/she /etc/she/certs
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Standard output → journald (collected by Promtail → Loki)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=she-backend
+
+[Install]
+WantedBy=multi-user.target

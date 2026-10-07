@@ -1,0 +1,40 @@
+# =============================================================================
+# SHE V3 — systemd unit for step-ca
+# =============================================================================
+# V3-CONFIGURATION §3, V3-SECURITY-MODEL §3.1
+# Deploy on db-1 (not Docker — runs as systemd service).
+# =============================================================================
+
+[Unit]
+Description=SHE V3 step-ca Certificate Authority
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=step
+Group=step
+WorkingDirectory=/home/step
+
+# Password file for provisioner (mode 0400)
+Environment=STEPPATH=/home/step
+ExecStart=/usr/bin/step-ca /home/step/config/ca.json --password-file /etc/she/env/step-ca-password.txt
+
+Restart=on-failure
+RestartSec=10
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/step /var/log/step-ca
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=step-ca
+
+[Install]
+WantedBy=multi-user.target

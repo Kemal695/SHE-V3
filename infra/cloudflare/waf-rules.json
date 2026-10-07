@@ -1,0 +1,44 @@
+{
+  "rules": [
+    {
+      "name": "Allow Chapa webhook egress",
+      "expression": "(ip.src in {41.216.199.0/24, 196.188.124.0/24}) and (http.request.uri.path eq \"/api/v3/payments/webhook\")",
+      "action": "allow",
+      "priority": 1
+    },
+    {
+      "name": "Allow Google FCM egress (no inbound needed — push is outbound)",
+      "expression": "(ip.src in {35.191.0.0/16, 130.211.0.0/22}) and (http.request.uri.path eq \"/api/v3/internal/push/fcm-callback\")",
+      "action": "allow",
+      "priority": 1
+    },
+    {
+      "name": "Allow SHE office VPN (Addis Ababa) — P1-31",
+      "expression": "(ip.src in {197.156.78.42/32})",
+      "action": "allow",
+      "priority": 1
+    },
+    {
+      "name": "Block non-Ethiopian traffic — V3-ARCHITECTURE §10.1",
+      "expression": "(not ip.geoip.country in {\"ET\"})",
+      "action": "block",
+      "priority": 2
+    },
+    {
+      "name": "Rate limit failed logins — V3-SECURITY-MODEL §10.3",
+      "expression": "(http.request.uri.path eq \"/api/v3/auth/login\") and (http.response.code eq 401)",
+      "action": "rate_limit",
+      "characteristics": ["ip.src"],
+      "period": 300,
+      "requests_per_period": 100,
+      "mitigation_timeout": 3600,
+      "priority": 3
+    },
+    {
+      "name": "OWASP managed ruleset — V3-SECURITY-MODEL §10",
+      "expression": "(http.request.uri.path starts with \"/api/\")",
+      "action": "managed_challenge",
+      "priority": 4
+    }
+  ]
+}

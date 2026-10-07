@@ -1,0 +1,105 @@
+# =============================================================================
+# SHE V3 — Prometheus scrape config
+# =============================================================================
+# V3-OPS-RUNBOOK §3, V3-ARCHITECTURE §13.
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'she-prod'
+    environment: 'prod'
+
+rule_files:
+  - 'rules.yml'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # ---- Spring Boot (2 instances) ----
+  - job_name: 'spring_boot'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['app-1:9090', 'app-2:9090']
+        labels:
+          service: 'backend'
+
+  # ---- EMQX (3 nodes) ----
+  - job_name: 'emqx'
+    static_configs:
+      - targets: ['emqx-1:8888', 'emqx-2:8888', 'emqx-3:8888']
+        labels:
+          service: 'mqtt'
+
+  # ---- Postgres ----
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'database'
+
+  # ---- Redis ----
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'cache'
+
+  # ---- MinIO ----
+  - job_name: 'minio'
+    metrics_path: '/minio/v2/metrics/cluster'
+    static_configs:
+      - targets: ['minio:9000']
+        labels:
+          service: 'storage'
+
+  # ---- Nginx ----
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['edge-1:9113']
+        labels:
+          service: 'proxy'
+
+  # ---- Node exporter (host metrics) ----
+  - job_name: 'node'
+    static_configs:
+      - targets: ['app-1:9100', 'app-2:9100', 'db-1:9100', 'mqtt-1:9100', 'mqtt-2:9100', 'mqtt-3:9100', 'storage-1:9100', 'monitor-1:9100']
+        labels:
+          service: 'host'
+
+  # ---- Blackbox (cert + uptime checks) ----
+  - job_name: 'blackbox_https'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://she.et/actuator/health
+          - https://api.she.et/actuator/health
+          - https://admin.she.et
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: 'blackbox_mqtt'
+    metrics_path: /probe
+    params:
+      module: [tls_connect]
+    static_configs:
+      - targets:
+          - mqtt.she.et:8883
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
