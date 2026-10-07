@@ -278,19 +278,37 @@ public class AutomationService {
             if (!"SCHEDULE".equalsIgnoreCase(t.path("type").asText())) continue;
             String cron = t.path("cron").asText(null);
 
-            // Bounded lookback: start from the last time we actually fired, but
-            // never further back than CATCHUP_WINDOW. Without this bound, a
-            // multi-day outage would replay a long queue of missed runs and
-            // hammer devices on restart.
-            Instant earliest = now.minus(CATCHUP_WINDOW);
-            Instant lastFired = a.getLastFiredAt();
-            Instant windowStart = (lastFired == null || lastFired.isBefore(earliest))
-                    ? earliest
-                    : lastFired;
+            // Where to start looking for a due time.
+            //
+            // NEVER-FIRED (lastFiredAt == null): only match the CURRENT minute, so
+            // the automation waits for its next scheduled time.
+            //
+            // 🔴 This used to open a 24-hour catch-up window here too, which meant a
+            // freshly created automation whose time had ALREADY PASSED today fired
+            // on the very next sweep — ~60 s after being saved. Observed on
+            // 2026-10-07: an automation set to 00:28 was created at 22:40 and fired
+            // at 22:42, i.e. ~22 hours early, and the user reasonably reported "it
+            // runs whenever, not at my time". The catch-up window exists to recover
+            // runs missed while the SERVER WAS DOWN; a brand-new automation has no
+            // downtime to recover, so it must not use it.
+            //
+            // ALREADY-FIRED: keep the bounded lookback, so a missed 06:00 during an
+            // outage is not lost forever. Without the bound, a multi-day outage
+            // would replay a long queue of missed runs and hammer devices on restart.
+            final Instant lastFired = a.getLastFiredAt();
+            final LocalDateTime searchFrom;
+            if (lastFired == null) {
+                // next() is strictly-after, so starting one minute back lets the
+                // current minute itself match.
+                searchFrom = nowMinute.minusMinutes(1);
+            } else {
+                final Instant earliest = now.minus(CATCHUP_WINDOW);
+                final Instant windowStart = lastFired.isBefore(earliest) ? earliest : lastFired;
+                searchFrom =
+                        LocalDateTime.ofInstant(windowStart, zone).truncatedTo(ChronoUnit.MINUTES);
+            }
 
-            LocalDateTime due = latestFireAtOrBefore(cron,
-                    LocalDateTime.ofInstant(windowStart, zone).truncatedTo(ChronoUnit.MINUTES),
-                    nowMinute);
+            LocalDateTime due = latestFireAtOrBefore(cron, searchFrom, nowMinute);
             if (due == null) continue; // no scheduled time fell in the window
 
             // Already fired for this scheduled time (or a later one)? Then the
