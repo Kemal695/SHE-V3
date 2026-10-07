@@ -13,10 +13,14 @@ import et.she.v3.repository.AutomationRuleRepository;
 import et.she.v3.repository.NodeDeviceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -62,17 +66,32 @@ public class AutomationService {
     private final SceneService sceneService;
     private final ObjectMapper objectMapper;
 
+    private final JdbcTemplate jdbcTemplate;
+
+    /**
+     * Used ONLY to persist {@code last_fired_at} in its own transaction — see
+     * {@link #markFired}. Modelled on AuditService, which writes with
+     * REQUIRES_NEW for the same reason: the record must survive regardless of
+     * what happens to the work it describes.
+     */
+    private final TransactionTemplate markFiredTx;
+
     public AutomationService(AutomationRepository automationRepository,
                              AutomationRuleRepository ruleRepository,
                              NodeDeviceRepository nodeDeviceRepository,
                              NodeService nodeService,
                              SceneService sceneService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             JdbcTemplate jdbcTemplate,
+                             PlatformTransactionManager txManager) {
         this.automationRepository = automationRepository;
         this.ruleRepository = ruleRepository;
         this.nodeDeviceRepository = nodeDeviceRepository;
         this.nodeService = nodeService;
         this.sceneService = sceneService;
+        this.jdbcTemplate = jdbcTemplate;
+        this.markFiredTx = new TransactionTemplate(txManager);
+        this.markFiredTx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
         this.objectMapper = objectMapper;
     }
 
@@ -268,9 +287,14 @@ public class AutomationService {
                 if (a.getLastFiredAt() != null
                         && !a.getLastFiredAt().isBefore(due.atZone(zone).toInstant())) continue;
                 log.info("Automation {} fired by SOLAR {} ({})", a.getId(), event, due);
-                execute(a);
-                a.setLastFiredAt(now);
-                automationRepository.save(a);
+                // Same ordering rule as the SCHEDULE branch — record first, then
+                // act, so a throwing action cannot cause an infinite re-fire.
+                markFired(a.getId(), now);
+                try {
+                    execute(a);
+                } catch (Exception e) {
+                    log.error("Automation {} execution failed: {}", a.getId(), e.getMessage());
+                }
                 fired++;
                 continue;
             }
@@ -318,12 +342,64 @@ public class AutomationService {
             boolean isCatchUp = due.isBefore(nowMinute);
             log.info("Automation {} fired by SCHEDULE cron={} due={}{}",
                     a.getId(), cron, due, isCatchUp ? " (catch-up after downtime)" : "");
-            execute(a);
-            a.setLastFiredAt(now);
-            automationRepository.save(a);
+
+            // 🔴 ORDER MATTERS. Record the fire FIRST, in its own transaction, and
+            // only then run the actions.
+            //
+            // This used to be execute() -> setLastFiredAt() -> save(), all in the
+            // sweep's single transaction. Anything that threw during execution
+            // marked that transaction rollback-only, so the marker was LOST and the
+            // automation re-fired on EVERY subsequent 60 s sweep — indefinitely.
+            // Observed 2026-10-08: a SCHEDULE automation re-wrote its devices every
+            // minute from 01:14 onward while last_fired_at stayed frozen at the
+            // previous day's value. The audit rows survived because AuditService
+            // writes with REQUIRES_NEW, and that asymmetry is what exposed it.
+            //
+            // The marker means "this scheduled run has been attempted". It must not
+            // depend on whether the device write succeeded — a failed action is
+            // still reported via the log and the audit trail, but it must never
+            // cause an infinite re-fire loop.
+            markFired(a.getId(), now);
+
+            try {
+                execute(a);
+            } catch (Exception e) {
+                // One misbehaving automation must not abort the rest of the sweep.
+                log.error("Automation {} execution failed: {}", a.getId(), e.getMessage());
+            }
             fired++;
         }
         return fired;
+    }
+
+    /**
+     * Persist {@code last_fired_at} in its OWN transaction (REQUIRES_NEW).
+     *
+     * Raw JDBC rather than {@code automationRepository.save(a)}: the entity was
+     * loaded in the caller's persistence context, and re-saving it from a nested
+     * transaction invites exactly the detachment problems this method exists to
+     * avoid. A targeted UPDATE is unambiguous.
+     *
+     * The RLS GUC has to be set again here — {@code set_config(..., is_local=true)}
+     * is scoped to a single transaction, and this is a different one.
+     */
+    private void markFired(UUID automationId, Instant when) {
+        try {
+            markFiredTx.executeWithoutResult(status -> {
+                jdbcTemplate.execute("SELECT set_config('app.is_platform_admin','on',true)");
+                int n = jdbcTemplate.update(
+                        "UPDATE automations SET last_fired_at = ? WHERE id = ?",
+                        Timestamp.from(when), automationId);
+                if (n == 0) {
+                    log.error("last_fired_at not recorded for automation {} — 0 rows updated "
+                            + "(RLS or missing row). It may fire again on the next sweep.",
+                            automationId);
+                }
+            });
+        } catch (Exception e) {
+            log.error("Could not record last_fired_at for automation {}: {}",
+                    automationId, e.getMessage());
+        }
     }
 
     /**
