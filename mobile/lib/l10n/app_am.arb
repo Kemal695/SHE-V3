@@ -170,5 +170,108 @@
   "unread": "ያልተነበቡ",
   "markAllRead": "ሁሉንም እንደተነበበ ምልክት አድርግ",
   "noNotifications": "እስካሁን ማሳወቂያ የለም",
-  "activate": "አስጀምር"
+  "activate": "አስጀምር",
+
+  "otaTitle": "የሶፍትዌር ዝማኔ",
+  "otaSubtitle": "የመሣሪያ ዝማኔዎችን ይፈትሹ እና ይጫኑ",
+  "otaDevices": "መሣሪያዎች",
+  "otaUpdating": "ሶፍትዌር በማዘመን ላይ",
+  "@otaUpdating": {
+    "description": "Headline shown while a rollout is in progress"
+  },
+  "otaRollingOut": "ስሪት {version} በመሰራጨት ላይ ነው። መሣሪያዎቹን ኃይል ላይ ያቆዩዋቸው።",
+  "@otaRollingOut": {
+    "description": "Body shown while a rollout is in progress",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaUpToDate": "ወቅታዊ ነው",
+  "otaAllRunning": "ሁሉም መሣሪያዎች {version} እየሠሩ ናቸው።",
+  "@otaAllRunning": {
+    "description": "Body shown when a rollout completed",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaNoneAvailable": "ምንም የሶፍትዌር ዝማኔዎች የሉም።",
+  "otaReadyToInstall": "ስሪት {version} ለመጫን ዝግጁ ነው።",
+  "@otaReadyToInstall": {
+    "description": "Body shown when a batch exists but has not been started",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaRolloutIncomplete": "ዝማኔው አልተጠናቀቀም።",
+  "otaAdminHint": "አስተዳዳሪ ከአስተዳዳሪ ኮንሶል አዲስ ዝማኔ መጀመር ይችላል።",
+  "otaNoDevicesTitle": "ምንም መሣሪያዎች የሉም",
+  "otaNoDevicesBody": "መሣሪያዎች ለዚህ ቤት ሲዘግቡ እዚህ ይታያሉ።",
+  "otaDeviceFallback": "መሣሪያ",
+  "otaUnknown": "ያልታወቀ",
+  "otaFirmware": "ሶፍትዌር {version}",
+  "@otaFirmware": {
+    "description": "Per-device line showing the installed firmware version",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaAbort": "ዝማኔውን አቁም",
+  "otaInstall": "{version} ጫን",
+  "@otaInstall": {
+    "description": "Primary button that starts a rollout",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaStatusUpdated": "ተዘምኗል",
+  "otaStatusUpdating": "በማዘመን ላይ",
+  "otaStatusWaitingApproval": "ፍቃድ በመጠበቅ ላይ",
+  "otaStatusApproved": "ተፈቅዷል",
+  "otaStatusDeclined": "ተቀባይነት አላገኘም",
+  "otaStatusFailed": "አልተሳካም",
+  "otaStatusUpToDate": "ወቅታዊ ነው",
+  "otaUpdateFailed": "ዝማኔው አልተሳካም",
+  "otaUpdateAborted": "ዝማኔው ተቋርጧል",
+  "gateTitle": "የጋት ቁራጭ",
+  "gateSubtitle": "ጋቱን ይክፈቱ፣ ይዝጉ ወይም ያረፉ",
+  "gateOpen": "ክፈት",
+  "gateClose": "ግፊት",
+  "gateStop": "ማስቆሚያ",
+  "gateStatusOpen": "ክፈት",
+  "gateStatusClosed": "ዝግ",
+  "gateStatusStopped": "ቆሟል",
+  "gateStatusIdle": "የለም",
+  "gateStatusUnknown": "ያልታወቀ",
+  "gateStatusOpening": "በመክፈት ላይ…",
+  "gateStatusClosing": "በመዝጋት ላይ…",
+  "gateStatusStopping": "በመከለዕ ላይ…",
+  "gateCurrentState": "የአሁኑ ሁኔታ",
+  "gateCommandQueued": "ትእዛዝ ተልኳል",
+  "gateOffline": "{name} ከመስመር ውጪ ነው — ትእዛዝ አልተላከም።",
+  "gateCommandError": "የጋት ትእዛዝ አልተሳካም: {error}",
+  "offlineTitle": "ከመስመር ውጪ ነዎት",
+  "offlineBody": "የተቀመጠ መረጃ ይታያል። በራስ-ሰር እንደገና እንገናኛለን።",
+  "offlineRetry": "እንደገና ሞክር",
+  "offlineDismiss": "ዝጋ",
+  "queuedTitle": "በተራ የተቀመጡ ትእዛዞች",
+  "queuedSubtitle": "እንደገና ሲገናኙ ለመላክ በመጠበቅ ላይ",
+  "queuedEmptyTitle": "በተራ የተቀመጠ የለም",
+  "queuedEmptyBody": "ከመስመር ውጪ ሲሆኑ የሚልኩት ትእዛዝ እዚህ ተጠብቆ በራስ-ሰር ይላካል።",
+  "queuedSendAll": "ሁሉንም ላክ",
+  "queuedClear": "አጽዳ"
 }

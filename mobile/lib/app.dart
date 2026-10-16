@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/theme/v3_design_tokens.dart';
+import 'core/widgets/offline_banner.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
 
@@ -47,7 +48,9 @@ class SheApp extends ConsumerWidget {
       builder: (context, child) {
         return ScrollConfiguration(
           behavior: _NoGlowScrollBehavior(),
-          child: child!,
+          // Screen 22 (Offline state): floats the amber "You're offline" banner
+          // above every route — tabs and full-screen detail pages alike.
+          child: OfflineBannerHost(child: child!),
         );
       },
     );

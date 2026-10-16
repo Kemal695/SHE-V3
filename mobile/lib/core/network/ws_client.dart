@@ -60,6 +60,10 @@ class WsClient {
   WebSocketChannel? _channel;
   bool _isConnected = false;
   bool _disposed = false;
+
+  /// True once the socket has connected at least once this session. Used to tell
+  /// a cold-start connect from a RECONNECT (see the invalidation in [connect]).
+  bool _hadConnection = false;
   int _generation = 0;
 
   /// Single place that mutates [_isConnected] so the reactive mirror
@@ -207,6 +211,19 @@ class WsClient {
     _reconnectDelay = 1;
     _startPingTimer();
 
+    // A successful (re)connect means the backend is reachable again. A provider
+    // that ERRORED while the link was down stays errored until something
+    // invalidates it — Riverpod does NOT auto-retry — which is why the Devices
+    // tab kept showing "Cannot reach SHE cloud" long after the app was back
+    // online. Re-run the home + device lists so those screens recover by
+    // themselves. Skipped on the very first connect: nothing is errored yet and
+    // the screens fetch on mount anyway, so this avoids a duplicate request.
+    if (_hadConnection) {
+      ref.invalidate(homeNodesProvider);
+      ref.invalidate(nodeDevicesProvider);
+    }
+    _hadConnection = true;
+
     // Auto-subscribe to the active home so the socket actually receives
     // node.state / energy.update / node.presence events (previously the app
     // connected but never subscribed, so live updates never arrived).
@@ -245,35 +262,37 @@ class WsClient {
         case 'node.state':
           // THE live-state path. The device reported a param (params/local).
           if (nodeId != null) {
-            // Apply the reported Power IMMEDIATELY: the payload already carries
-            // it, so the switch flips with no REST round-trip. Waiting for the
-            // refetch below is what made a wall-switch change take seconds to
-            // show up in the app.
+            // Apply the reported Power IMMEDIATELY — this is in-memory only, so
+            // it costs no request and must NOT be throttled. The switch flips
+            // with no REST round-trip.
             final paramName = data['paramName'] as String?;
             final value = data['value'];
             if (deviceId != null && paramName == 'Power' && value is bool) {
               ref.read(livePowerProvider.notifier).set(deviceId, value);
             }
-            ref.invalidate(nodeDevicesProvider(nodeId));
-            if (deviceId != null) {
-              ref.invalidate(nodeDeviceParamsProvider('$nodeId|$deviceId'));
+            // REST refetches ARE throttled (see [_mayInvalidate]): a chatty board
+            // would otherwise fan every event out into several requests and trip
+            // the backend rate limiter.
+            if (_mayInvalidate()) {
+              ref.invalidate(nodeDevicesProvider(nodeId));
+              if (deviceId != null) {
+                ref.invalidate(nodeDeviceParamsProvider('$nodeId|$deviceId'));
+              }
+              // Home-level lists: the Devices tab renders from homeNodesProvider
+              // (via its flat provider) and the dashboard grid reads it directly.
+              _invalidateHome(nodeId);
             }
-            // Home-level lists: the Devices tab renders from homeNodesProvider
-            // (via its flat provider) and the dashboard bento grid reads it
-            // directly. Without this the physical device's ACK updated only the
-            // detail screen, so the list switches never reflected real state.
-            _invalidateHome(nodeId);
           }
           break;
         case 'energy.update':
-          if (nodeId != null) {
+          if (nodeId != null && _mayInvalidate()) {
             ref.invalidate(nodeDevicesProvider(nodeId));
             _invalidateHome(nodeId);
           }
           break;
         case 'node.presence':
         case 'node.telemetry':
-          if (nodeId != null) {
+          if (nodeId != null && _mayInvalidate()) {
             ref.invalidate(nodeDetailProvider(nodeId));
             ref.invalidate(nodeDevicesProvider(nodeId));
             _invalidateHome(nodeId);
@@ -290,6 +309,30 @@ class WsClient {
     } catch (e) {
       debugPrint('WS message parse error: $e');
     }
+  }
+
+  /// Throttle for WS-driven REST invalidation.
+  ///
+  /// A burst of WS events (a 24-relay board reporting every channel, plus energy
+  /// ticks and telemetry) used to fan out into one `listNodesByHome` + one
+  /// `listDevices` PER NODE **per event**. At a high event rate that became
+  /// hundreds of requests per second, which tripped the backend's rate limiter
+  /// (429) — and that is exactly what made the Devices tab look "broken". One
+  /// refetch per window keeps the UI live without the storm; the reported Power
+  /// is still applied instantly via [livePowerProvider], which needs no request.
+  DateTime? _lastInvalidate;
+  static const Duration _invalidateThrottle = Duration(milliseconds: 1000);
+
+  /// Leading-edge throttle: allow the first invalidation immediately, then
+  /// swallow events until the window elapses.
+  bool _mayInvalidate() {
+    final now = DateTime.now();
+    if (_lastInvalidate != null &&
+        now.difference(_lastInvalidate!) < _invalidateThrottle) {
+      return false;
+    }
+    _lastInvalidate = now;
+    return true;
   }
 
   /// Invalidate the home-level node list so the Devices tab and the dashboard
@@ -331,6 +374,18 @@ class WsClient {
       // any drop/reconnect.
       connect(homeId: _subscribedHomeId);
     });
+  }
+
+  /// Immediately re-attempt the connection, resetting the backoff and preserving
+  /// the active home subscription. Used by the offline banner's Retry action so
+  /// the user does not have to wait out the exponential delay.
+  ///
+  /// [connect] bumps `_generation`, which invalidates any pending backoff timer
+  /// (its generation check drops it), so this cannot double-connect.
+  void reconnectNow() {
+    if (_disposed || _isConnected) return;
+    _reconnectDelay = 1;
+    connect(homeId: _subscribedHomeId);
   }
 
   void send(Map<String, dynamic> message) {

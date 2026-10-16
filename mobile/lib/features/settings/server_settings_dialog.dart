@@ -22,6 +22,10 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
       TextEditingController(text: ref.read(apiBaseUrlProvider));
   final wsController =
       TextEditingController(text: ref.read(wsBaseUrlProvider));
+  // Local-control PoP (V3-FIRMWARE §7) — enables offline control over Wi-Fi.
+  final popController = TextEditingController(text: SettingsStore.localPop);
+  // Optional board address, for when mDNS discovery is unavailable.
+  final hostController = TextEditingController(text: SettingsStore.localHost);
 
   return showDialog<void>(
     context: context,
@@ -66,6 +70,32 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                   ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: popController,
+                    decoration: const InputDecoration(
+                      labelText: 'Local control PoP (9-digit)',
+                      hintText: '123456789',
+                      helperText: 'On the device label. Lets the app control '
+                          'devices over Wi-Fi when the internet is down.',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    autocorrect: false,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: hostController,
+                    decoration: const InputDecoration(
+                      labelText: 'Board IP (optional)',
+                      hintText: '192.168.1.50',
+                      helperText: 'Only needed if the board is not '
+                          'auto-discovered (mDNS). Usually leave blank.',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                  ),
                   if (errorText != null) ...[
                     const SizedBox(height: 12),
                     Text(
@@ -80,6 +110,8 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
               TextButton(
                 onPressed: () async {
                   await SettingsStore.resetToDefaults();
+                  await SettingsStore.setLocalPop('');
+                  await SettingsStore.setLocalHost('');
                   ref.read(apiBaseUrlProvider.notifier).state =
                       SettingsStore.apiBaseUrl;
                   ref.read(wsBaseUrlProvider.notifier).state =
@@ -109,6 +141,8 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
 
                   await SettingsStore.setApiBaseUrl(api);
                   await SettingsStore.setWsBaseUrl(ws);
+                  await SettingsStore.setLocalPop(popController.text.trim());
+                  await SettingsStore.setLocalHost(hostController.text.trim());
                   ref.read(apiBaseUrlProvider.notifier).state = api;
                   ref.read(wsBaseUrlProvider.notifier).state = ws;
                   await reconnectWs(ref);

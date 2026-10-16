@@ -17,7 +17,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/ws_client.dart' show livePowerProvider;
+import '../../core/local/local_control_service.dart';
+import '../../core/network/active_home.dart';
+import '../../core/offline/device_snapshot.dart';
+import '../../core/network/ws_client.dart'
+    show livePowerProvider, wsConnectedProvider;
+import '../../core/offline/command_queue.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
@@ -51,6 +56,29 @@ class _DeviceRow {
     required this.isOn,
     required this.raw,
   });
+
+  /// Snapshot for the offline cache (see [_homeDevicesFlatProvider]). The raw
+  /// server map is kept so a cached row behaves exactly like a fresh one — the
+  /// toggle needs `raw['device_name']` to address the board over local control.
+  Map<String, dynamic> toJson() => {
+        'nodeId': nodeId,
+        'deviceId': deviceId,
+        'name': name,
+        'kind': kind,
+        'isOnline': isOnline,
+        'isOn': isOn,
+        'raw': raw,
+      };
+
+  factory _DeviceRow.fromJson(Map<String, dynamic> j) => _DeviceRow(
+        nodeId: j['nodeId']?.toString() ?? '',
+        deviceId: j['deviceId']?.toString() ?? '',
+        name: j['name']?.toString() ?? 'Device',
+        kind: j['kind']?.toString() ?? 'light',
+        isOnline: j['isOnline'] == true,
+        isOn: j['isOn'] == true,
+        raw: (j['raw'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
 }
 
 // NOTE (2026-10-06): the app-scoped optimistic power override that used to live
@@ -64,7 +92,34 @@ class _DeviceRow {
 /// (which is what makes a toggle on either screen show up on the other).
 final _homeDevicesFlatProvider =
     FutureProvider.family<List<_DeviceRow>, String>((ref, homeId) async {
-  final nodes = await ref.watch(homeNodesProvider(homeId).future);
+  // ---- Offline snapshot cache ----------------------------------------------
+  // The Devices tab is the ONLY place to reach an individual device, so it has
+  // to survive an outage: with no rows there is nothing to tap, which makes the
+  // local-control path unreachable exactly when it is needed. Without this an
+  // offline cold start showed "Cannot reach SHE cloud" and the banner's
+  // "Showing cached data" promise was simply untrue.
+  //
+  // The keys live in core/offline/device_snapshot.dart because the automation
+  // wizard's device picker reads the same snapshot.
+  List<_DeviceRow>? readCache() {
+    final cached = readDeviceSnapshot(homeId);
+    if (cached == null) return null;
+    final rows = <_DeviceRow>[];
+    for (final j in cached) {
+      rows.add(_DeviceRow.fromJson(j));
+    }
+    return rows.isEmpty ? null : rows;
+  }
+
+  List<Map<String, dynamic>> nodes;
+  try {
+    nodes = await ref.watch(homeNodesProvider(homeId).future);
+  } catch (_) {
+    final rows = readCache();
+    if (rows != null) return rows;
+    rethrow; // nothing cached: the error state is the honest answer
+  }
+
   final service = ref.read(nodeServiceProvider);
   final out = <_DeviceRow>[];
 
@@ -84,6 +139,13 @@ final _homeDevicesFlatProvider =
     for (final d in devices) {
       final deviceId = d['id']?.toString();
       if (deviceId == null) continue;
+
+      // Internal firmware services (the OTA service channel) are not user-facing
+      // devices. The detail screen already hides them (`!is_service`), but the
+      // flat list was the last place still rendering them as a toggleable "OTA"
+      // row — which is also what put "OTA · On" into the command queue.
+      if (d['is_service'] == true) continue;
+
       final params = (d['params'] as List<dynamic>? ?? const []);
       final power = params.cast<Map<String, dynamic>?>().firstWhere(
             (p) => p?['param_name'] == 'Power',
@@ -129,6 +191,20 @@ final _homeDevicesFlatProvider =
       ));
     }
   }
+
+  // An EMPTY result while the cloud is unreachable is not the truth. The usual
+  // cause is an unresolved home id, whose home legitimately contains nothing —
+  // and "No devices found" is a dead end: no rows to tap, so no local control,
+  // which is exactly what the snapshot exists to prevent.
+  if (out.isEmpty && !ref.read(wsConnectedProvider)) {
+    final rows = readCache();
+    if (rows != null) return rows;
+  }
+
+  // Persist the snapshot. writeDeviceSnapshot ignores an empty list, so an
+  // unresolved home id (or a genuinely empty home) can never wipe the last good
+  // one — and the automation wizard's device picker reads the same snapshot.
+  await writeDeviceSnapshot(homeId, [for (final r in out) r.toJson()]);
   return out;
 });
 
@@ -210,14 +286,13 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   }
 
   Future<void> _resolveHome() async {
-    try {
-      final homes = await ref.read(nodeServiceProvider).listHomes();
-      if (homes.isNotEmpty && mounted) {
-        final id = (homes.first['id'] ?? homes.first['home_id'])?.toString();
-        if (id != null && id.isNotEmpty) setState(() => _homeId = id);
-      }
-    } catch (_) {
-      // Keep the seeded default; the provider degrades to an empty list.
+    // Picks the home that actually HAS nodes. `homes.first` was arbitrary — this
+    // tenant has 32 homes named "My Home", and landing on an empty one showed
+    // "No devices found" with the real home untouched. See
+    // core/network/active_home.dart.
+    final id = await resolveActiveHomeId(ref);
+    if (id != null && mounted && id != _homeId) {
+      setState(() => _homeId = id);
     }
   }
 
@@ -234,7 +309,28 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+
+    // A provider failure is CACHED, so it does not clear itself when the link
+    // comes back — the tab would stay on "Cannot reach SHE cloud" until the app
+    // was restarted. Clear it the moment the live link returns.
+    ref.listen(wsConnectedProvider, (prev, next) {
+      if (next && prev != true) _retry();
+    });
+
     final devicesAsync = ref.watch(_homeDevicesFlatProvider(_homeId));
+
+    // An EMPTY list while still on the placeholder home id is not the truth — it
+    // means we picked the WRONG home (see core/network/active_home.dart). Re-resolve
+    // so a launch that landed on an empty husk heals itself instead of showing
+    // "No devices found" forever.
+    if (_homeId == _defaultHomeId) {
+      final rows = devicesAsync.valueOrNull;
+      if (rows != null && rows.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolveHome();
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: V3Colors.background,
@@ -370,6 +466,28 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                       });
                     }
 
+                    // The instant value straight off the WS `node.state` payload —
+                    // and, OFFLINE, the value local control read back from the
+                    // board's feedback circuit. Watched UP HERE with the others:
+                    // this used to be watched inside `_effectiveOn`, which is
+                    // called from the itemBuilder, where `ref.watch` does not
+                    // register a dependency. Online that went unnoticed because the
+                    // WS event also invalidates the providers, so the list rebuilt
+                    // anyway — but offline the invalidation is deliberately skipped
+                    // (it would blank the list), so the switch never moved at all.
+                    final wsOn = ref.watch(livePowerProvider);
+
+                    // Design sheet #23 — devices with a command waiting to send.
+                    // Watched up here (like liveOn) because ref.watch is unsafe
+                    // inside an itemBuilder callback. The map holds the QUEUED
+                    // Power so the switch can show the user's intent while the
+                    // command waits, instead of looking dead.
+                    final queuedOn = <String, bool>{};
+                    for (final c in ref.watch(commandQueueProvider)) {
+                      final p = c.params['Power'];
+                      if (p is bool) queuedOn[c.deviceId] = p;
+                    }
+
                     return ListView.separated(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(
@@ -379,13 +497,20 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                           const SizedBox(height: 10),
                       itemBuilder: (context, i) {
                         final row = list[i];
+                        // A gate is not an on/off relay — it is driven by
+                        // Open/Close/Stop. Route it to the dedicated Gate control
+                        // screen (#8) instead of a Power toggle.
+                        if (row.kind == 'gate') {
+                          return _GateDeviceTile(row: row);
+                        }
                         return _DeviceTile(
                           device: row,
                           // Pass the optimistic value, not the raw server one, so
                           // the switch reflects the tap immediately.
-                          isOn: _effectiveOn(row, liveOn),
-                          onToggle: () =>
-                              _toggle(row, _effectiveOn(row, liveOn)),
+                          isOn: _effectiveOn(row, liveOn, queuedOn, wsOn),
+                          queued: queuedOn.containsKey(row.deviceId),
+                          onToggle: () => _toggle(
+                              row, _effectiveOn(row, liveOn, queuedOn, wsOn)),
                         );
                       },
                     );
@@ -416,12 +541,43 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final target = !current;
 
     try {
-      // Same path the dashboard's bento cards use, so group/state handling and
-      // the server-side last_value update are identical.
-      // writeParams takes a params MAP (NodeService:49), keyed by param name.
-      await ref
-          .read(nodeServiceProvider)
-          .writeParams(d.nodeId, d.deviceId, {'Power': target});
+      // Offline-tolerant: if the app cannot reach SHE the command is queued
+      // (design sheet #23) and replayed on reconnect, instead of being lost.
+      final outcome = await ref.read(commandQueueProvider.notifier).sendOrQueue(
+            nodeId: d.nodeId,
+            deviceId: d.deviceId,
+            params: {'Power': target},
+            label: '${d.name} · ${target ? 'On' : 'Off'}',
+            // The board's local API addresses a device by its FIRMWARE name.
+            deviceName: d.raw['device_name']?.toString(),
+          );
+      if (outcome == SendOutcome.queued) {
+        // Offline, "queued" means local control did NOT take. Say why — a silent
+        // queue makes a broken local-control setup look like a working one, and
+        // there is no other way to see the reason on a release build.
+        if (!ref.read(wsConnectedProvider) && mounted) {
+          final fwName = d.raw['device_name']?.toString();
+          final why = (fwName == null || fwName.isEmpty)
+              // The board addresses devices by firmware name, so without one
+              // local control can never be attempted at all.
+              ? 'no device_name in the cloud payload'
+              : (ref.read(localControlServiceProvider).lastError ??
+                  'board unreachable');
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Queued — local control failed: $why'),
+            duration: const Duration(seconds: 6),
+          ));
+        }
+        return; // the badge reflects it
+      }
+
+      // If the command went out over LOCAL CONTROL the cloud is by definition
+      // unreachable, and the value is already applied in memory
+      // (livePowerProvider). Refetching here could only fail — and a failed
+      // refetch REPLACES this whole list with "Cannot reach SHE cloud", so a
+      // perfectly successful offline toggle would blank the screen ~10 s later.
+      // The board's own MQTT report refreshes the list once the link returns.
+      if (!ref.read(wsConnectedProvider)) return;
 
       // Invalidate all three: the flat list caches the resolved devices,
       // homeNodesProvider is what the dashboard reads, and the per-device params
@@ -452,15 +608,26 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// every `node.state` event. That is what makes this switch follow the board
   /// (a wall switch, AC feedback, a scene, master control) instead of only the
   /// last thing the app asked for.
-  bool _effectiveOn(_DeviceRow d, Map<String, bool> liveOn) {
-    // ALWAYS the board's reported Power — deliberately NO optimistic value.
+  bool _effectiveOn(_DeviceRow d, Map<String, bool> liveOn,
+      Map<String, bool> queuedOn, Map<String, bool> wsOn) {
+    // A QUEUED command is the user's most recent intent and the board has not
+    // seen it yet — show it, so an offline tap visibly takes effect. The entry
+    // is dropped when the queue flushes, at which point the board's real value
+    // takes over (and by then the two agree).
+    final queued = queuedOn[d.deviceId];
+    if (queued != null) return queued;
+    // Otherwise ALWAYS the board's reported Power — deliberately NO optimistic value.
     //
-    // Prefer the value straight off the WS `node.state` payload
-    // ([livePowerProvider]): it lands the instant the board publishes, so a
-    // wall-switch change shows up without waiting for any REST refetch. Fall
-    // back to the REST-fetched `reported_value`, then OFF — so the switch still
-    // never shows ON unless the board reported it.
-    final ws = ref.watch(livePowerProvider)[d.deviceId];
+    // Prefer the value straight off the WS `node.state` payload (and, offline, the
+    // value local control read back from the board's feedback circuit). It lands
+    // the instant the board reports, so a wall-switch change shows up without
+    // waiting for any REST refetch. Fall back to the REST-fetched
+    // `reported_value`, then OFF — so the switch still never shows ON unless the
+    // board reported it.
+    //
+    // ⚠️ [wsOn] is PASSED IN, never `ref.watch`ed here: this runs inside the
+    // itemBuilder, where ref.watch registers no dependency.
+    final ws = wsOn[d.deviceId];
     if (ws != null) return ws;
     return liveOn[d.deviceId] ?? false;
   }
@@ -474,6 +641,22 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     );
   }
 
+  /// Clears the WHOLE failure chain, not just the visible provider.
+  ///
+  /// [_homeDevicesFlatProvider] awaits `homeNodesProvider`, and Riverpod CACHES a
+  /// FutureProvider's failure. Invalidating only the downstream provider made the
+  /// re-run re-throw that same cached error immediately, so "Retry" could never
+  /// succeed — the tab stayed on "Cannot reach SHE cloud" even with the backend
+  /// healthy and serving `/homes/{id}/nodes` fine.
+  void _retry() {
+    // The home id resolves asynchronously. If that attempt failed (e.g. the app
+    // was started while offline) we are still holding the placeholder, which can
+    // only ever return an empty home — so re-resolve it too.
+    if (_homeId == _defaultHomeId) _resolveHome();
+    ref.invalidate(homeNodesProvider(_homeId));
+    ref.invalidate(_homeDevicesFlatProvider(_homeId));
+  }
+
   Widget _buildError(Object error) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -484,7 +667,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
           title: 'Cannot reach SHE cloud',
           body: 'Check your internet connection and try again.',
           actionLabel: 'Retry',
-          onAction: () => ref.invalidate(_homeDevicesFlatProvider(_homeId)),
+          onAction: _retry,
         ),
       ],
     );
@@ -496,6 +679,7 @@ class _DeviceTile extends StatelessWidget {
     required this.device,
     required this.isOn,
     required this.onToggle,
+    this.queued = false,
   });
 
   final _DeviceRow device;
@@ -504,6 +688,9 @@ class _DeviceTile extends StatelessWidget {
   /// otherwise the server's. Never read `device.isOn` directly here.
   final bool isOn;
   final VoidCallback onToggle;
+
+  /// Design sheet #23 — a command for this device is waiting to send.
+  final bool queued;
 
   @override
   Widget build(BuildContext context) {
@@ -542,8 +729,11 @@ class _DeviceTile extends StatelessWidget {
                 const SizedBox(height: 3),
                 Row(
                   children: [
-                    SHEStatusBadge(online: device.isOnline),
-                    if (isOn && device.isOnline) ...[
+                    if (queued)
+                      const SHEStatusBadge(cmdState: 'queued')
+                    else
+                      SHEStatusBadge(online: device.isOnline),
+                    if (isOn && device.isOnline && !queued) ...[
                       const SizedBox(width: 6),
                       const Text(
                         'On',
@@ -564,6 +754,63 @@ class _DeviceTile extends StatelessWidget {
             value: isOn,
             enabled: device.isOnline,
             onChanged: (_) => onToggle(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Gate devices appear in the list like any other device, but they are not
+/// on/off relays — they are driven by Open / Close / Stop. Tapping opens the
+/// dedicated Gate control screen (#8) instead of showing a Power toggle.
+class _GateDeviceTile extends StatelessWidget {
+  const _GateDeviceTile({required this.row});
+
+  final _DeviceRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = _kindFromDeviceType(row.kind, name: row.name);
+    return SHECard(
+      onTap: () => context.push(
+        '/gate?nodeId=${row.nodeId}&deviceId=${row.deviceId}'
+        '&name=${Uri.encodeComponent(row.name)}&isOnline=${row.isOnline}',
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          DeviceIcon(kind: kind, on: row.isOn && row.isOnline, size: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  row.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: V3Colors.ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    SHEStatusBadge(online: row.isOnline),
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: V3Colors.text2,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

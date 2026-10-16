@@ -463,4 +463,180 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get activate => 'አስጀምር';
+
+  @override
+  String get otaTitle => 'የሶፍትዌር ዝማኔ';
+
+  @override
+  String get otaSubtitle => 'የመሣሪያ ዝማኔዎችን ይፈትሹ እና ይጫኑ';
+
+  @override
+  String get otaDevices => 'መሣሪያዎች';
+
+  @override
+  String get otaUpdating => 'ሶፍትዌር በማዘመን ላይ';
+
+  @override
+  String otaRollingOut(String version) {
+    return 'ስሪት $version በመሰራጨት ላይ ነው። መሣሪያዎቹን ኃይል ላይ ያቆዩዋቸው።';
+  }
+
+  @override
+  String get otaUpToDate => 'ወቅታዊ ነው';
+
+  @override
+  String otaAllRunning(String version) {
+    return 'ሁሉም መሣሪያዎች $version እየሠሩ ናቸው።';
+  }
+
+  @override
+  String get otaNoneAvailable => 'ምንም የሶፍትዌር ዝማኔዎች የሉም።';
+
+  @override
+  String otaReadyToInstall(String version) {
+    return 'ስሪት $version ለመጫን ዝግጁ ነው።';
+  }
+
+  @override
+  String get otaRolloutIncomplete => 'ዝማኔው አልተጠናቀቀም።';
+
+  @override
+  String get otaAdminHint => 'አስተዳዳሪ ከአስተዳዳሪ ኮንሶል አዲስ ዝማኔ መጀመር ይችላል።';
+
+  @override
+  String get otaNoDevicesTitle => 'ምንም መሣሪያዎች የሉም';
+
+  @override
+  String get otaNoDevicesBody => 'መሣሪያዎች ለዚህ ቤት ሲዘግቡ እዚህ ይታያሉ።';
+
+  @override
+  String get otaDeviceFallback => 'መሣሪያ';
+
+  @override
+  String get otaUnknown => 'ያልታወቀ';
+
+  @override
+  String otaFirmware(String version) {
+    return 'ሶፍትዌር $version';
+  }
+
+  @override
+  String get otaAbort => 'ዝማኔውን አቁም';
+
+  @override
+  String otaInstall(String version) {
+    return '$version ጫን';
+  }
+
+  @override
+  String get otaStatusUpdated => 'ተዘምኗል';
+
+  @override
+  String get otaStatusUpdating => 'በማዘመን ላይ';
+
+  @override
+  String get otaStatusWaitingApproval => 'ፍቃድ በመጠበቅ ላይ';
+
+  @override
+  String get otaStatusApproved => 'ተፈቅዷል';
+
+  @override
+  String get otaStatusDeclined => 'ተቀባይነት አላገኘም';
+
+  @override
+  String get otaStatusFailed => 'አልተሳካም';
+
+  @override
+  String get otaStatusUpToDate => 'ወቅታዊ ነው';
+
+  @override
+  String get otaUpdateFailed => 'ዝማኔው አልተሳካም';
+
+  @override
+  String get otaUpdateAborted => 'ዝማኔው ተቋርጧል';
+
+  @override
+  String get gateTitle => 'የጋት ቁራጭ';
+
+  @override
+  String get gateSubtitle => 'ጋቱን ይክፈቱ፣ ይዝጉ ወይም ያረፉ';
+
+  @override
+  String get gateOpen => 'ክፈት';
+
+  @override
+  String get gateClose => 'ግፊት';
+
+  @override
+  String get gateStop => 'ማስቆሚያ';
+
+  @override
+  String get gateStatusOpen => 'ክፈት';
+
+  @override
+  String get gateStatusClosed => 'ዝግ';
+
+  @override
+  String get gateStatusStopped => 'ቆሟል';
+
+  @override
+  String get gateStatusIdle => 'የለም';
+
+  @override
+  String get gateStatusUnknown => 'ያልታወቀ';
+
+  @override
+  String get gateStatusOpening => 'በመክፈት ላይ…';
+
+  @override
+  String get gateStatusClosing => 'በመዝጋት ላይ…';
+
+  @override
+  String get gateStatusStopping => 'በመከለዕ ላይ…';
+
+  @override
+  String get gateCurrentState => 'የአሁኑ ሁኔታ';
+
+  @override
+  String get gateCommandQueued => 'ትእዛዝ ተልኳል';
+
+  @override
+  String gateOffline(Object name) {
+    return '$name ከመስመር ውጪ ነው — ትእዛዝ አልተላከም።';
+  }
+
+  @override
+  String gateCommandError(Object error) {
+    return 'የጋት ትእዛዝ አልተሳካም: $error';
+  }
+
+  @override
+  String get offlineTitle => 'ከመስመር ውጪ ነዎት';
+
+  @override
+  String get offlineBody => 'የተቀመጠ መረጃ ይታያል። በራስ-ሰር እንደገና እንገናኛለን።';
+
+  @override
+  String get offlineRetry => 'እንደገና ሞክር';
+
+  @override
+  String get offlineDismiss => 'ዝጋ';
+
+  @override
+  String get queuedTitle => 'በተራ የተቀመጡ ትእዛዞች';
+
+  @override
+  String get queuedSubtitle => 'እንደገና ሲገናኙ ለመላክ በመጠበቅ ላይ';
+
+  @override
+  String get queuedEmptyTitle => 'በተራ የተቀመጠ የለም';
+
+  @override
+  String get queuedEmptyBody => 'ከመስመር ውጪ ሲሆኑ የሚልኩት ትእዛዝ እዚህ ተጠብቆ በራስ-ሰር ይላካል።';
+
+  @override
+  String get queuedSendAll => 'ሁሉንም ላክ';
+
+  @override
+  String get queuedClear => 'አጽዳ';
 }

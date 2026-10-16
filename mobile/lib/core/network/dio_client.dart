@@ -129,7 +129,11 @@ final dioProvider = Provider<Dio>((ref) {
   // provider is recreated and every subsequent call uses the new endpoint.
   final dio = Dio(BaseOptions(
     baseUrl: ref.watch(apiBaseUrlProvider),
-    connectTimeout: const Duration(seconds: 30),
+    // Connect fast-fails so an unreachable backend surfaces in ~10 s instead of
+    // 30 — the old 30 s made every offline tap feel like a hang and produced
+    // "The server took too long to respond." Receive/send stay generous for
+    // genuinely slow queries.
+    connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 30),
     sendTimeout: const Duration(seconds: 30),
     headers: {

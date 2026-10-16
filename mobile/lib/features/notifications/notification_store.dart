@@ -158,6 +158,33 @@ class NotificationStore extends Notifier<List<AppNotification>> {
     _persist();
   }
 
+  /// Merge persisted server notifications into the list.
+  ///
+  /// Server rows are the source of truth for HISTORY (they include events that
+  /// happened while the app was closed); the live-derived rows are kept too,
+  /// because a just-arrived event may not be persisted yet. Deduped by id, newest
+  /// first, capped like everything else. Read-state is OR-ed so a row another
+  /// device already read does not flip back to unread here.
+  void merge(List<AppNotification> serverRows) {
+    if (serverRows.isEmpty) return;
+    final result = [...state];
+    for (final n in serverRows) {
+      // Skip a server row a live-derived row already represents. The live path
+      // mints its own id, so an id-only merge would show every event twice;
+      // match on content within a short window instead.
+      final duplicate = result.any((e) =>
+          e.kind == n.kind &&
+          e.title == n.title &&
+          e.nodeId == n.nodeId &&
+          e.at.difference(n.at).inMinutes.abs() < 5);
+      if (duplicate) continue;
+      result.add(n);
+    }
+    result.sort((a, b) => b.at.compareTo(a.at));
+    state = result.take(_cap).toList();
+    _persist();
+  }
+
   void markAllRead() {
     if (state.every((n) => n.read)) return;
     state = state.map((n) => n.read ? n : n.copyWith(read: true)).toList();
@@ -291,14 +318,16 @@ AppNotification? notificationFromWsEvent(
       );
 
     case 'notification.received':
-      // Forward-compatible: nothing publishes this today, but if the backend
-      // starts to, honour whatever it sends rather than inventing a shape.
+      // Emitted by the backend's NotificationService once an inbox row is
+      // persisted, so a live client sees it without waiting for a refetch.
+      // Honour the server's own `kind` so it collapses with the equivalent
+      // live-derived entry (see NotificationStore.add) instead of duplicating.
       final title = data['title']?.toString();
       if (title == null || title.isEmpty) return null;
       final rawCat = data['category']?.toString().toLowerCase();
       return AppNotification(
         id: _nextId(),
-        kind: 'server',
+        kind: data['kind']?.toString() ?? 'server',
         title: title,
         body: data['body']?.toString() ?? '',
         category: switch (rawCat) {

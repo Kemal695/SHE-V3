@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_client.dart';
+import '../../core/offline/automation_snapshot.dart';
 import '../scenes/scene_service.dart' show homeDevicesProvider, SceneDeviceOption;
 
 final automationServiceProvider =
@@ -26,10 +27,28 @@ final automationServiceProvider =
 /// invalidate it. The detail screen could save an edit and had no way to tell
 /// the list, so going back showed the OLD name / trigger / actions and the edit
 /// looked like it had not happened. Both screens now share this one provider.
+///
+/// Snapshots to Hive so the tab survives an outage — without it the whole screen
+/// (including the "Create Automation" pill) was replaced by an error offline.
 final homeAutomationsProvider =
-    FutureProvider.family<List<Automation>, String>(
-  (ref, homeId) => ref.read(automationServiceProvider).listAutomations(homeId),
-);
+    FutureProvider.family<List<Automation>, String>((ref, homeId) async {
+  try {
+    final list =
+        await ref.read(automationServiceProvider).listAutomations(homeId);
+    await writeAutomationSnapshot(
+        homeId, [for (final a in list) a.toJson()]);
+    return list;
+  } catch (_) {
+    final cached = readAutomationSnapshot(homeId);
+    if (cached != null) {
+      return [
+        for (final j in cached)
+          if (j['id'] != null) Automation.fromJson(j),
+      ];
+    }
+    rethrow;
+  }
+});
 
 /// Trigger types offered by the editor.
 enum AutomationTriggerType { manual, schedule, nodeState }
@@ -101,6 +120,20 @@ class Automation {
         lastFiredAt: DateTime.tryParse(json['lastFiredAt']?.toString() ?? '')
             ?.toLocal(),
       );
+
+  /// Round-trips through [fromJson], so a cached copy behaves like a fetched one.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'homeId': homeId,
+        'name': name,
+        if (description != null) 'description': description,
+        'enabled': enabled,
+        'trigger': trigger,
+        'actions': [
+          for (final r in rules) {'type': r.type, 'config': r.config},
+        ],
+        if (lastFiredAt != null) 'lastFiredAt': lastFiredAt!.toIso8601String(),
+      };
 
   /// Human-readable "has this run?" line for the list.
   String get lastRunLabel {
@@ -241,6 +274,20 @@ class AutomationService {
     return Automation.fromJson(response.data['data'] as Map<String, dynamic>);
   }
 
+  /// POST /homes/{homeId}/automations with an already-built body.
+  ///
+  /// Used to replay an automation that was created while offline — the payload was
+  /// stored verbatim in Hive (see OfflineAutomationService), so re-deriving it from
+  /// typed arguments would risk drifting from what the user actually saw.
+  Future<Automation> createAutomationRaw(
+      String homeId, Map<String, dynamic> body) async {
+    final response = await _dio.post(
+      ApiConstants.homeAutomations(homeId),
+      data: body,
+    );
+    return Automation.fromJson(response.data['data'] as Map<String, dynamic>);
+  }
+
   /// PUT /automations/{id}
   ///
   /// `trigger` / `actions` are optional and REPLACE the stored rule when sent —
@@ -262,6 +309,16 @@ class AutomationService {
         if (actions != null) 'actions': actions.map((a) => a.toJson()).toList(),
       },
     );
+    return Automation.fromJson(response.data['data'] as Map<String, dynamic>);
+  }
+
+  /// PUT /automations/{id} with an already-built body.
+  ///
+  /// Used to replay an EDIT made while offline — the payload was stored verbatim
+  /// in Hive (see OfflineAutomationService).
+  Future<Automation> updateAutomationRaw(
+      String id, Map<String, dynamic> body) async {
+    final response = await _dio.put(ApiConstants.automation(id), data: body);
     return Automation.fromJson(response.data['data'] as Map<String, dynamic>);
   }
 

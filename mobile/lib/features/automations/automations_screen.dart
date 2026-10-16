@@ -6,7 +6,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/active_home.dart';
 import '../../core/network/api_error.dart';
+import '../../core/network/ws_client.dart' show wsConnectedProvider;
+import '../../core/offline/offline_automations.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
@@ -63,15 +66,21 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
   }
 
   Future<void> _resolveHome() async {
-    try {
-      final homes = await ref.read(nodeServiceProvider).listHomes();
-      if (homes.isNotEmpty && mounted) {
-        final id = (homes.first['id'] ?? homes.first['home_id'])?.toString();
-        if (id != null && id.isNotEmpty) setState(() => _homeId = id);
-      }
-    } catch (_) {
-      // Keep the seeded default; the provider degrades to an empty list.
+    // Picks the home that actually HAS nodes. `homes.first` was arbitrary — this
+    // tenant has 32 homes named "My Home", and landing on an empty one is exactly
+    // why the list read "0/0 enabled · No automations yet" while the real home
+    // held five. See core/network/active_home.dart.
+    final id = await resolveActiveHomeId(ref);
+    if (id != null && mounted && id != _homeId) {
+      setState(() => _homeId = id);
     }
+  }
+
+  /// Clear a cached failure — and re-resolve the home if we are still holding the
+  /// placeholder, which yields an EMPTY (not failed) list and so never self-heals.
+  void _retry() {
+    if (_homeId == _defaultHomeId) _resolveHome();
+    ref.invalidate(homeAutomationsProvider(_homeId));
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -135,28 +144,36 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
   /// Copy an automation under a new name (design sheet: "Duplicate").
   Future<void> _duplicate(Automation a) async {
     await _run(() async {
-      final svc = ref.read(automationServiceProvider);
-      await svc.createAutomation(
-        _homeId,
-        name: '${a.name} (copy)',
-        trigger: Map<String, Object>.from(a.trigger),
-        actions: a.rules
-            .where((r) => r.type == 'WRITE_PARAM')
-            .map((r) => AutomationActionDraft(
-                  nodeId: r.config['node_id']?.toString() ?? '',
-                  deviceName: r.config['device_name']?.toString() ?? '',
-                  nodeDeviceId: r.config['node_device_id']?.toString() ?? '',
-                  params: {
-                    'Power': (r.config['params'] as Map?)?['Power'] == true,
-                  },
-                ))
-            .toList(),
-      );
+      // Routed through the offline service: with no link a single-action schedule
+      // is stored on the device instead of failing (see OfflineAutomationService).
+      final res = await ref.read(offlineAutomationServiceProvider).create(
+            homeId: _homeId,
+            name: '${a.name} (copy)',
+            trigger: Map<String, Object>.from(a.trigger),
+            actions: a.rules
+                .where((r) => r.type == 'WRITE_PARAM')
+                .map((r) => AutomationActionDraft(
+                      nodeId: r.config['node_id']?.toString() ?? '',
+                      deviceName: r.config['device_name']?.toString() ?? '',
+                      nodeDeviceId: r.config['node_device_id']?.toString() ?? '',
+                      params: {
+                        'Power': (r.config['params'] as Map?)?['Power'] == true,
+                      },
+                    ))
+                .toList(),
+          );
       if (!mounted) return;
+      final stored = res.outcome == AutomationSaveOutcome.cloud ||
+          res.outcome == AutomationSaveOutcome.device;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Duplicated.')),
+        SnackBar(
+          content: Text(res.outcome == AutomationSaveOutcome.cloud
+              ? 'Duplicated.'
+              : res.message),
+          duration: const Duration(seconds: 6),
+        ),
       );
-      ref.invalidate(homeAutomationsProvider(_homeId));
+      if (stored) ref.invalidate(homeAutomationsProvider(_homeId));
     });
   }
 
@@ -218,18 +235,57 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
     // (possibly renamed) display name synchronously.
     ref.watch(homeDevicesProvider(_homeId));
 
+    // A provider failure is CACHED, so it does not clear itself when the link
+    // returns. Heal the tab rather than leaving it stuck on the error card.
+    ref.listen(wsConnectedProvider, (prev, next) {
+      if (next && prev != true) _retry();
+    });
+
+    // An EMPTY list while still on the placeholder home id is not the truth — it
+    // is the wrong home (see _resolveHome). Re-resolve once the data lands, so a
+    // launch that happened to pick an empty home heals itself.
+    if (_homeId == _defaultHomeId) {
+      final items = async.valueOrNull;
+      if (items != null && items.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolveHome();
+        });
+      }
+    }
+
     return Scaffold(
       backgroundColor: V3Colors.background,
       body: SafeArea(
         child: async.when(
           loading: () => const Center(
               child: CircularProgressIndicator(color: V3Colors.primary)),
-          error: (e, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(V3Spacing.xl),
-              child: Text('Could not load automations: $e',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: V3Colors.text2)),
+          error: (e, _) => RefreshIndicator(
+            color: V3Colors.primary,
+            backgroundColor: V3Colors.surface,
+            onRefresh: () =>
+                ref.refresh(homeAutomationsProvider(_homeId).future),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                  V3Spacing.md, 0, V3Spacing.md, V3Spacing.xxl),
+              children: [
+                const SHEAppBar(title: 'Automation'),
+                const SizedBox(height: V3Spacing.md),
+                // KEEP the create affordance. With the cloud down a single-action
+                // schedule can still be stored on the DEVICE, so replacing the
+                // whole body with an error message made "create an automation
+                // offline" impossible — which is exactly what was reported.
+                _createPill(),
+                const SizedBox(height: V3Spacing.md),
+                SHEEmptyState(
+                  icon: Icons.cloud_off,
+                  tone: V3Colors.warningAlt,
+                  title: 'Cannot reach SHE cloud',
+                  body: apiErrorMessage(e),
+                  actionLabel: 'Retry',
+                  onAction: _retry,
+                ),
+              ],
             ),
           ),
           data: (items) {

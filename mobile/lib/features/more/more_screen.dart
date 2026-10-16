@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/network/dio_client.dart';
+import '../../core/offline/command_queue.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../l10n/app_localizations.dart';
@@ -65,6 +66,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final emailAsync = ref.watch(_profileEmailProvider);
+    final queuedCount = ref.watch(commandQueueProvider).length;
 
     return Scaffold(
       backgroundColor: V3Colors.background,
@@ -178,6 +180,17 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
 
             // ---- control group ----
             _GroupLabel('Control'),
+            // Design sheet screen 23 — always listed so it stays discoverable,
+            // and carries the backlog count when there is one.
+            _MenuTile(
+              icon: Icons.schedule,
+              title: l?.queuedTitle ?? 'Queued commands',
+              subtitle: queuedCount == 0
+                  ? (l?.queuedSubtitle ??
+                      "Waiting to send when you're back online")
+                  : '$queuedCount · ${l?.queuedSubtitle ?? ''}'.trim(),
+              onTap: () => context.push('/queued'),
+            ),
             _MenuTile(
               icon: Icons.mic_none,
               title: 'Voice control',
@@ -202,6 +215,19 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
               title: 'Scenes',
               subtitle: 'One-tap moods for the whole home',
               onTap: () => context.push('/scenes?homeId=$_homeId'),
+            ),
+            // Design sheet screen 17.
+            //
+            // `admin=true` is an ASSUMPTION: nothing in the app currently
+            // exposes the signed-in user's home role, so the screen cannot tell
+            // whether start / abort (ADMIN+ per §9) will succeed. Worst case the
+            // backend answers 403 and the surface shows that error. Proper fix is
+            // a "my role" provider fed by the members endpoint.
+            _MenuTile(
+              icon: Icons.system_update_outlined,
+              title: l?.otaTitle ?? 'Firmware update',
+              subtitle: l?.otaSubtitle ?? 'Check for and install device updates',
+              onTap: () => context.push('/ota?homeId=$_homeId&admin=true'),
             ),
 
             const SizedBox(height: V3Spacing.lg),

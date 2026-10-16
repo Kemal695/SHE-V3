@@ -997,6 +997,330 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Activate'**
   String get activate;
+
+  /// No description provided for @otaTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Firmware update'**
+  String get otaTitle;
+
+  /// No description provided for @otaSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for and install device updates'**
+  String get otaSubtitle;
+
+  /// No description provided for @otaDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get otaDevices;
+
+  /// Headline shown while a rollout is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Updating firmware'**
+  String get otaUpdating;
+
+  /// Body shown while a rollout is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} is rolling out. Keep the devices powered on.'**
+  String otaRollingOut(String version);
+
+  /// No description provided for @otaUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get otaUpToDate;
+
+  /// Body shown when a rollout completed
+  ///
+  /// In en, this message translates to:
+  /// **'Every device is running {version}.'**
+  String otaAllRunning(String version);
+
+  /// No description provided for @otaNoneAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'No firmware updates are available.'**
+  String get otaNoneAvailable;
+
+  /// Body shown when a batch exists but has not been started
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} is ready to install.'**
+  String otaReadyToInstall(String version);
+
+  /// No description provided for @otaRolloutIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'The rollout did not complete.'**
+  String get otaRolloutIncomplete;
+
+  /// No description provided for @otaAdminHint.
+  ///
+  /// In en, this message translates to:
+  /// **'An admin can start a new rollout from the admin console.'**
+  String get otaAdminHint;
+
+  /// No description provided for @otaNoDevicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No devices'**
+  String get otaNoDevicesTitle;
+
+  /// No description provided for @otaNoDevicesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices appear here once they report to this home.'**
+  String get otaNoDevicesBody;
+
+  /// No description provided for @otaDeviceFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Device'**
+  String get otaDeviceFallback;
+
+  /// No description provided for @otaUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get otaUnknown;
+
+  /// Per-device line showing the installed firmware version
+  ///
+  /// In en, this message translates to:
+  /// **'Firmware {version}'**
+  String otaFirmware(String version);
+
+  /// No description provided for @otaAbort.
+  ///
+  /// In en, this message translates to:
+  /// **'Abort rollout'**
+  String get otaAbort;
+
+  /// Primary button that starts a rollout
+  ///
+  /// In en, this message translates to:
+  /// **'Install {version}'**
+  String otaInstall(String version);
+
+  /// No description provided for @otaStatusUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Updated'**
+  String get otaStatusUpdated;
+
+  /// No description provided for @otaStatusUpdating.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating'**
+  String get otaStatusUpdating;
+
+  /// No description provided for @otaStatusWaitingApproval.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for approval'**
+  String get otaStatusWaitingApproval;
+
+  /// No description provided for @otaStatusApproved.
+  ///
+  /// In en, this message translates to:
+  /// **'Approved'**
+  String get otaStatusApproved;
+
+  /// No description provided for @otaStatusDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get otaStatusDeclined;
+
+  /// No description provided for @otaStatusFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get otaStatusFailed;
+
+  /// No description provided for @otaStatusUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get otaStatusUpToDate;
+
+  /// No description provided for @otaUpdateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed'**
+  String get otaUpdateFailed;
+
+  /// No description provided for @otaUpdateAborted.
+  ///
+  /// In en, this message translates to:
+  /// **'Update aborted'**
+  String get otaUpdateAborted;
+
+  /// No description provided for @gateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Gate control'**
+  String get gateTitle;
+
+  /// No description provided for @gateSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open, close or stop the gate'**
+  String get gateSubtitle;
+
+  /// No description provided for @gateOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get gateOpen;
+
+  /// No description provided for @gateClose.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get gateClose;
+
+  /// No description provided for @gateStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get gateStop;
+
+  /// No description provided for @gateStatusOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get gateStatusOpen;
+
+  /// No description provided for @gateStatusClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'Closed'**
+  String get gateStatusClosed;
+
+  /// No description provided for @gateStatusStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped'**
+  String get gateStatusStopped;
+
+  /// No description provided for @gateStatusIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle'**
+  String get gateStatusIdle;
+
+  /// No description provided for @gateStatusUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get gateStatusUnknown;
+
+  /// No description provided for @gateStatusOpening.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening…'**
+  String get gateStatusOpening;
+
+  /// No description provided for @gateStatusClosing.
+  ///
+  /// In en, this message translates to:
+  /// **'Closing…'**
+  String get gateStatusClosing;
+
+  /// No description provided for @gateStatusStopping.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping…'**
+  String get gateStatusStopping;
+
+  /// No description provided for @gateCurrentState.
+  ///
+  /// In en, this message translates to:
+  /// **'Current state'**
+  String get gateCurrentState;
+
+  /// No description provided for @gateCommandQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Command sent'**
+  String get gateCommandQueued;
+
+  /// No description provided for @gateOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} is offline — the command was not sent.'**
+  String gateOffline(Object name);
+
+  /// No description provided for @gateCommandError.
+  ///
+  /// In en, this message translates to:
+  /// **'Gate command failed: {error}'**
+  String gateCommandError(Object error);
+
+  /// No description provided for @offlineTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re offline'**
+  String get offlineTitle;
+
+  /// No description provided for @offlineBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Showing cached data. We\'ll reconnect automatically.'**
+  String get offlineBody;
+
+  /// No description provided for @offlineRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get offlineRetry;
+
+  /// No description provided for @offlineDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get offlineDismiss;
+
+  /// No description provided for @queuedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued commands'**
+  String get queuedTitle;
+
+  /// No description provided for @queuedSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to send when you\'re back online'**
+  String get queuedSubtitle;
+
+  /// No description provided for @queuedEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing queued'**
+  String get queuedEmptyTitle;
+
+  /// No description provided for @queuedEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Commands you send while offline wait here and go out automatically.'**
+  String get queuedEmptyBody;
+
+  /// No description provided for @queuedSendAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Send all'**
+  String get queuedSendAll;
+
+  /// No description provided for @queuedClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get queuedClear;
 }
 
 class _AppLocalizationsDelegate

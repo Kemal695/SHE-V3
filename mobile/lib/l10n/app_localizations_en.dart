@@ -467,4 +467,184 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get activate => 'Activate';
+
+  @override
+  String get otaTitle => 'Firmware update';
+
+  @override
+  String get otaSubtitle => 'Check for and install device updates';
+
+  @override
+  String get otaDevices => 'Devices';
+
+  @override
+  String get otaUpdating => 'Updating firmware';
+
+  @override
+  String otaRollingOut(String version) {
+    return 'Version $version is rolling out. Keep the devices powered on.';
+  }
+
+  @override
+  String get otaUpToDate => 'Up to date';
+
+  @override
+  String otaAllRunning(String version) {
+    return 'Every device is running $version.';
+  }
+
+  @override
+  String get otaNoneAvailable => 'No firmware updates are available.';
+
+  @override
+  String otaReadyToInstall(String version) {
+    return 'Version $version is ready to install.';
+  }
+
+  @override
+  String get otaRolloutIncomplete => 'The rollout did not complete.';
+
+  @override
+  String get otaAdminHint =>
+      'An admin can start a new rollout from the admin console.';
+
+  @override
+  String get otaNoDevicesTitle => 'No devices';
+
+  @override
+  String get otaNoDevicesBody =>
+      'Devices appear here once they report to this home.';
+
+  @override
+  String get otaDeviceFallback => 'Device';
+
+  @override
+  String get otaUnknown => 'Unknown';
+
+  @override
+  String otaFirmware(String version) {
+    return 'Firmware $version';
+  }
+
+  @override
+  String get otaAbort => 'Abort rollout';
+
+  @override
+  String otaInstall(String version) {
+    return 'Install $version';
+  }
+
+  @override
+  String get otaStatusUpdated => 'Updated';
+
+  @override
+  String get otaStatusUpdating => 'Updating';
+
+  @override
+  String get otaStatusWaitingApproval => 'Waiting for approval';
+
+  @override
+  String get otaStatusApproved => 'Approved';
+
+  @override
+  String get otaStatusDeclined => 'Declined';
+
+  @override
+  String get otaStatusFailed => 'Failed';
+
+  @override
+  String get otaStatusUpToDate => 'Up to date';
+
+  @override
+  String get otaUpdateFailed => 'Update failed';
+
+  @override
+  String get otaUpdateAborted => 'Update aborted';
+
+  @override
+  String get gateTitle => 'Gate control';
+
+  @override
+  String get gateSubtitle => 'Open, close or stop the gate';
+
+  @override
+  String get gateOpen => 'Open';
+
+  @override
+  String get gateClose => 'Close';
+
+  @override
+  String get gateStop => 'Stop';
+
+  @override
+  String get gateStatusOpen => 'Open';
+
+  @override
+  String get gateStatusClosed => 'Closed';
+
+  @override
+  String get gateStatusStopped => 'Stopped';
+
+  @override
+  String get gateStatusIdle => 'Idle';
+
+  @override
+  String get gateStatusUnknown => 'Unknown';
+
+  @override
+  String get gateStatusOpening => 'Opening…';
+
+  @override
+  String get gateStatusClosing => 'Closing…';
+
+  @override
+  String get gateStatusStopping => 'Stopping…';
+
+  @override
+  String get gateCurrentState => 'Current state';
+
+  @override
+  String get gateCommandQueued => 'Command sent';
+
+  @override
+  String gateOffline(Object name) {
+    return '$name is offline — the command was not sent.';
+  }
+
+  @override
+  String gateCommandError(Object error) {
+    return 'Gate command failed: $error';
+  }
+
+  @override
+  String get offlineTitle => 'You\'re offline';
+
+  @override
+  String get offlineBody =>
+      'Showing cached data. We\'ll reconnect automatically.';
+
+  @override
+  String get offlineRetry => 'Retry';
+
+  @override
+  String get offlineDismiss => 'Dismiss';
+
+  @override
+  String get queuedTitle => 'Queued commands';
+
+  @override
+  String get queuedSubtitle => 'Waiting to send when you\'re back online';
+
+  @override
+  String get queuedEmptyTitle => 'Nothing queued';
+
+  @override
+  String get queuedEmptyBody =>
+      'Commands you send while offline wait here and go out automatically.';
+
+  @override
+  String get queuedSendAll => 'Send all';
+
+  @override
+  String get queuedClear => 'Clear';
 }

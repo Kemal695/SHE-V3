@@ -19,6 +19,7 @@ import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/storage/settings_store.dart';
 import '../../core/theme/she_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../device_detail/node_service.dart';
@@ -199,6 +200,10 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         _passphraseCtrl.text,
       );
       if (ok == true) {
+        // Remember the PoP: it is the credential the board's LOCAL control API
+        // checks (V3-FIRMWARE §7), so storing it here is what later enables
+        // offline control over Wi-Fi.
+        await SettingsStore.setLocalPop(_popCtrl.text.trim());
         // Pre-fill MAC from the advertised name when it carries the last
         // 6 hex chars (e.g. "SHE-AABBCC" or "SHE-R8-AABBCC").
         final dev = _selectedDevice ?? '';

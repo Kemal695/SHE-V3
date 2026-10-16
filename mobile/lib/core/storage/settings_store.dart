@@ -35,9 +35,33 @@ class SettingsStore {
   static bool get hasOverride =>
       _box.containsKey(_apiBaseUrlKey) || _box.containsKey(_wsBaseUrlKey);
 
-  /// Drop the overrides and fall back to the build-time defaults.
+  // ---- Local control PoP (V3-FIRMWARE §7) ----
+  static const String _localPopKey = 'local_control_pop';
+
+  /// The device's 9-digit local-control PoP. Empty when unset — local control is
+  /// then skipped entirely and offline commands fall back to the queue.
+  static String get localPop => (_box.get(_localPopKey) as String?) ?? '';
+
+  static Future<void> setLocalPop(String value) =>
+      _box.put(_localPopKey, value);
+
+  static const String _localHostKey = 'local_control_host';
+
+  /// Optional manual board address (IP or hostname) for local control. Needed
+  /// when mDNS discovery is unavailable — e.g. a firmware build with the mDNS
+  /// component disabled — so the user can point the app straight at the board.
+  static String get localHost => (_box.get(_localHostKey) as String?) ?? '';
+
+  static Future<void> setLocalHost(String value) =>
+      _box.put(_localHostKey, value);
+
+  /// Drop every override and fall back to the build-time defaults.
   static Future<void> resetToDefaults() async {
     await _box.delete(_apiBaseUrlKey);
     await _box.delete(_wsBaseUrlKey);
+    // Local control is an override too. Leaving the PoP/board IP behind after a
+    // "reset" kept local control silently enabled with stale credentials.
+    await _box.delete(_localPopKey);
+    await _box.delete(_localHostKey);
   }
 }

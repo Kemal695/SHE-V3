@@ -10,11 +10,16 @@
 // detail page makes it the point of the screen.
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/local/local_control_service.dart';
 import '../../core/network/api_error.dart';
-import '../../core/network/ws_client.dart' show livePowerProvider;
+import '../../core/network/ws_client.dart'
+    show livePowerProvider, wsConnectedProvider;
+import '../../core/offline/command_queue.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
@@ -58,15 +63,37 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
   /// "the toggle didn't work" — the exact bug already fixed on the Devices tab.
   final Map<String, bool> _optimistic = {};
 
-  Future<void> _toggleDevice(String deviceId, bool next) async {
+  Future<void> _toggleDevice(
+      String deviceId, String name, String? firmwareName, bool next) async {
     setState(() {
       _pending.add(deviceId);
       _optimistic[deviceId] = next;
     });
     try {
-      await ref
-          .read(nodeServiceProvider)
-          .writeParams(widget.nodeId, deviceId, {'Power': next});
+      // Offline-tolerant: with no cloud link this first tries LOCAL control over
+      // Wi-Fi (which really switches the device), then falls back to the queue
+      // (design sheet #23).
+      final outcome = await ref.read(commandQueueProvider.notifier).sendOrQueue(
+            nodeId: widget.nodeId,
+            deviceId: deviceId,
+            params: {'Power': next},
+            label: '$name · ${next ? 'On' : 'Off'}',
+            deviceName: firmwareName,
+          );
+      if (outcome == SendOutcome.queued) return; // optimistic value stands
+      // A LOCAL send means the cloud is unreachable, so this refetch could only
+      // fail — and a failed refetch replaces the whole member list with
+      // "Cannot reach SHE cloud". Instead, correct the optimistic value from the
+      // board's FEEDBACK reading, exactly as the Devices tab and the online path
+      // do: the switch must show what the lamp-side sense confirms, not the
+      // command we sent.
+      if (!ref.read(wsConnectedProvider)) {
+        // Offline: mirror the two-stage ONLINE sequence. `_optimistic` already
+        // shows the command; settle onto the board's FEEDBACK value after one
+        // input-monitor cycle, so a light that never lit falls back to OFF.
+        unawaited(_settleOnFeedback(deviceId, firmwareName));
+        return;
+      }
       // The board echoes the change over WS, which invalidates this provider —
       // dropping the override once the server agrees avoids a stale pin.
       ref.invalidate(nodeDeviceParamsProvider('${widget.nodeId}|$deviceId'));
@@ -84,7 +111,26 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     }
   }
 
-  Future<void> _setWholeGroup(List<String> deviceIds, bool on) async {
+  /// Settle a member's switch onto the board's FEEDBACK value after a local send.
+  ///
+  /// Waits past one input-monitor cycle (1 s) on purpose: the firmware writes the
+  /// COMMANDED value into `last_value` first, so an immediate read returns the
+  /// command rather than the lamp-side AC sense — which is what made the offline
+  /// switch look like it ignored the feedback circuit.
+  Future<void> _settleOnFeedback(String deviceId, String? firmwareName) async {
+    if (firmwareName == null || firmwareName.isEmpty) return;
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    final reported = await ref
+        .read(localControlServiceProvider)
+        .readReportedPower(firmwareName);
+    if (reported != null && mounted) {
+      setState(() => _optimistic[deviceId] = reported);
+    }
+  }
+
+  Future<void> _setWholeGroup(
+      List<Map<String, dynamic>> members, bool on) async {
+    final deviceIds = members.map((d) => d['id'].toString()).toList();
     setState(() {
       _masterBusy = true;
       for (final id in deviceIds) {
@@ -92,6 +138,22 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       }
     });
     try {
+      if (!ref.read(wsConnectedProvider)) {
+        // Offline: the server-side group endpoint is unreachable. Go through the
+        // command path per member — it tries LOCAL control over Wi-Fi first (a
+        // real switch) and only queues what the board could not take.
+        final q = ref.read(commandQueueProvider.notifier);
+        for (final d in members) {
+          await q.sendOrQueue(
+            nodeId: widget.nodeId,
+            deviceId: d['id'].toString(),
+            params: {'Power': on},
+            label: '${widget.groupName} · All ${on ? 'on' : 'off'}',
+            deviceName: d['device_name']?.toString(),
+          );
+        }
+        return;
+      }
       await ref.read(nodeServiceProvider).setDeviceGroup(widget.groupId, on);
       for (final id in deviceIds) {
         ref.invalidate(nodeDeviceParamsProvider('${widget.nodeId}|$id'));
@@ -117,6 +179,12 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     // did NOT trigger a rebuild here, which is why the member switches lagged.
     ref.watch(livePowerProvider);
 
+    // A provider failure is CACHED, so it does not clear itself when the link
+    // comes back. Heal the page automatically instead of leaving a dead message.
+    ref.listen(wsConnectedProvider, (prev, next) {
+      if (next && prev != true) _retry();
+    });
+
     return Scaffold(
       backgroundColor: V3Colors.background,
       body: SafeArea(
@@ -124,8 +192,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           loading: () => const Center(
             child: CircularProgressIndicator(color: V3Colors.primary),
           ),
-          error: (e, _) => _message('Could not load the group: '
-              '${apiErrorMessage(e)}'),
+          error: (e, _) => _message(
+              'Could not load the group: ${apiErrorMessage(e)}',
+              onRetry: _retry),
           data: (groups) {
             final group = groups.cast<Map<String, dynamic>?>().firstWhere(
                   (g) => g?['id'].toString() == widget.groupId,
@@ -146,8 +215,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               loading: () => const Center(
                 child: CircularProgressIndicator(color: V3Colors.primary),
               ),
-              error: (e, _) => _message('Could not load devices: '
-                  '${apiErrorMessage(e)}'),
+              error: (e, _) => _message(
+                  'Could not load devices: ${apiErrorMessage(e)}',
+                  onRetry: _retry),
               data: (devices) {
                 final members = devices
                     .where((d) => deviceIds.contains(d['id'].toString()))
@@ -161,14 +231,30 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     );
   }
 
-  Widget _message(String text) => Column(
+  /// Clears the failure chain. Both providers are leaf-ish here, but a failure is
+  /// CACHED by Riverpod, so without this the page stays broken after the link
+  /// returns and the user has no way back except restarting the app.
+  void _retry() {
+    ref.invalidate(nodeDeviceGroupsProvider(widget.homeId));
+    ref.invalidate(nodeDevicesProvider(widget.nodeId));
+  }
+
+  Widget _message(String text, {VoidCallback? onRetry}) => Column(
         children: [
           SHEAppBar(title: widget.groupName, onBack: () => Navigator.pop(context)),
           Padding(
             padding: const EdgeInsets.all(V3Spacing.xl),
-            child: Text(text,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: V3Colors.text2)),
+            child: Column(
+              children: [
+                Text(text,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: V3Colors.text2)),
+                if (onRetry != null) ...[
+                  const SizedBox(height: V3Spacing.md),
+                  SHEButton(label: 'Retry', onPressed: onRetry),
+                ],
+              ],
+            ),
           ),
         ],
       );
@@ -210,7 +296,15 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       );
     }
 
-    bool isOn(String id) => _optimistic[id] ?? live[id] ?? false;
+    // Queued intent (design sheet #23): an offline tap's target, shown until the
+    // command syncs. Falls back to the in-flight optimistic value, then the board.
+    final queued = <String, bool>{};
+    for (final c in ref.watch(commandQueueProvider)) {
+      final p = c.params['Power'];
+      if (p is bool) queued[c.deviceId] = p;
+    }
+
+    bool isOn(String id) => _optimistic[id] ?? queued[id] ?? live[id] ?? false;
 
     return RefreshIndicator(
       color: V3Colors.primary,
@@ -313,7 +407,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                         label: 'All on',
                         onPressed: _masterBusy || deviceIds.isEmpty
                             ? null
-                            : () => _setWholeGroup(deviceIds, true),
+                            : () => _setWholeGroup(members, true),
                       ),
                     ),
                     const SizedBox(width: V3Spacing.sm),
@@ -325,7 +419,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                         variant: SHEButtonVariant.secondary,
                         onPressed: _masterBusy || deviceIds.isEmpty
                             ? null
-                            : () => _setWholeGroup(deviceIds, false),
+                            : () => _setWholeGroup(members, false),
                       ),
                     ),
                   ],
@@ -406,7 +500,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             ),
           SHEToggle(
             value: on,
-            onChanged: (v) => _toggleDevice(id, v),
+            onChanged: (v) =>
+                _toggleDevice(id, name, device['device_name']?.toString(), v),
           ),
         ],
       ),

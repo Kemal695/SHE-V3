@@ -34,6 +34,9 @@ import '../features/energy/home_energy_screen.dart';
 import '../features/groups/group_detail_screen.dart';
 import '../features/more/more_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/ota/ota_update_screen.dart';
+import '../features/gate/gate_control_screen.dart';
+import '../features/queued/queued_commands_screen.dart';
 import '../features/payments/payment_screen.dart';
 import '../features/automations/automations_screen.dart';
 import '../features/provisioning/provisioning_screen.dart';
@@ -185,6 +188,30 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => NotificationsScreen(
           homeId: state.uri.queryParameters['homeId'],
         ),
+      ),
+      // Design sheet screen 17. Detail-style route (no bottom bar), reached from
+      // More. `admin` gates the ADMIN-only rollout controls — start / abort /
+      // approve / decline are ADMIN+ per V3-API-SPECIFICATION §9, so a member
+      // gets the read-only view instead of a control that would 403.
+      GoRoute(
+        path: '/ota',
+        builder: (context, state) => OtaUpdateScreen(
+          homeId: state.uri.queryParameters['homeId'],
+          isAdmin: state.uri.queryParameters['admin'] == 'true',
+        ),
+      ),
+      GoRoute(
+        path: '/gate',
+        builder: (context, state) => GateControlScreen(
+          nodeId: state.uri.queryParameters['nodeId'],
+          deviceId: state.uri.queryParameters['deviceId'],
+          name: state.uri.queryParameters['name'],
+          isOnline: state.uri.queryParameters['isOnline'] == 'true',
+        ),
+      ),
+      GoRoute(
+        path: '/queued',
+        builder: (context, state) => const QueuedCommandsScreen(),
       ),
       GoRoute(
         path: '/node/:id',

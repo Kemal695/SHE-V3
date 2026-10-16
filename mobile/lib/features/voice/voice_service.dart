@@ -20,6 +20,8 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/network/ws_client.dart' show wsConnectedProvider;
+import '../../core/offline/command_queue.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';
@@ -341,10 +343,32 @@ class VoiceService {
           return (intent: intent, message: "I didn't catch which device.");
         }
         final on = intent.action == VoiceAction.turnOn;
-        await nodeService.writeParams(device.nodeId, device.deviceId, {'Power': on});
+        // Same offline-tolerant path a manual toggle uses: with no cloud link
+        // this tries LOCAL control over Wi-Fi (a real switch), then queues. Voice
+        // is therefore no longer the one control that dies when the internet does.
+        final outcome = await ref
+            .read(commandQueueProvider.notifier)
+            .sendOrQueue(
+              nodeId: device.nodeId,
+              deviceId: device.deviceId,
+              params: {'Power': on},
+              label: '${device.label} · ${on ? 'On' : 'Off'}',
+              deviceName: device.deviceName,
+            );
+        if (outcome == SendOutcome.queued) {
+          return (
+            intent: intent,
+            message: '${on ? 'On' : 'Off'}: ${device.label} (queued)',
+          );
+        }
         // Keep every surface consistent with the write, exactly as the manual
         // toggle does — otherwise the card still shows the old state.
-        ref.invalidate(nodeDeviceParamsProvider('${device.nodeId}|${device.deviceId}'));
+        // Skipped after a LOCAL send: the cloud is unreachable, so this refetch
+        // could only fail (and would blank any screen reading it).
+        if (ref.read(wsConnectedProvider)) {
+          ref.invalidate(
+              nodeDeviceParamsProvider('${device.nodeId}|${device.deviceId}'));
+        }
         return (
           intent: intent,
           message: '${on ? 'On' : 'Off'}: ${device.label}',
@@ -363,6 +387,36 @@ class VoiceService {
         }
         if (nodes.isEmpty) {
           return (intent: intent, message: 'No ${_label(group)} found.');
+        }
+        if (!ref.read(wsConnectedProvider)) {
+          // Offline: there is no group endpoint to call. Command each matching
+          // device through the local-first path instead, so "all the lights"
+          // still works — locally if the board is on the Wi-Fi, else queued.
+          var sent = 0;
+          var queued = 0;
+          for (final d in ctx.devices) {
+            if (!_inGroup(d, group)) continue;
+            final outcome = await ref
+                .read(commandQueueProvider.notifier)
+                .sendOrQueue(
+                  nodeId: d.nodeId,
+                  deviceId: d.deviceId,
+                  params: {'Power': on},
+                  label: '${d.label} · ${on ? 'On' : 'Off'}',
+                  deviceName: d.deviceName,
+                );
+            if (outcome == SendOutcome.queued) {
+              queued++;
+            } else {
+              sent++;
+            }
+          }
+          return (
+            intent: intent,
+            message: '${on ? 'On' : 'Off'}: all ${_label(group)}'
+                '${sent > 0 ? ' ($sent)' : ''}'
+                '${queued > 0 ? ' · $queued queued' : ''}',
+          );
         }
         var total = 0;
         for (final nodeId in nodes) {

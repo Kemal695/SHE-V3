@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_client.dart';
+import '../../core/offline/device_snapshot.dart';
 import '../device_detail/node_service.dart';
 
 final sceneServiceProvider = Provider<SceneService>((ref) => SceneService(ref));
@@ -25,29 +26,56 @@ final homeScenesProvider =
 
 /// Writable devices for a home, flattened as (nodeId, deviceName) pairs so the
 /// editor can offer a picker without caring about node structure.
+///
+/// Falls back to the cached device snapshot when the cloud is unreachable.
+/// Without that the picker is EMPTY offline, which makes "create an automation
+/// with no connection" impossible however good the device-local support is —
+/// and the Devices tab already caches exactly this list.
 final homeDevicesProvider =
     FutureProvider.family<List<SceneDeviceOption>, String>((ref, homeId) async {
-  final nodes = await ref.read(nodeServiceProvider).listNodesByHome(homeId);
-  final out = <SceneDeviceOption>[];
-  for (final n in nodes) {
-    final nodeId = n['id']?.toString();
-    final nodeName = n['node_id']?.toString() ?? nodeId ?? 'node';
-    if (nodeId == null) continue;
-    final devices = await ref.read(nodeServiceProvider).listDevices(nodeId);
-    for (final d in devices) {
-      final name = d['device_name']?.toString();
-      if (name == null) continue;
-      out.add(SceneDeviceOption(
-        nodeId: nodeId,
-        nodeName: nodeName,
-        deviceName: name,
-        deviceType: d['device_type']?.toString() ?? '',
-        deviceId: d['id']?.toString() ?? '',
-        displayName: (d['display_name'] ?? d['displayName'] ?? '').toString(),
-      ));
+  try {
+    final nodes = await ref.read(nodeServiceProvider).listNodesByHome(homeId);
+    final out = <SceneDeviceOption>[];
+    for (final n in nodes) {
+      final nodeId = n['id']?.toString();
+      final nodeName = n['node_id']?.toString() ?? nodeId ?? 'node';
+      if (nodeId == null) continue;
+      final devices = await ref.read(nodeServiceProvider).listDevices(nodeId);
+      for (final d in devices) {
+        final name = d['device_name']?.toString();
+        if (name == null) continue;
+        out.add(SceneDeviceOption(
+          nodeId: nodeId,
+          nodeName: nodeName,
+          deviceName: name,
+          deviceType: d['device_type']?.toString() ?? '',
+          deviceId: d['id']?.toString() ?? '',
+          displayName: (d['display_name'] ?? d['displayName'] ?? '').toString(),
+        ));
+      }
     }
+    if (out.isNotEmpty) return out;
+  } catch (_) {
+    // Fall through to the snapshot.
   }
-  return out;
+
+  final cached = readDeviceSnapshot(homeId);
+  if (cached == null) return const [];
+  return [
+    for (final row in cached)
+      if (row['raw'] is Map)
+        SceneDeviceOption(
+          nodeId: row['nodeId']?.toString() ?? '',
+          // The node's own id is not part of the row; the nodeId is the stable
+          // handle the action uses, so reusing it keeps the option usable.
+          nodeName: row['nodeId']?.toString() ?? 'node',
+          deviceName: ((row['raw'] as Map)['device_name'] ?? '').toString(),
+          deviceType: ((row['raw'] as Map)['device_type'] ?? '').toString(),
+          deviceId: row['deviceId']?.toString() ?? '',
+          displayName:
+              ((row['raw'] as Map)['display_name'] ?? '').toString(),
+        ),
+  ];
 });
 
 /// One selectable device in the scene editor.

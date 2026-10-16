@@ -21,6 +21,7 @@
 // dashboard no longer renders its own — it is a tab body, not a whole screen.
 // =============================================================================
 
+import 'package:dio/dio.dart' show Dio, BaseOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,6 +90,60 @@ final homeClimateProvider =
     return (temp: temp, humidity: humidity);
   },
 );
+
+// -----------------------------------------------------------------------------
+// Weather — current conditions for the home's city, for the dashboard's weather
+// block. Sourced from Open-Meteo (keyless) via a DEDICATED Dio with no
+// interceptors, so the app's JWT is never sent to a third party. Returns null
+// (and the card shows a neutral placeholder) whenever it is unreachable.
+// -----------------------------------------------------------------------------
+typedef _WeatherNow = ({double? tempC, double? humidity, int code});
+
+/// Addis Ababa — the app is Ethiopia-only (ADR-010).
+const double _weatherLat = 9.03;
+const double _weatherLon = 38.74;
+
+final _weatherProvider = FutureProvider<_WeatherNow?>((ref) async {
+  try {
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 6),
+      receiveTimeout: const Duration(seconds: 6),
+    ));
+    final r = await dio.get(
+      'https://api.open-meteo.com/v1/forecast',
+      queryParameters: {
+        'latitude': _weatherLat,
+        'longitude': _weatherLon,
+        'current': 'temperature_2m,relative_humidity_2m,weather_code',
+        'timezone': 'Africa/Addis_Ababa',
+      },
+    );
+    final data = r.data;
+    if (data is! Map) return null;
+    final cur = data['current'];
+    if (cur is! Map) return null;
+    return (
+      tempC: (cur['temperature_2m'] as num?)?.toDouble(),
+      humidity: (cur['relative_humidity_2m'] as num?)?.toDouble(),
+      code: (cur['weather_code'] as num?)?.toInt() ?? 0,
+    );
+  } catch (_) {
+    return null;
+  }
+});
+
+/// WMO weather code → (icon, short label). https://open-meteo.com/en/docs
+(IconData, String) _weatherVisual(int code) {
+  if (code == 0) return (Icons.wb_sunny_outlined, 'Clear');
+  if (code <= 3) return (Icons.wb_cloudy_outlined, 'Partly cloudy');
+  if (code == 45 || code == 48) return (Icons.foggy, 'Fog');
+  if (code >= 51 && code <= 57) return (Icons.grain, 'Drizzle');
+  if (code >= 61 && code <= 67) return (Icons.water_drop_outlined, 'Rain');
+  if (code >= 71 && code <= 77) return (Icons.ac_unit, 'Snow');
+  if (code >= 80 && code <= 82) return (Icons.water_drop, 'Showers');
+  if (code >= 95) return (Icons.thunderstorm_outlined, 'Thunderstorm');
+  return (Icons.wb_cloudy_outlined, 'Cloudy');
+}
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -207,6 +262,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
 
+        // ---- weather (design sheet: dashboard carries a weather block) ----
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+                V3Spacing.md, V3Spacing.md, V3Spacing.md, 0),
+            child: _WeatherCard(),
+          ),
+        ),
+
         // ---- scenes row ----
         SliverToBoxAdapter(
           child: Padding(
@@ -249,6 +313,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
 
         // ---- devices section ----
+        // No per-device list on the home page (user request 2026-10-10): the
+        // dashboard shows GROUPS instead, and the Groups section below is where
+        // you act on devices. This header links to the Devices tab, which is the
+        // one place that lists and toggles individual devices.
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -272,9 +340,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           )
         else
-          // The per-board "R24 test board" card is replaced by a climate card
-          // (temperature + humidity). Boards/devices are reached from the
-          // Devices tab, so the dashboard no longer duplicates a board tile.
+          // Indoor climate (temperature + humidity) from the home's sensors.
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: V3Spacing.md),
@@ -1639,3 +1705,88 @@ class _EnergyMiniCard extends ConsumerWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Weather card — current conditions for Addis Ababa. Placeholder-safe: shows
+// "—" while loading and when the source is unreachable.
+// -----------------------------------------------------------------------------
+class _WeatherCard extends ConsumerWidget {
+  const _WeatherCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(_weatherProvider);
+    final w = async.valueOrNull;
+    final (icon, label) = _weatherVisual(w?.code ?? 3);
+
+    final temp = w?.tempC;
+    final headline = temp == null ? '—' : '${temp.toStringAsFixed(0)}°C · $label';
+    final humidity = w?.humidity;
+
+    return Container(
+      padding: const EdgeInsets.all(V3Spacing.md),
+      decoration: BoxDecoration(
+        color: V3Colors.surface,
+        borderRadius: BorderRadius.circular(V3Radius.xl),
+        border: Border.all(color: V3Colors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: V3Colors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(V3Radius.md),
+            ),
+            child: Icon(icon, size: 22, color: V3Colors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.location_on_outlined,
+                        size: 12, color: V3Colors.text2),
+                    SizedBox(width: 3),
+                    Text('Addis Ababa',
+                        style: TextStyle(
+                            color: V3Colors.text2, fontSize: V3Typography.meta)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  headline,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: V3Colors.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (humidity != null)
+            Row(
+              children: [
+                const Icon(Icons.water_drop_outlined,
+                    size: 14, color: V3Colors.text2),
+                const SizedBox(width: 4),
+                Text(
+                  '${humidity.toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                      color: V3Colors.text2, fontSize: V3Typography.meta),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+

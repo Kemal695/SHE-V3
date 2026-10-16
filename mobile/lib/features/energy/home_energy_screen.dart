@@ -174,7 +174,14 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
                   title: 'Energy unavailable',
                   body: '$e',
                   actionLabel: 'Retry',
-                  onAction: () => ref.invalidate(_homeEnergyProvider(_homeId)),
+                  // [_homeEnergyProvider] awaits `homeNodesProvider`, and Riverpod
+                  // CACHES a provider's failure — invalidating only the downstream
+                  // one re-throws that same cached error, so Retry never worked.
+                  // Clear the upstream provider as well.
+                  onAction: () {
+                    ref.invalidate(homeNodesProvider(_homeId));
+                    ref.invalidate(_homeEnergyProvider(_homeId));
+                  },
                 ),
               ],
             ),

@@ -170,5 +170,108 @@
   "unread": "unread",
   "markAllRead": "Mark all read",
   "noNotifications": "No notifications yet",
-  "activate": "Activate"
+  "activate": "Activate",
+
+  "otaTitle": "Firmware update",
+  "otaSubtitle": "Check for and install device updates",
+  "otaDevices": "Devices",
+  "otaUpdating": "Updating firmware",
+  "@otaUpdating": {
+    "description": "Headline shown while a rollout is in progress"
+  },
+  "otaRollingOut": "Version {version} is rolling out. Keep the devices powered on.",
+  "@otaRollingOut": {
+    "description": "Body shown while a rollout is in progress",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaUpToDate": "Up to date",
+  "otaAllRunning": "Every device is running {version}.",
+  "@otaAllRunning": {
+    "description": "Body shown when a rollout completed",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaNoneAvailable": "No firmware updates are available.",
+  "otaReadyToInstall": "Version {version} is ready to install.",
+  "@otaReadyToInstall": {
+    "description": "Body shown when a batch exists but has not been started",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaRolloutIncomplete": "The rollout did not complete.",
+  "otaAdminHint": "An admin can start a new rollout from the admin console.",
+  "otaNoDevicesTitle": "No devices",
+  "otaNoDevicesBody": "Devices appear here once they report to this home.",
+  "otaDeviceFallback": "Device",
+  "otaUnknown": "Unknown",
+  "otaFirmware": "Firmware {version}",
+  "@otaFirmware": {
+    "description": "Per-device line showing the installed firmware version",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaAbort": "Abort rollout",
+  "otaInstall": "Install {version}",
+  "@otaInstall": {
+    "description": "Primary button that starts a rollout",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.4.0"
+      }
+    }
+  },
+  "otaStatusUpdated": "Updated",
+  "otaStatusUpdating": "Updating",
+  "otaStatusWaitingApproval": "Waiting for approval",
+  "otaStatusApproved": "Approved",
+  "otaStatusDeclined": "Declined",
+  "otaStatusFailed": "Failed",
+  "otaStatusUpToDate": "Up to date",
+  "otaUpdateFailed": "Update failed",
+  "otaUpdateAborted": "Update aborted",
+  "gateTitle": "Gate control",
+  "gateSubtitle": "Open, close or stop the gate",
+  "gateOpen": "Open",
+  "gateClose": "Close",
+  "gateStop": "Stop",
+  "gateStatusOpen": "Open",
+  "gateStatusClosed": "Closed",
+  "gateStatusStopped": "Stopped",
+  "gateStatusIdle": "Idle",
+  "gateStatusUnknown": "Unknown",
+  "gateStatusOpening": "Opening…",
+  "gateStatusClosing": "Closing…",
+  "gateStatusStopping": "Stopping…",
+  "gateCurrentState": "Current state",
+  "gateCommandQueued": "Command sent",
+  "gateOffline": "{name} is offline — the command was not sent.",
+  "gateCommandError": "Gate command failed: {error}",
+  "offlineTitle": "You're offline",
+  "offlineBody": "Showing cached data. We'll reconnect automatically.",
+  "offlineRetry": "Retry",
+  "offlineDismiss": "Dismiss",
+  "queuedTitle": "Queued commands",
+  "queuedSubtitle": "Waiting to send when you're back online",
+  "queuedEmptyTitle": "Nothing queued",
+  "queuedEmptyBody": "Commands you send while offline wait here and go out automatically.",
+  "queuedSendAll": "Send all",
+  "queuedClear": "Clear"
 }

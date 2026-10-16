@@ -20,6 +20,7 @@ import '../../core/widgets/she_kit.dart';
 import '../../l10n/app_localizations.dart';
 import '../dashboard/dashboard_screen.dart' show homeNodesProvider;
 import '../device_detail/node_service.dart';
+import 'notification_service.dart';
 import 'notification_store.dart';
 
 /// Resolves the user's first home so node names can be looked up.
@@ -71,6 +72,26 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   /// 'all' | 'system' | 'devices' | 'security'
   String _filter = 'all';
 
+  @override
+  void initState() {
+    super.initState();
+    // Pull the persisted inbox once, so history that predates this session (and
+    // anything that arrived while the app was closed) shows up. The live
+    // WS-derived store keeps feeding the list from then on.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadServerHistory());
+  }
+
+  Future<void> _loadServerHistory() async {
+    try {
+      final rows = await ref.read(notificationServiceProvider).recent();
+      if (!mounted || rows.isEmpty) return;
+      ref.read(notificationStoreProvider.notifier).merge(rows);
+    } catch (_) {
+      // Offline, or a backend without the endpoint yet — the live-derived list
+      // stands on its own.
+    }
+  }
+
   bool _matches(AppNotification n) => switch (_filter) {
         'system' => n.category == NotificationCategory.system,
         'devices' => n.category == NotificationCategory.devices,
@@ -109,8 +130,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                   : SHEIconButton(
                       icon: Icons.done_all,
                       semanticLabel: l?.markAllRead ?? 'Mark all read',
-                      onPressed: () =>
-                          ref.read(notificationStoreProvider.notifier).markAllRead(),
+                      onPressed: () {
+                        ref
+                            .read(notificationStoreProvider.notifier)
+                            .markAllRead();
+                        // Mirror to the server so other devices agree (best-effort).
+                        ref
+                            .read(notificationServiceProvider)
+                            .markAllRead()
+                            .catchError((_) {});
+                      },
                     ),
             ),
 
@@ -169,9 +198,17 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                           n: n,
                           // Substitute the real node name where we have one.
                           resolvedTitle: _titleFor(n, nodeNames),
-                          onTap: () => ref
-                              .read(notificationStoreProvider.notifier)
-                              .markRead(n.id),
+                          onTap: () {
+                            ref
+                                .read(notificationStoreProvider.notifier)
+                                .markRead(n.id);
+                            // Best-effort server mirror (a no-op for a purely
+                            // local id — the endpoint returns 204 regardless).
+                            ref
+                                .read(notificationServiceProvider)
+                                .markRead(n.id)
+                                .catchError((_) {});
+                          },
                         );
                       },
                     ),

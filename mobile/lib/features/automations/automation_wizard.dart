@@ -16,6 +16,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_error.dart';
+import '../../core/offline/offline_automations.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
@@ -419,33 +421,87 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
 
     setState(() => _saving = true);
     try {
-      final svc = ref.read(automationServiceProvider);
       final e = widget.existing;
-      if (e == null) {
-        await svc.createAutomation(
-          widget.homeId,
-          name: name,
-          trigger: trigger,
-          actions: actions,
+      if (e != null) {
+        // Editing: same offline treatment as creating — cloud first, otherwise
+        // apply it to the device and queue the change. Going straight to the
+        // cloud made Save die on a 10 s Dio timeout with no connection.
+        final res = await ref.read(offlineAutomationServiceProvider).update(
+              existing: e,
+              homeId: widget.homeId,
+              name: name,
+              trigger: trigger,
+              actions: actions,
+            );
+        if (!mounted) return;
+        if (res.outcome == AutomationSaveOutcome.cloud) {
+          Navigator.of(context).pop(true);
+          return;
+        }
+        if (res.outcome == AutomationSaveOutcome.device) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.message),
+              duration: const Duration(seconds: 6),
+            ),
+          );
+          Navigator.of(context).pop(true);
+          return;
+        }
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: V3Colors.errorAlt,
+            content: Text(res.message),
+          ),
         );
-      } else {
-        // Send the rule too — otherwise "Edit" could only rename.
-        await svc.updateAutomation(
-          e.id,
-          name: name,
-          trigger: trigger,
-          actions: actions,
-        );
+        return;
       }
+
+      // Creating. The offline service tries the cloud first; with no link it
+      // writes a device-local schedule so the rule still runs (see
+      // OfflineAutomationService).
+      final res = await ref.read(offlineAutomationServiceProvider).create(
+            homeId: widget.homeId,
+            name: name,
+            trigger: trigger,
+            actions: actions,
+          );
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+
+      if (res.outcome == AutomationSaveOutcome.cloud) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+      if (res.outcome == AutomationSaveOutcome.device) {
+        // Say so explicitly — the rule lives on the device, not the cloud yet.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res.message),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        Navigator.of(context).pop(true);
+        return;
+      }
+
+      // Offline and not expressible on the device, or the board refused it.
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: V3Colors.errorAlt,
+          content: Text(res.message),
+        ),
+      );
     } catch (err) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: V3Colors.errorAlt,
-          content: Text('Could not save: $err'),
+          // Never dump a raw DioException at the user — that is how "Could not
+          // save: DioException [connection timeout]…" reached the screen.
+          content: Text('Could not save: ${apiErrorMessage(err)}'),
         ),
       );
     }

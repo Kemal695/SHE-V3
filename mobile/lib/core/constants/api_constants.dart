@@ -63,6 +63,24 @@ class ApiConstants {
 
   // OTA (V3-API-SPECIFICATION §9)
   static String otaBatches(String homeId) => '$apiPrefix/homes/$homeId/ota/batches';
+  static String otaBatch(String batchId) => '$apiPrefix/ota/batches/$batchId';
+  static String otaBatchStart(String batchId) =>
+      '$apiPrefix/ota/batches/$batchId/start';
+  static String otaBatchAbort(String batchId) =>
+      '$apiPrefix/ota/batches/$batchId/abort';
+  static String otaBatchApprovals(String batchId) =>
+      '$apiPrefix/ota/batches/$batchId/approvals';
+  static String otaApprovalApprove(String approvalId) =>
+      '$apiPrefix/ota/approvals/$approvalId/approve';
+  static String otaApprovalDecline(String approvalId) =>
+      '$apiPrefix/ota/approvals/$approvalId/decline';
+
+  // Notifications (V3-API-SPECIFICATION §12)
+  static const String notificationsRecent = '$apiPrefix/notifications/recent';
+  static const String notificationsUnreadCount =
+      '$apiPrefix/notifications/unread-count';
+  static const String notificationsReadAll = '$apiPrefix/notifications/read-all';
+  static String notificationRead(String id) => '$apiPrefix/notifications/$id/read';
 
   // Payments + subscriptions (V3-PAYMENTS §3, ADR-005)
   static const String paymentsInitiate = '$apiPrefix/payments/initiate';
