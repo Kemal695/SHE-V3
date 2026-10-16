@@ -290,6 +290,10 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
           ),
           data: (items) {
             final enabledN = items.where((a) => a.enabled).length;
+            // Phones: the existing single-column list. Tablets/foldables: the
+            // same cards in a 3/4-up grid (audit screens #24/#25).
+            final cols = V3Breakpoints.gridColumns(context);
+            final visible = _visible(items);
             return RefreshIndicator(
               color: V3Colors.primary,
               backgroundColor: V3Colors.surface,
@@ -313,11 +317,21 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                   const SizedBox(height: V3Spacing.md),
                   if (items.isEmpty)
                     _emptyCard()
-                  else
-                    for (final a in _visible(items)) ...[
+                  else if (cols == 1)
+                    for (final a in visible) ...[
                       _automationCard(a),
                       const SizedBox(height: V3Spacing.sm),
-                    ],
+                    ]
+                  else
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: cols,
+                      mainAxisSpacing: V3Spacing.sm,
+                      crossAxisSpacing: V3Spacing.sm,
+                      childAspectRatio: 2.0,
+                      children: [for (final a in visible) _automationCard(a)],
+                    ),
                 ],
               ),
             );

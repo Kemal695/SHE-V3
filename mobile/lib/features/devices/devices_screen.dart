@@ -488,31 +488,52 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                       if (p is bool) queuedOn[c.deviceId] = p;
                     }
 
-                    return ListView.separated(
+                    // Phones keep the single-column list; tablets/foldables get a
+                    // multi-column grid of the same tiles (audit #24/#25).
+                    final cols = V3Breakpoints.gridColumns(context);
+
+                    Widget tileAt(int i) {
+                      final row = list[i];
+                      // A gate is not an on/off relay — it is driven by
+                      // Open/Close/Stop. Route it to the dedicated Gate control
+                      // screen (#8) instead of a Power toggle.
+                      if (row.kind == 'gate') {
+                        return _GateDeviceTile(row: row);
+                      }
+                      return _DeviceTile(
+                        device: row,
+                        // Pass the optimistic value, not the raw server one, so
+                        // the switch reflects the tap immediately.
+                        isOn: _effectiveOn(row, liveOn, queuedOn, wsOn),
+                        queued: queuedOn.containsKey(row.deviceId),
+                        onToggle: () =>
+                            _toggle(row, _effectiveOn(row, liveOn, queuedOn, wsOn)),
+                      );
+                    }
+
+                    if (cols == 1) {
+                      return ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(
+                            V3Spacing.md, V3Spacing.sm, V3Spacing.md, V3Spacing.xxl),
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, i) => tileAt(i),
+                      );
+                    }
+
+                    return GridView.builder(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(
                           V3Spacing.md, V3Spacing.sm, V3Spacing.md, V3Spacing.xxl),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 2.4,
+                      ),
                       itemCount: list.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: 10),
-                      itemBuilder: (context, i) {
-                        final row = list[i];
-                        // A gate is not an on/off relay — it is driven by
-                        // Open/Close/Stop. Route it to the dedicated Gate control
-                        // screen (#8) instead of a Power toggle.
-                        if (row.kind == 'gate') {
-                          return _GateDeviceTile(row: row);
-                        }
-                        return _DeviceTile(
-                          device: row,
-                          // Pass the optimistic value, not the raw server one, so
-                          // the switch reflects the tap immediately.
-                          isOn: _effectiveOn(row, liveOn, queuedOn, wsOn),
-                          queued: queuedOn.containsKey(row.deviceId),
-                          onToggle: () => _toggle(
-                              row, _effectiveOn(row, liveOn, queuedOn, wsOn)),
-                        );
-                      },
+                      itemBuilder: (context, i) => tileAt(i),
                     );
                   },
                 ),

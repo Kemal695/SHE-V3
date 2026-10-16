@@ -414,7 +414,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 // asked for the identical card, so the tile is _sceneCard's
                 // shape verbatim (icon tile, name, count, corner bloom).
                 GridView.count(
-                  crossAxisCount: 2,
+                  // 2-up on phones, 3-up on tablets, 4-up on foldables
+                  // (audit screens #24/#25).
+                  crossAxisCount:
+                      switch (V3Breakpoints.sizeClass(context)) {
+                    V3SizeClass.compact => 2,
+                    V3SizeClass.medium => 3,
+                    V3SizeClass.expanded => 4,
+                  },
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   mainAxisSpacing: V3Spacing.sm,

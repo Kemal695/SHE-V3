@@ -166,11 +166,50 @@ class V3FontFamily {
   static const mono = 'JetBrainsMono';
 }
 
-// Bento grid breakpoints (V3-DESIGN-SYSTEM §1.9)
+// Responsive breakpoints (V3-DESIGN-SYSTEM §1.9 / ADR-009)
+//
+// Single source of truth for "how wide is the app right now". Screens read
+// V3Breakpoints.sizeClass(context) / .gridColumns(context) instead of
+// hand-rolling MediaQuery width checks (which had drifted between screens).
+enum V3SizeClass {
+  /// Phones — the existing single-column layout (unchanged).
+  compact,
+
+  /// Small tablets / large phones — 3-column grids (audit screen #24).
+  medium,
+
+  /// Foldables / desktop — 4-column grids (audit screen #25).
+  expanded,
+}
+
 class V3Breakpoints {
-  static const mobile = 600.0;    // ≤ 600px = 2 columns
-  static const tablet = 900.0;     // 600-900px = 3 columns
-  // ≥ 900px = 4 columns (desktop/foldable)
+  static const mobile = 600.0;    // < 600px = compact (phone)
+  static const tablet = 900.0;    // 600-900px = medium (tablet)
+  // ≥ 900px = expanded (foldable / desktop)
+
+  static V3SizeClass sizeClass(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    if (w < mobile) return V3SizeClass.compact;
+    if (w < tablet) return V3SizeClass.medium;
+    return V3SizeClass.expanded;
+  }
+
+  /// True once the app is wide enough to swap the bottom nav for a side rail.
+  static bool isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= mobile;
+
+  /// Column count for the list/grid screens: 1 on phones (keeps the existing
+  /// list layout), 3 on tablets, 4 on foldables/desktop.
+  static int gridColumns(BuildContext context) {
+    switch (sizeClass(context)) {
+      case V3SizeClass.compact:
+        return 1;
+      case V3SizeClass.medium:
+        return 3;
+      case V3SizeClass.expanded:
+        return 4;
+    }
+  }
 }
 
 // Typography scale (V3-DESIGN-SYSTEM §1.3)

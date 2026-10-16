@@ -131,10 +131,32 @@ class _AppShellState extends State<AppShell> {
         // "Back closes the app / logs me out". dashboard_screen.dart:93-106
         // documents the same trap from the other direction.
       },
-      child: Scaffold(
-        backgroundColor: V3Colors.background,
-        body: shell,
-        bottomNavigationBar: _SHEBottomNav(navigationShell: shell),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Wide (tablet / foldable / desktop): move the five destinations into
+          // a side rail and let the active branch fill the remaining width.
+          // Narrow (phone): keep the prototype's bottom nav untouched.
+          final wide = constraints.maxWidth >= V3Breakpoints.mobile;
+
+          return Scaffold(
+            backgroundColor: V3Colors.background,
+            body: wide
+                ? Row(
+                    children: [
+                      _SHENavRail(navigationShell: shell),
+                      const VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: V3Colors.border,
+                      ),
+                      Expanded(child: shell),
+                    ],
+                  )
+                : shell,
+            bottomNavigationBar:
+                wide ? null : _SHEBottomNav(navigationShell: shell),
+          );
+        },
       ),
     );
   }
@@ -194,29 +216,8 @@ class _TabButton extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
-  /// Localised label for the tab.
-  ///
-  /// Uses the dedicated `nav*` keys. These were added because the tabs used to
-  /// reuse unrelated strings, which made the bar actively misleading:
-  /// Home rendered "My Home", the Automations tab rendered "Scenes", and the
-  /// More tab rendered "Settings" — so tapping "Settings" opened the More hub
-  /// and looked like a broken/blank screen.
-  ///
-  /// (The keys are hand-written into the generated AppLocalizations classes
-  /// because `flutter gen-l10n` cannot run on this host — Dart spawns piped
-  /// children and dies with ERROR_PIPE_BUSY. Keep the three files in sync if
-  /// these are ever regenerated.)
-  String _label(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    if (l == null) return tab.label;
-    return switch (tab) {
-      ShellTab.home => l.navHome,
-      ShellTab.devices => l.navDevices,
-      ShellTab.automations => l.navAutomations,
-      ShellTab.energy => l.navEnergy,
-      ShellTab.more => l.navMore,
-    };
-  }
+  /// Localised label for the tab (see [_shellTabLabel]).
+  String _label(BuildContext context) => _shellTabLabel(context, tab);
 
   @override
   Widget build(BuildContext context) {
@@ -262,6 +263,78 @@ class _TabButton extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Localised label for a shell tab, shared by the bottom nav and the wide-screen
+/// rail.
+///
+/// Uses the dedicated `nav*` keys. These were added because the tabs used to
+/// reuse unrelated strings, which made the bar actively misleading:
+/// Home rendered "My Home", the Automations tab rendered "Scenes", and the
+/// More tab rendered "Settings" — so tapping "Settings" opened the More hub
+/// and looked like a broken/blank screen.
+///
+/// (The keys are hand-written into the generated AppLocalizations classes
+/// because `flutter gen-l10n` cannot run on this host — Dart spawns piped
+/// children and dies with ERROR_PIPE_BUSY. Keep the three files in sync if
+/// these are ever regenerated.)
+String _shellTabLabel(BuildContext context, ShellTab tab) {
+  final l = AppLocalizations.of(context);
+  if (l == null) return tab.label;
+  return switch (tab) {
+    ShellTab.home => l.navHome,
+    ShellTab.devices => l.navDevices,
+    ShellTab.automations => l.navAutomations,
+    ShellTab.energy => l.navEnergy,
+    ShellTab.more => l.navMore,
+  };
+}
+
+/// Wide-screen counterpart to [_SHEBottomNav]: the same five destinations in a
+/// Material 3 [NavigationRail], shown once the window is at least
+/// [V3Breakpoints.mobile] wide (tablet / foldable / desktop). Keeps the app's
+/// dark palette so the rail reads as chrome rather than a Material default.
+class _SHENavRail extends StatelessWidget {
+  const _SHENavRail({required this.navigationShell});
+
+  final StatefulNavigationShell navigationShell;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = ShellTab.values;
+    final current = navigationShell.currentIndex;
+
+    return NavigationRail(
+      backgroundColor: const Color(0xF20E2039), // matches the bottom nav
+      selectedIndex: current,
+      onDestinationSelected: (i) => navigationShell.goBranch(
+        i,
+        initialLocation: i == current,
+      ),
+      labelType: NavigationRailLabelType.all,
+      indicatorColor: V3Colors.primary.withValues(alpha: 0.15),
+      selectedIconTheme: const IconThemeData(color: V3Colors.primary, size: 22),
+      unselectedIconTheme: const IconThemeData(color: V3Colors.dim, size: 22),
+      selectedLabelTextStyle: const TextStyle(
+        color: V3Colors.primary,
+        fontSize: V3Typography.navLabel,
+        fontWeight: FontWeight.w600,
+      ),
+      unselectedLabelTextStyle: const TextStyle(
+        color: V3Colors.dim,
+        fontSize: V3Typography.navLabel,
+        fontWeight: FontWeight.w500,
+      ),
+      destinations: [
+        for (final t in tabs)
+          NavigationRailDestination(
+            icon: Icon(t.icon),
+            selectedIcon: Icon(t.activeIcon),
+            label: Text(_shellTabLabel(context, t)),
+          ),
+      ],
     );
   }
 }

@@ -173,10 +173,15 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                   padding: const EdgeInsets.fromLTRB(
                       V3Spacing.md, V3Spacing.sm, V3Spacing.md, V3Spacing.md),
                   sliver: SliverGrid(
-                    // 2-up grid, matching the design sheet (panel 11).
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
+                    // 2-up on phones (design sheet panel 11); 3-up on tablets
+                    // and 4-up on foldables/desktop (audit screens #24/#25).
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount:
+                          switch (V3Breakpoints.sizeClass(context)) {
+                        V3SizeClass.compact => 2,
+                        V3SizeClass.medium => 3,
+                        V3SizeClass.expanded => 4,
+                      },
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
                       childAspectRatio: 1.02,
