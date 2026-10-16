@@ -13,6 +13,8 @@
 // which is already exercised by the dashboard and the device-detail screen.
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -269,6 +271,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   String _query = '';
   String _filter = 'all';
 
+  /// While the cloud link is DOWN, polls the board's `/she/info` so a PHYSICAL
+  /// wall-switch flip shows up here — offline there is no push channel.
+  Timer? _localPoll;
+
   @override
   void initState() {
     super.initState();
@@ -277,10 +283,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     if (initial == null || initial.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _resolveHome());
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncLocalPoll());
   }
 
   @override
   void dispose() {
+    _localPoll?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -293,6 +301,48 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final id = await resolveActiveHomeId(ref);
     if (id != null && mounted && id != _homeId) {
       setState(() => _homeId = id);
+    }
+  }
+
+  /// Run the offline board poll ONLY while the cloud link is down.
+  void _syncLocalPoll() {
+    if (!mounted) return;
+    if (ref.read(wsConnectedProvider)) {
+      _localPoll?.cancel();
+      _localPoll = null;
+      return;
+    }
+    _localPoll ??= Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => unawaited(_pollBoard()),
+    );
+    unawaited(_pollBoard()); // first read immediately
+  }
+
+  /// Push every device's board-REPORTED Power into [livePowerProvider].
+  ///
+  /// This is what surfaces a PHYSICAL wall-switch flip while offline: without it
+  /// the app only learns state from its OWN command feedback. Writes are skipped
+  /// when unchanged, so the list does not churn on every poll.
+  Future<void> _pollBoard() async {
+    if (!mounted || ref.read(wsConnectedProvider)) return;
+    final svc = ref.read(localControlServiceProvider);
+    if (!svc.isConfigured) return;
+
+    final byName = await svc.readAllPower();
+    if (byName == null || byName.isEmpty || !mounted) return;
+
+    final rows = ref.read(_homeDevicesFlatProvider(_homeId)).valueOrNull;
+    if (rows == null) return;
+
+    final live = ref.read(livePowerProvider);
+    final notifier = ref.read(livePowerProvider.notifier);
+    for (final r in rows) {
+      final name = r.raw['device_name']?.toString();
+      if (name == null || name.isEmpty) continue;
+      final reported = byName[name];
+      if (reported == null) continue;
+      if (live[r.deviceId] != reported) notifier.set(r.deviceId, reported);
     }
   }
 
@@ -315,6 +365,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     // was restarted. Clear it the moment the live link returns.
     ref.listen(wsConnectedProvider, (prev, next) {
       if (next && prev != true) _retry();
+      // Start/stop the offline board poll with the link state.
+      _syncLocalPoll();
     });
 
     final devicesAsync = ref.watch(_homeDevicesFlatProvider(_homeId));

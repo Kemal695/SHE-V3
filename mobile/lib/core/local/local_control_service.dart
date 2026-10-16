@@ -244,6 +244,44 @@ class LocalControlService {
     return null;
   }
 
+  /// Every device's board-REPORTED Power from ONE `/she/info` call, keyed by
+  /// firmware name.
+  ///
+  /// Used by the offline Devices tab to reflect a PHYSICAL wall-switch flip:
+  /// offline there is no push channel, so without polling the app would only ever
+  /// learn state from its own command feedback.
+  Future<Map<String, bool>?> readAllPower() async {
+    if (!isConfigured) return null;
+    final host = await discoverHost();
+    if (host == null) return null;
+    try {
+      final res = await _client(host).get<dynamic>('/she/info');
+      final data = res.data;
+      if (data is! Map) return null;
+      final devices = data['devices'];
+      if (devices is! List) return null;
+      final out = <String, bool>{};
+      for (final d in devices) {
+        if (d is! Map) continue;
+        final name = d['name']?.toString();
+        if (name == null || name.isEmpty) continue;
+        final params = d['params'];
+        if (params is! List) continue;
+        for (final p in params) {
+          if (p is Map &&
+              p['name']?.toString() == 'Power' &&
+              p['value'] is bool) {
+            out[name] = p['value'] as bool;
+            break;
+          }
+        }
+      }
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// One device's entry from `/she/info`, or null when it is not on this board.
   Future<Map<String, dynamic>?> _deviceEntry(String deviceName) async {
     if (!isConfigured || deviceName.isEmpty) return null;
