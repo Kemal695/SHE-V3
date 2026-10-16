@@ -7,6 +7,8 @@
 #include "local_ctrl.h"
 #include "she_mqtt.h"
 #include "relay_driver.h"     /* relay_set() / relay_save_state() for the offline control path */
+#include "input_monitor.h"    /* AC-feedback absolute light control — same path as online */
+#include "schedule_store.h"   /* device-local schedules — exposed over /she/schedule */
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
@@ -190,14 +192,32 @@ static esp_err_t handler_ctrl(httpd_req_t *req) {
             p->last_value.val.b = on;
             p->dirty = true;
 
-            esp_err_t err = relay_set(dev->channel, on);
-            if (err != ESP_OK) {
-                ESP_LOGW(TAG, "Local control: relay_set(ch=%d, %s) failed: %s",
-                         dev->channel, on ? "ON" : "OFF", esp_err_to_name(err));
-            } else {
-                ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s",
+#if defined(CONFIG_SHE_R24)
+            /* Mirror handle_params_remote() EXACTLY.
+             *
+             * On the R24 the relay is a TOGGLE (lamp = wall switch XOR relay), so a
+             * blind relay_set() flips the lamp RELATIVE to the wall switch — the
+             * app's "ON" could turn a lamp OFF. Online this is resolved by
+             * consulting the lamp-side AC feedback (input_monitor). The local path
+             * used to call relay_set() directly, so offline control behaved
+             * DIFFERENTLY from online control. */
+            if (input_monitor_is_light_channel(dev->channel)) {
+                input_monitor_set_light_absolute(dev->channel, on);
+                ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s (absolute, AC feedback)",
                          dev->name, dev->channel, on ? "ON" : "OFF");
                 applied++;
+            } else
+#endif
+            {
+                esp_err_t err = relay_set(dev->channel, on);
+                if (err != ESP_OK) {
+                    ESP_LOGW(TAG, "Local control: relay_set(ch=%d, %s) failed: %s",
+                             dev->channel, on ? "ON" : "OFF", esp_err_to_name(err));
+                } else {
+                    ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s",
+                             dev->name, dev->channel, on ? "ON" : "OFF");
+                    applied++;
+                }
             }
         }
     }
@@ -388,6 +408,187 @@ static esp_err_t read_fctry_pem(const char *key, char **out) {
     return err;
 }
 
+/* ---- Local schedules — /she/schedule ---------------------------------------
+ *
+ * The device already runs time-based schedules with no cloud at all
+ * (schedule_store.c: NVS + SNTP + a 5 s tick). Until now they could only be
+ * created over MQTT, so an app with no link could not add one. These endpoints
+ * expose the SAME store locally, which is what makes "create an automation while
+ * offline" possible; the app then syncs the automation to the cloud when the link
+ * returns, and schedule_add() dedups so the two never occupy two slots.
+ *
+ * POST body: {"hour":20,"minute":0,"days_mask":127,"relay":8,"action":1}
+ *   days_mask  bit0=Sun..bit6=Sat, 0x7F=daily, 0=one-shot (omit → daily)
+ *   relay      CHANNEL index — /she/info reports it per device
+ *   action     1 = ON, 0 = OFF
+ */
+
+/* Shared PoP gate for the schedule handlers (the older handlers inline this). */
+static bool sched_pop_ok(httpd_req_t *req) {
+    char pop_header[16] = {0};
+    size_t pop_len = httpd_req_get_hdr_value_len(req, "X-SHE-PoP");
+    if (pop_len > 0 && pop_len < sizeof(pop_header)) {
+        httpd_req_get_hdr_value_str(req, "X-SHE-PoP", pop_header, sizeof(pop_header));
+    }
+    return verify_pop(pop_header, strlen(pop_header));
+}
+
+static esp_err_t sched_unauthorized(httpd_req_t *req) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
+    return ESP_OK;
+}
+
+static esp_err_t handler_schedule_list(httpd_req_t *req) {
+    if (!sched_pop_ok(req)) return sched_unauthorized(req);
+
+    size_t count = 0;
+    const she_sched_t *list = schedule_list(&count);   /* count is the ARRAY size */
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+    for (size_t i = 0; i < count && i < SHE_SCHED_MAX; i++) {
+        if (!list[i].enabled) continue;                /* holes are not schedules */
+        cJSON *s = cJSON_CreateObject();
+        cJSON_AddNumberToObject(s, "index", (double)i);
+        cJSON_AddNumberToObject(s, "hour", list[i].hour);
+        cJSON_AddNumberToObject(s, "minute", list[i].minute);
+        cJSON_AddNumberToObject(s, "days_mask", list[i].days_mask);
+        cJSON_AddNumberToObject(s, "relay", list[i].relay);
+        cJSON_AddNumberToObject(s, "action", list[i].action);
+        cJSON_AddItemToArray(arr, s);
+    }
+    cJSON_AddItemToObject(root, "schedules", arr);
+    cJSON_AddNumberToObject(root, "max", SHE_SCHED_MAX);
+
+    char *resp = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp ? resp : "{\"schedules\":[]}");
+    if (resp) free(resp);
+    return ESP_OK;
+}
+
+static esp_err_t handler_schedule_add(httpd_req_t *req) {
+    if (!sched_pop_ok(req)) return sched_unauthorized(req);
+
+    char buf[256] = {0};
+    int read = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (read <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"empty_body\"}");
+        return ESP_OK;
+    }
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
+        return ESP_OK;
+    }
+
+    cJSON *jh = cJSON_GetObjectItem(root, "hour");
+    cJSON *jm = cJSON_GetObjectItem(root, "minute");
+    cJSON *jd = cJSON_GetObjectItem(root, "days_mask");
+    cJSON *jr = cJSON_GetObjectItem(root, "relay");
+    cJSON *ja = cJSON_GetObjectItem(root, "action");
+
+    if (!cJSON_IsNumber(jh) || !cJSON_IsNumber(jm) ||
+        !cJSON_IsNumber(jr) || !cJSON_IsNumber(ja)) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req,
+            "{\"error\":\"expected hour,minute,relay,action numbers\"}");
+        return ESP_OK;
+    }
+
+    const int hour = jh->valueint, minute = jm->valueint;
+    const int relay = jr->valueint, action = ja->valueint;
+    const int mask = cJSON_IsNumber(jd) ? jd->valueint : SHE_SCHED_EVERY_DAY;
+
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
+        relay < 0 || relay > 23 || mask < 0 || mask > 0x7F ||
+        (action != SHE_SCHED_ACTION_ON && action != SHE_SCHED_ACTION_OFF)) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"out_of_range\"}");
+        return ESP_OK;
+    }
+
+    she_sched_t s = {0};
+    s.hour = (uint8_t)hour;
+    s.minute = (uint8_t)minute;
+    s.days_mask = (uint8_t)mask;
+    s.relay = (uint8_t)relay;
+    s.action = (uint8_t)action;
+
+    int idx = -1;
+    esp_err_t err = schedule_add(&s, &idx);   /* idempotent on content */
+    cJSON_Delete(root);
+
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "507 Insufficient Storage");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"schedule_list_full\"}");
+        return ESP_OK;
+    }
+
+    char resp[80];
+    snprintf(resp, sizeof(resp), "{\"accepted\":true,\"index\":%d}", idx);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp);
+    return ESP_OK;
+}
+
+static esp_err_t handler_schedule_remove(httpd_req_t *req) {
+    if (!sched_pop_ok(req)) return sched_unauthorized(req);
+
+    char buf[128] = {0};
+    int read = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (read <= 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"empty_body\"}");
+        return ESP_OK;
+    }
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
+        return ESP_OK;
+    }
+
+    cJSON *ji = cJSON_GetObjectItem(root, "index");
+    const bool ok = cJSON_IsNumber(ji);
+    const int idx = ok ? ji->valueint : -1;
+    cJSON_Delete(root);
+
+    if (!ok || schedule_remove(idx) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"bad_index\"}");
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"removed\":true}");
+    return ESP_OK;
+}
+
+static esp_err_t handler_schedule_clear(httpd_req_t *req) {
+    if (!sched_pop_ok(req)) return sched_unauthorized(req);
+    schedule_clear_all();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"cleared\":true}");
+    return ESP_OK;
+}
+
 /* ---- Register /she/info + /she/ctrl on a started server ---- */
 static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_info = {
@@ -403,7 +604,27 @@ static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_config = {
         .uri = "/she/config", .method = HTTP_POST, .handler = handler_config,
     };
-    return httpd_register_uri_handler(server, &uri_config);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_config));
+
+    /* Device-local schedules — the offline-automation path. Same store the MQTT
+     * `schedule_add` command drives, so both routes converge (see schedule_add's
+     * content dedup). */
+    httpd_uri_t uri_sched_list = {
+        .uri = "/she/schedule", .method = HTTP_GET, .handler = handler_schedule_list,
+    };
+    httpd_uri_t uri_sched_add = {
+        .uri = "/she/schedule", .method = HTTP_POST, .handler = handler_schedule_add,
+    };
+    httpd_uri_t uri_sched_rm = {
+        .uri = "/she/schedule/remove", .method = HTTP_POST, .handler = handler_schedule_remove,
+    };
+    httpd_uri_t uri_sched_clear = {
+        .uri = "/she/schedule", .method = HTTP_DELETE, .handler = handler_schedule_clear,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_list));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_add));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_rm));
+    return httpd_register_uri_handler(server, &uri_sched_clear);
 }
 
 /* ---- Start HTTPS server (F1 fix: real TLS via esp_https_server) ----
@@ -418,6 +639,13 @@ static esp_err_t start_https_server(void) {
         httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
         conf.httpd.server_port = SHE_MDNS_PORT;
         conf.httpd.ctrl_port = 32768;
+        // The pool is LWIP_MAX_SOCKETS - 3 (= 7 here) and LRU purge is OFF by
+        // default, so once every slot is held the server REFUSES the next
+        // connection — the phone sees "Connection reset by peer" (errno 104) and
+        // local control silently falls back to the queue. Purging the oldest
+        // IDLE socket instead means a stale TLS session can never lock the app
+        // out. (Sockets are also held by MQTT + DNS, so the headroom is small.)
+        conf.httpd.lru_purge_enable = true;
         conf.servercert = (const uint8_t *)cert_pem;
         conf.servercert_len = strlen(cert_pem) + 1;
         conf.prvtkey_pem = (const uint8_t *)key_pem;

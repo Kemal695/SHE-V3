@@ -95,6 +95,46 @@ esp_err_t schedule_add(const she_sched_t *sched, int *out_index) {
     if (sched == NULL) return ESP_ERR_INVALID_ARG;
     if (!s_loaded) schedule_store_init();
 
+    /* Idempotent on CONTENT: (hour, minute, days_mask, relay, action).
+     *
+     * The same schedule can arrive from two directions — the cloud pushes it over
+     * MQTT (`schedule_add`) and the app can now add it over the local HTTPS API
+     * while offline. Without this, the second arrival would take another slot and
+     * the schedule would fire twice at the same minute (harmless, because both
+     * paths drive an absolute ON/OFF, but it burns one of only 8 slots and doubles
+     * the state traffic). Returning the existing index makes both paths converge.
+     *
+     * `enabled` is deliberately NOT part of the key: re-adding a schedule should
+     * re-enable it. */
+    for (int i = 0; i < SHE_SCHED_MAX; i++) {
+        const she_sched_t *e = &s_scheds[i];
+
+        /* A REMOVED slot is memset to zero, so an all-zero entry is a hole, not a
+         * schedule — otherwise a legitimate "00:00, one-shot, relay 0, OFF" would
+         * match it and be silently swallowed. */
+        if (e->enabled == 0 && e->hour == 0 && e->minute == 0 &&
+            e->days_mask == 0 && e->relay == 0 && e->action == 0) {
+            continue;
+        }
+
+        if (e->hour != sched->hour || e->minute != sched->minute ||
+            e->days_mask != sched->days_mask || e->relay != sched->relay ||
+            e->action != sched->action) {
+            continue;
+        }
+
+        /* Refresh in place, but KEEP last_fired_min so a duplicate add cannot
+         * re-fire a minute that has already fired. */
+        const uint32_t fired = e->last_fired_min;
+        s_scheds[i] = *sched;
+        s_scheds[i].enabled = 1;
+        s_scheds[i].reserved = 0;
+        s_scheds[i].last_fired_min = fired;
+        if (out_index) *out_index = i;
+        ESP_LOGI(TAG, "schedule already present -> slot %d (dedup)", i);
+        return schedule_store_save();
+    }
+
     for (int i = 0; i < SHE_SCHED_MAX; i++) {
         if (!s_scheds[i].enabled) {
             s_scheds[i] = *sched;
