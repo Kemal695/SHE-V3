@@ -58,7 +58,7 @@ class SheTheme {
         useMaterial3: true,
         brightness: Brightness.dark,
         scaffoldBackgroundColor: deepNavy,
-        colorScheme: const ColorScheme.dark(
+        colorScheme: ColorScheme.dark(
           primary: brightSkyBlue,
           secondary: brightSkyBlue,
           surface: lighterNavy,
@@ -68,7 +68,7 @@ class SheTheme {
           onSurface: textPrimary,
           onError: Colors.white,
         ),
-        appBarTheme: const AppBarTheme(
+        appBarTheme: AppBarTheme(
           backgroundColor: deepNavy,
           foregroundColor: textPrimary,
           elevation: 0,
@@ -104,10 +104,10 @@ class SheTheme {
             borderSide: BorderSide.none,
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          labelStyle: const TextStyle(color: textSecondary),
-          hintStyle: const TextStyle(color: textMuted),
+          labelStyle: TextStyle(color: textSecondary),
+          hintStyle: TextStyle(color: textMuted),
         ),
-        textTheme: const TextTheme(
+        textTheme: TextTheme(
           headlineLarge: TextStyle(color: textPrimary, fontSize: 28, fontWeight: FontWeight.bold),
           headlineMedium: TextStyle(color: textPrimary, fontSize: 22, fontWeight: FontWeight.w600),
           titleLarge: TextStyle(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w600),

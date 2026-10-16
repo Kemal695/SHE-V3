@@ -162,7 +162,7 @@ class _OfflineBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.cloud_off, size: 20, color: onAmber),
+            Icon(Icons.cloud_off, size: 20, color: onAmber),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -173,7 +173,7 @@ class _OfflineBanner extends StatelessWidget {
                     l?.offlineTitle ?? "You're offline",
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: onAmber,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
