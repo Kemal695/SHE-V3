@@ -22,6 +22,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/network/ws_client.dart' show wsConnectedProvider;
 import '../../core/offline/command_queue.dart';
+import '../../core/offline/device_snapshot.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';
@@ -277,30 +278,42 @@ class VoiceService {
   /// (24 devices on the R24) that one round trip is not worth caching.
   Future<({List<VoiceDevice> devices, List<VoiceScene> scenes})> _loadContext(
       String homeId) async {
-    final nodeService = ref.read(nodeServiceProvider);
-    final nodes = await nodeService.listNodesByHome(homeId);
-
+    // The cloud normally supplies the device list — and with it the firmware
+    // name <-> id mapping that local control needs. Offline it is unreachable,
+    // so fall back to the snapshot the Devices tab caches; without it voice has
+    // nothing to match and every spoken command fails.
     final devices = <VoiceDevice>[];
-    for (final n in nodes) {
-      final nodeId = n['id']?.toString();
-      if (nodeId == null) continue;
-      final list = await nodeService.listDevices(nodeId);
-      for (final d in list) {
-        final deviceId = d['id']?.toString();
-        final name = d['device_name']?.toString();
-        if (deviceId == null || name == null) continue;
-        // Only switch-like devices respond to Power; a sensor would match a
-        // name but have nothing to turn on.
-        final type = d['device_type']?.toString() ?? '';
-        if (type.isNotEmpty && type != 'esp.device.switch') continue;
-        final display = d['display_name']?.toString();
-        devices.add(VoiceDevice(
-          nodeId: nodeId,
-          deviceId: deviceId,
-          deviceName: name,
-          displayName: (display != null && display.trim().isNotEmpty) ? display : null,
-        ));
+    if (ref.read(wsConnectedProvider)) {
+      try {
+        final nodeService = ref.read(nodeServiceProvider);
+        final nodes = await nodeService.listNodesByHome(homeId);
+        for (final n in nodes) {
+          final nodeId = n['id']?.toString();
+          if (nodeId == null) continue;
+          final list = await nodeService.listDevices(nodeId);
+          for (final d in list) {
+            final deviceId = d['id']?.toString();
+            final name = d['device_name']?.toString();
+            if (deviceId == null || name == null) continue;
+            // Only switch-like devices respond to Power; a sensor would match a
+            // name but have nothing to turn on.
+            final type = d['device_type']?.toString() ?? '';
+            if (type.isNotEmpty && type != 'esp.device.switch') continue;
+            final display = d['display_name']?.toString();
+            devices.add(VoiceDevice(
+              nodeId: nodeId,
+              deviceId: deviceId,
+              deviceName: name,
+              displayName:
+                  (display != null && display.trim().isNotEmpty) ? display : null,
+            ));
+          }
+        }
+      } catch (_) {
+        devices.addAll(_devicesFromSnapshot(homeId));
       }
+    } else {
+      devices.addAll(_devicesFromSnapshot(homeId));
     }
 
     final scenes = <VoiceScene>[];
@@ -313,6 +326,30 @@ class VoiceService {
     }
 
     return (devices: devices, scenes: scenes);
+  }
+
+  /// Build the voice device list from the cached device snapshot — the offline
+  /// substitute for the cloud listing (see core/offline/device_snapshot.dart).
+  List<VoiceDevice> _devicesFromSnapshot(String homeId) {
+    final out = <VoiceDevice>[];
+    final rows = readDeviceSnapshot(homeId) ?? const <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final raw = (row['raw'] as Map?)?.cast<String, dynamic>();
+      final deviceId = row['deviceId']?.toString();
+      final name = raw?['device_name']?.toString();
+      if (deviceId == null || name == null) continue;
+      final type = raw?['device_type']?.toString() ?? '';
+      if (type.isNotEmpty && type != 'esp.device.switch') continue;
+      final display = raw?['display_name']?.toString();
+      out.add(VoiceDevice(
+        nodeId: row['nodeId']?.toString() ?? '',
+        deviceId: deviceId,
+        deviceName: name,
+        displayName:
+            (display != null && display.trim().isNotEmpty) ? display : null,
+      ));
+    }
+    return out;
   }
 
   /// Parse [transcript] and perform the resulting action.
