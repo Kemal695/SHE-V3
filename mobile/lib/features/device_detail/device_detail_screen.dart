@@ -97,7 +97,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+          icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
           onPressed: () => context.go('/dashboard'),
         ),
         title: nodeAsync.when(
@@ -107,7 +107,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.bolt_outlined, color: V3Colors.warning),
+            icon:  Icon(Icons.bolt_outlined, color: V3Colors.warning),
             onPressed: () => context.push('/node/${widget.nodeId}/energy'),
             tooltip: 'Energy',
           ),
@@ -119,7 +119,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
       floatingActionButton: const VoiceHoldButton(),
       body: SafeArea(
         child: nodeAsync.when(
-          loading: () => const Center(
+          loading: () =>  Center(
             child: CircularProgressIndicator(
                 color: V3Colors.primary, strokeWidth: 3),
           ),
@@ -129,7 +129,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline,
+                   Icon(Icons.error_outline,
                       size: 48, color: V3Colors.error),
                   const SizedBox(height: V3Spacing.md),
                   Text('Failed to load device',
@@ -144,7 +144,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
           ),
           data: (node) {
             return devicesAsync.when(
-              loading: () => const Center(
+              loading: () =>  Center(
                 child: CircularProgressIndicator(
                     color: V3Colors.primary, strokeWidth: 3),
               ),
@@ -183,7 +183,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
                 Image.asset(
                   'assets/img/home-dusk.png',
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const DecoratedBox(
+                  errorBuilder: (_, __, ___) =>  DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -193,7 +193,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
                     ),
                   ),
                 ),
-                const DecoratedBox(
+                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -215,7 +215,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
                         node['name']?.toString() ?? 'Device',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style:  TextStyle(
                           color: V3Colors.ink,
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
@@ -237,7 +237,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
                           const SizedBox(width: 6),
                           Text(
                             '$sku · ${isOnline ? 'Online' : 'Offline'}',
-                            style: const TextStyle(
+                            style:  TextStyle(
                                 color: V3Colors.text2, fontSize: 12),
                           ),
                         ],
@@ -335,7 +335,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
 
         // ---- Devices section header ----
         Text('Devices (${devices.length})',
-            style: const TextStyle(
+            style:  TextStyle(
               color: V3Colors.textSecondary,
               fontSize: V3Typography.overlineSize,
               fontWeight: FontWeight.w600,
@@ -461,10 +461,10 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: V3Colors.surface,
-        title: const Text('Delete group?',
+        title:  Text('Delete group?',
             style: TextStyle(color: V3Colors.textPrimary)),
         content: Text('Delete "${group['name']}"? The devices are not affected.',
-            style: const TextStyle(color: V3Colors.textSecondary)),
+            style:  TextStyle(color: V3Colors.textSecondary)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -472,7 +472,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child:
-                const Text('Delete', style: TextStyle(color: V3Colors.error)),
+                 Text('Delete', style: TextStyle(color: V3Colors.error)),
           ),
         ],
       ),
@@ -501,7 +501,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
       children: [
         Row(
           children: [
-            const Text('GROUPS',
+             Text('GROUPS',
                 style: TextStyle(
                   color: V3Colors.textSecondary,
                   fontSize: V3Typography.overlineSize,
@@ -511,14 +511,14 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
             const Spacer(),
             TextButton.icon(
               onPressed: () => _openEditor(),
-              icon: const Icon(Icons.add, size: 18, color: V3Colors.primary),
-              label: const Text('New group',
+              icon:  Icon(Icons.add, size: 18, color: V3Colors.primary),
+              label:  Text('New group',
                   style: TextStyle(color: V3Colors.primary, fontSize: 13)),
             ),
           ],
         ),
         groupsAsync.when(
-          loading: () => const Padding(
+          loading: () =>  Padding(
             padding: EdgeInsets.all(V3Spacing.sm),
             child: SizedBox(
                 height: 20,
@@ -529,13 +529,13 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
           error: (e, _) => Padding(
             padding: const EdgeInsets.all(V3Spacing.sm),
             child: Text('Could not load groups: ${apiErrorMessage(e)}',
-                style: const TextStyle(
+                style:  TextStyle(
                     color: V3Colors.error,
                     fontSize: V3Typography.captionSize)),
           ),
           data: (groups) {
             if (groups.isEmpty) {
-              return const Padding(
+              return  Padding(
                 padding: EdgeInsets.only(bottom: V3Spacing.sm),
                 child: Text(
                     'No groups yet — create one to switch several relays '
@@ -621,7 +621,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
                           group['name']?.toString() ?? 'Group',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style:  TextStyle(
                             color: V3Colors.textPrimary,
                             fontWeight: FontWeight.w600,
                             fontSize: V3Typography.titleSize - 4,
@@ -633,7 +633,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
                           '${expanded ? 'hide' : 'control each'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style:  TextStyle(
                             color: V3Colors.textSecondary,
                             fontSize: V3Typography.captionSize,
                           ),
@@ -645,7 +645,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
                   const SizedBox(width: 8),
                   // Action controls
                   if (busy)
-                    const SizedBox(
+                     SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
@@ -662,7 +662,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
                     child: PopupMenuButton<String>(
                       padding: EdgeInsets.zero,
                       iconSize: 20,
-                      icon: const Icon(Icons.more_vert,
+                      icon:  Icon(Icons.more_vert,
                           size: 20, color: V3Colors.textSecondary),
                       onSelected: (v) {
                         if (v == 'edit') _openEditor(existing: group);
@@ -687,7 +687,7 @@ class GroupsSectionState extends ConsumerState<GroupsSection> {
               padding: const EdgeInsets.fromLTRB(
                   V3Spacing.sm, V3Spacing.sm, V3Spacing.sm, V3Spacing.sm),
               child: members.isEmpty
-                  ? const Padding(
+                  ?  Padding(
                       padding:
                           EdgeInsets.symmetric(vertical: V3Spacing.lg),
                       child: Center(
@@ -913,17 +913,17 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(isEdit ? 'Edit group' : 'New group',
-                  style: const TextStyle(
+                  style:  TextStyle(
                       color: V3Colors.textPrimary,
                       fontSize: 18,
                       fontWeight: FontWeight.w600)),
               const SizedBox(height: V3Spacing.md),
               TextField(
                 controller: _name,
-                style: const TextStyle(color: V3Colors.textPrimary),
+                style:  TextStyle(color: V3Colors.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Group name',
-                  labelStyle: const TextStyle(color: V3Colors.textSecondary),
+                  labelStyle:  TextStyle(color: V3Colors.textSecondary),
                   errorText: _nameError,
                 ),
                 onChanged: (_) {
@@ -936,7 +936,7 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
               // Choosing an icon overrides the card's auto-derived glyph; 'auto'
               // keeps the existing behaviour of reading role names off the
               // members. Stored as a key, never a code point (migration V37).
-              const Text('Icon',
+               Text('Icon',
                   style: TextStyle(
                       color: V3Colors.textSecondary,
                       fontSize: V3Typography.captionSize)),
@@ -961,7 +961,7 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
               // 'none' = the detail hero shows the icon only, no photo. The
               // thumbnails are the same bundled assets the Scene detail uses,
               // so a group and a scene of the same room look consistent.
-              const Text('Cover image',
+               Text('Cover image',
                   style: TextStyle(
                       color: V3Colors.textSecondary,
                       fontSize: V3Typography.captionSize)),
@@ -998,7 +998,7 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
               Row(
                 children: [
                   Text('Devices (${_selected.length} selected)',
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.textSecondary,
                           fontSize: V3Typography.captionSize)),
                   const Spacer(),
@@ -1019,14 +1019,14 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
                         _selected.length == selectable.length
                             ? 'Clear all'
                             : 'Select all',
-                        style: const TextStyle(
+                        style:  TextStyle(
                             color: V3Colors.primary, fontSize: 12)),
                   ),
                 ],
               ),
               Flexible(
                 child: selectable.isEmpty
-                    ? const Padding(
+                    ?  Padding(
                         padding: EdgeInsets.all(V3Spacing.md),
                         child: Text('No devices found for this home.',
                             style: TextStyle(color: V3Colors.textSecondary)),
@@ -1046,7 +1046,7 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
                             value: _selected.contains(id),
                             activeColor: V3Colors.primary,
                             title: Text(name,
-                                style: const TextStyle(
+                                style:  TextStyle(
                                     color: V3Colors.textPrimary,
                                     fontSize: 14)),
                             onChanged: (v) => setState(() {
@@ -1061,7 +1061,7 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
                       ),
               ),
               if (_selected.isEmpty)
-                const Padding(
+                 Padding(
                   padding: EdgeInsets.only(top: V3Spacing.sm),
                   child: Text('Tick the relays you want in this group.',
                       style: TextStyle(
@@ -1189,13 +1189,13 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: V3Colors.surface,
-        title: const Text('Rename device',
+        title:  Text('Rename device',
             style: TextStyle(color: V3Colors.textPrimary)),
         content: TextField(
           controller: controller,
           autofocus: true,
-          style: const TextStyle(color: V3Colors.textPrimary),
-          decoration: const InputDecoration(
+          style:  TextStyle(color: V3Colors.textPrimary),
+          decoration:  InputDecoration(
             labelText: 'Display name',
             labelStyle: TextStyle(color: V3Colors.textSecondary),
             helperText: 'Leave empty to use the default name',
@@ -1208,7 +1208,7 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
               child: const Text('Cancel')),
           TextButton(
               onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Save',
+              child:  Text('Save',
                   style: TextStyle(color: V3Colors.primary))),
         ],
       ),
@@ -1269,7 +1269,7 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_displayName(),
-                            style: const TextStyle(
+                            style:  TextStyle(
                               color: V3Colors.textPrimary,
                               fontSize: V3Typography.titleSize - 2,
                               fontWeight: FontWeight.w600,
@@ -1277,7 +1277,7 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         Text(type,
-                            style: const TextStyle(
+                            style:  TextStyle(
                               color: V3Colors.textSecondary,
                               fontSize: V3Typography.captionSize,
                             ),
@@ -1290,13 +1290,13 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
                   if (canToggle)
                     SHEToggle(value: _powerOn(params), onChanged: _writePower)
                   else if (paramsAsync.isLoading)
-                    const SizedBox(
+                     SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: V3Colors.primary)),
                   PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert,
+                    icon:  Icon(Icons.more_vert,
                         size: 20, color: V3Colors.textSecondary),
                     onSelected: (v) {
                       if (v == 'rename') _rename();
@@ -1331,17 +1331,17 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
                 bottom: V3Spacing.md,
               ),
               child: paramsAsync.isLoading
-                  ? const SizedBox(
+                  ?  SizedBox(
                       height: 24,
                       width: 24,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: V3Colors.primary),
                     )
                   : paramsAsync.hasError
-                      ? const Text('Failed to load params',
+                      ?  Text('Failed to load params',
                           style: TextStyle(color: V3Colors.error))
                       : params.isEmpty
-                          ? const Text('No parameters',
+                          ?  Text('No parameters',
                               style:
                                   TextStyle(color: V3Colors.textSecondary))
                           : Column(
@@ -1405,7 +1405,7 @@ class _ParamRowState extends ConsumerState<_ParamRow> {
           Expanded(
             child: Text(
               paramName,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.textPrimary,
                 fontSize: V3Typography.bodySize,
                 fontWeight: FontWeight.w500,
@@ -1416,7 +1416,7 @@ class _ParamRowState extends ConsumerState<_ParamRow> {
               (uiHint == 'toggle' || uiHint == null) &&
               !readOnly)
             _toggling
-                ? const SizedBox(
+                ?  SizedBox(
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
@@ -1442,7 +1442,7 @@ class _ParamRowState extends ConsumerState<_ParamRow> {
           else
             Text(
               '${currentValue ?? '-'}',
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.textSecondary,
                 fontSize: V3Typography.bodySize,
               ),

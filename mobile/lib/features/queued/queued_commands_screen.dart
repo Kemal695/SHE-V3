@@ -115,7 +115,7 @@ class _QueuedTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(V3Radius.md),
             ),
             child:
-                const Icon(Icons.schedule, size: 19, color: V3Colors.warningAlt),
+                 Icon(Icons.schedule, size: 19, color: V3Colors.warningAlt),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -127,7 +127,7 @@ class _QueuedTile extends StatelessWidget {
                   cmd.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -141,7 +141,7 @@ class _QueuedTile extends StatelessWidget {
                       const SizedBox(width: 8),
                       Text(
                         '${cmd.attempts}×',
-                        style: const TextStyle(
+                        style:  TextStyle(
                             color: V3Colors.dim, fontSize: V3Typography.micro),
                       ),
                     ],

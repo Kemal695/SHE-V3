@@ -143,7 +143,7 @@ class _AutomationDetailScreenState
             res.isFullSuccess
                 ? 'Ran ${res.executed} action(s).'
                 : 'Ran ${res.executed}, failed: ${res.failed.join(', ')}',
-            style: const TextStyle(color: V3Colors.textPrimary),
+            style:  TextStyle(color: V3Colors.textPrimary),
           ),
         ),
       );
@@ -209,17 +209,17 @@ class _AutomationDetailScreenState
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: V3Colors.surface,
-            title: const Text('Delete automation?',
+            title:  Text('Delete automation?',
                 style: TextStyle(color: V3Colors.ink)),
             content: Text('"${_a.name}" will stop running.',
-                style: const TextStyle(color: V3Colors.text2)),
+                style:  TextStyle(color: V3Colors.text2)),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
                   child: const Text('Cancel')),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
+                child:  Text('Delete',
                     style: TextStyle(color: V3Colors.errorAlt)),
               ),
             ],
@@ -249,7 +249,7 @@ class _AutomationDetailScreenState
               onBack: () => Navigator.of(context).pop(),
               trailing: PopupMenuButton<String>(
                 enabled: !_busy,
-                icon: const Icon(Icons.more_vert, color: V3Colors.dim),
+                icon:  Icon(Icons.more_vert, color: V3Colors.dim),
                 color: V3Colors.surface2,
                 onSelected: (v) {
                   if (v == 'edit') _edit();
@@ -292,7 +292,7 @@ class _AutomationDetailScreenState
                     label: const Text('Edit'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: V3Colors.text2,
-                      side: const BorderSide(color: V3Colors.border),
+                      side:  BorderSide(color: V3Colors.border),
                       // Same reasoning as app.dart: a local styleFrom overrides
                       // the disabled colours, so without this a disabled button
                       // (e.g. while _busy) looks perfectly tappable.
@@ -312,7 +312,7 @@ class _AutomationDetailScreenState
                     label: const Text('Duplicate'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: V3Colors.text2,
-                      side: const BorderSide(color: V3Colors.border),
+                      side:  BorderSide(color: V3Colors.border),
                       // Same reasoning as app.dart: a local styleFrom overrides
                       // the disabled colours, so without this a disabled button
                       // (e.g. while _busy) looks perfectly tappable.
@@ -388,7 +388,7 @@ class _AutomationDetailScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(_a.name,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 16,
                         fontWeight: FontWeight.w700)),
@@ -449,14 +449,14 @@ class _AutomationDetailScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.dim,
                         fontSize: 10.5,
                         letterSpacing: 0.6,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(value,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink, fontSize: 13.5, height: 1.4)),
               ],
             ),
@@ -477,7 +477,7 @@ class _AutomationDetailScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Recent runs',
+           Text('Recent runs',
               style: TextStyle(
                   color: V3Colors.ink,
                   fontSize: 13,
@@ -499,7 +499,7 @@ class _AutomationDetailScreenState
                 _a.lastFiredAt == null
                     ? 'Never run yet'
                     : 'Last run: ${_a.lastRunLabel}',
-                style: const TextStyle(color: V3Colors.text2, fontSize: 12),
+                style:  TextStyle(color: V3Colors.text2, fontSize: 12),
               ),
             ],
           ),
@@ -509,7 +509,7 @@ class _AutomationDetailScreenState
             child: ElevatedButton.icon(
               onPressed: _busy ? null : _runNow,
               icon: _busy
-                  ? const SizedBox(
+                  ?  SizedBox(
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(

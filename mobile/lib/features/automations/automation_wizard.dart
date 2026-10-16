@@ -219,9 +219,9 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.wifi_off, size: 18, color: V3Colors.warningAlt),
+           Icon(Icons.wifi_off, size: 18, color: V3Colors.warningAlt),
           const SizedBox(width: 10),
-          const Expanded(
+           Expanded(
             child: Text(
               'Could not load your devices, so nothing can be picked yet. '
               'Check the connection and try again.',
@@ -532,7 +532,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                       1 => _detailsTitle(),
                       _ => 'What should happen?',
                     },
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 18,
                         fontWeight: FontWeight.w700),
@@ -715,14 +715,14 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
       case AutomationTriggerType.schedule:
         if (_sunrise) {
           return [
-            const Text('Sunrise or sunset?',
+             Text('Sunrise or sunset?',
                 style: TextStyle(color: V3Colors.text2, fontSize: 12.5)),
             const SizedBox(height: V3Spacing.md),
             _solarCard(),
           ];
         }
         return [
-          const Text('Pick the time it runs',
+           Text('Pick the time it runs',
               style: TextStyle(color: V3Colors.text2, fontSize: 12.5)),
           const SizedBox(height: V3Spacing.md),
           Container(
@@ -746,7 +746,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
         ];
       case AutomationTriggerType.nodeState:
         return [
-          const Text('Only run if all conditions are met',
+           Text('Only run if all conditions are met',
               style: TextStyle(color: V3Colors.text2, fontSize: 12.5)),
           const SizedBox(height: V3Spacing.md),
           _devicePicker(
@@ -768,7 +768,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
               borderRadius: BorderRadius.circular(V3Radius.xl),
               border: Border.all(color: V3Colors.border),
             ),
-            child: const Text(
+            child:  Text(
               'A manual automation has nothing to configure — it only runs when '
               'you tap Run now. Continue to choose what it does.',
               style: TextStyle(color: V3Colors.text2, fontSize: 12.5),
@@ -790,16 +790,16 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.bolt, size: 16, color: V3Colors.primary),
+           Icon(Icons.bolt, size: 16, color: V3Colors.primary),
           const SizedBox(width: 8),
-          const Text('Power',
+           Text('Power',
               style: TextStyle(color: V3Colors.ink, fontSize: 13)),
           const Spacer(),
           DropdownButton<String>(
             value: _comparator,
             dropdownColor: V3Colors.surface2,
             underline: const SizedBox.shrink(),
-            style: const TextStyle(color: V3Colors.dim, fontSize: 12.5),
+            style:  TextStyle(color: V3Colors.dim, fontSize: 12.5),
             items: const [
               DropdownMenuItem(value: '==', child: Text('is')),
               DropdownMenuItem(value: '!=', child: Text('is not')),
@@ -816,7 +816,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(_triggerValue ? 'ON' : 'OFF',
-                  style: const TextStyle(
+                  style:  TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: V3Colors.night)),
@@ -843,7 +843,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           borderRadius: BorderRadius.circular(V3Radius.lg),
           border: Border.all(color: V3Colors.border),
         ),
-        child: const Row(
+        child:  Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add, size: 16, color: V3Colors.text2),
@@ -867,10 +867,10 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
         const SizedBox(height: V3Spacing.lg),
         TextField(
           controller: _nameCtrl,
-          style: const TextStyle(color: V3Colors.ink, fontSize: 14),
+          style:  TextStyle(color: V3Colors.ink, fontSize: 14),
           decoration: InputDecoration(
             labelText: 'Automation name',
-            labelStyle: const TextStyle(color: V3Colors.dim),
+            labelStyle:  TextStyle(color: V3Colors.dim),
             filled: true,
             fillColor: V3Colors.surface,
             border: OutlineInputBorder(
@@ -897,7 +897,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           Row(
             children: [
               Text('Action ${i + 1}',
-                  style: const TextStyle(
+                  style:  TextStyle(
                       color: V3Colors.dim,
                       fontSize: 10.5,
                       letterSpacing: 0.6,
@@ -906,7 +906,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
               if (_actions.length > 1)
                 GestureDetector(
                   onTap: () => setState(() => _actions.removeAt(i)),
-                  child: const Icon(Icons.close,
+                  child:  Icon(Icons.close,
                       size: 16, color: V3Colors.dim),
                 ),
             ],
@@ -1028,10 +1028,10 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                         fontWeight: FontWeight.w600)),
               ),
               if (disabled)
-                const Text('Soon',
+                 Text('Soon',
                     style: TextStyle(color: V3Colors.dim, fontSize: 10.5)),
               if (selected)
-                const Icon(Icons.check_circle,
+                 Icon(Icons.check_circle,
                     size: 18, color: V3Colors.primary),
             ],
           ),
@@ -1073,18 +1073,18 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title,
-                        style: const TextStyle(
+                        style:  TextStyle(
                             color: V3Colors.ink,
                             fontSize: 13.5,
                             fontWeight: FontWeight.w600)),
                     Text(subtitle,
-                        style: const TextStyle(
+                        style:  TextStyle(
                             color: V3Colors.dim, fontSize: 11.5)),
                   ],
                 ),
               ),
               if (selected)
-                const Icon(Icons.check_circle,
+                 Icon(Icons.check_circle,
                     size: 18, color: V3Colors.primary),
             ],
           ),
@@ -1109,20 +1109,20 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.devices_other, size: 18, color: V3Colors.primary),
+             Icon(Icons.devices_other, size: 18, color: V3Colors.primary),
             const SizedBox(width: V3Spacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.dim, fontSize: 11)),
                   Text(
                     value == null || value.shownName.isEmpty
                         ? 'Select a device'
                         : value.shownName,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600),
@@ -1130,7 +1130,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
+             Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
           ],
         ),
       ),
@@ -1165,13 +1165,13 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
               padding: const EdgeInsets.only(bottom: V3Spacing.sm),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline,
+                   Icon(Icons.info_outline,
                       size: 14, color: V3Colors.warningAlt),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       reason,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.warningAlt,
                         fontSize: V3Typography.meta,
                       ),
@@ -1189,7 +1189,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                         _saving ? null : () => setState(() => _step -= 1),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: V3Colors.text2,
-                      side: const BorderSide(color: V3Colors.border),
+                      side:  BorderSide(color: V3Colors.border),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(V3Radius.lg)),
@@ -1222,7 +1222,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                         borderRadius: BorderRadius.circular(V3Radius.lg)),
                   ),
                   child: _saving
-                      ? const SizedBox(
+                      ?  SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
@@ -1282,18 +1282,18 @@ class _DeviceSheetState extends State<_DeviceSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(widget.title,
-              style: const TextStyle(
+              style:  TextStyle(
                   color: V3Colors.ink,
                   fontSize: 15,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: V3Spacing.md),
           TextField(
             onChanged: (v) => setState(() => _query = v),
-            style: const TextStyle(color: V3Colors.ink, fontSize: 14),
+            style:  TextStyle(color: V3Colors.ink, fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search devices…',
-              hintStyle: const TextStyle(color: V3Colors.dim),
-              prefixIcon: const Icon(Icons.search, color: V3Colors.dim),
+              hintStyle:  TextStyle(color: V3Colors.dim),
+              prefixIcon:  Icon(Icons.search, color: V3Colors.dim),
               filled: true,
               fillColor: V3Colors.surface2,
               border: OutlineInputBorder(
@@ -1339,13 +1339,13 @@ class _DeviceSheetState extends State<_DeviceSheet> {
               itemBuilder: (_, i) {
                 final d = list[i];
                 return ListTile(
-                  leading: const Icon(Icons.lightbulb_outline,
+                  leading:  Icon(Icons.lightbulb_outline,
                       color: V3Colors.primary),
                   title: Text(d.shownName,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.ink, fontSize: 13.5)),
                   subtitle: Text(d.nodeName,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.dim, fontSize: 11)),
                   onTap: () => Navigator.of(context).pop(d),
                 );

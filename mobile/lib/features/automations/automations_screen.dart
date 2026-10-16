@@ -119,9 +119,9 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: V3Colors.surface,
-            title: const Text('Delete automation?',
+            title:  Text('Delete automation?',
                 style: TextStyle(color: V3Colors.textPrimary)),
-            content: const Text('Deleting a rule does not change devices.',
+            content:  Text('Deleting a rule does not change devices.',
                 style: TextStyle(color: V3Colors.textSecondary)),
             actions: [
               TextButton(
@@ -130,7 +130,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
+                child:  Text('Delete',
                     style: TextStyle(color: V3Colors.error)),
               ),
             ],
@@ -222,7 +222,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                       'tap ▶ on the card to test it right now.'
                   : 'Saved. Tap ▶ on the card to run it.')
               : 'Updated.',
-          style: const TextStyle(color: V3Colors.textPrimary),
+          style:  TextStyle(color: V3Colors.textPrimary),
         ),
       ),
     );
@@ -257,7 +257,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
       backgroundColor: V3Colors.background,
       body: SafeArea(
         child: async.when(
-          loading: () => const Center(
+          loading: () =>  Center(
               child: CircularProgressIndicator(color: V3Colors.primary)),
           error: (e, _) => RefreshIndicator(
             color: V3Colors.primary,
@@ -382,7 +382,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
             ),
           ],
         ),
-        child: const Row(
+        child:  Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add, size: 18, color: V3Colors.night),
@@ -481,7 +481,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                         Text(a.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style:  TextStyle(
                                 color: V3Colors.ink,
                                 fontSize: 14.5,
                                 fontWeight: FontWeight.w600)),
@@ -489,7 +489,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                         Text(_resolvedTriggerLabel(a),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style:  TextStyle(
                                 color: V3Colors.dim, fontSize: 11.5)),
                         // The action summary line from the design sheet
                         // ("Living Room Light → ON"), so the card says what the
@@ -497,7 +497,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                         Text(_actionSummary(a),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style:  TextStyle(
                                 color: V3Colors.primary,
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w600)),
@@ -516,7 +516,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
                 // live only behind the detail page, which made them look missing.
                 PopupMenuButton<String>(
                   enabled: !_busy,
-                  icon: const Icon(Icons.more_vert,
+                  icon:  Icon(Icons.more_vert,
                       size: 18, color: V3Colors.dim),
                   color: V3Colors.surface2,
                   onSelected: (v) {
@@ -626,7 +626,7 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
         borderRadius: BorderRadius.circular(V3Radius.xl),
         border: Border.all(color: V3Colors.border),
       ),
-      child: const Column(
+      child:  Column(
         children: [
           Icon(Icons.bolt_outlined, size: 32, color: V3Colors.dim),
           SizedBox(height: V3Spacing.sm),

@@ -6,17 +6,27 @@
 
 import 'package:flutter/material.dart';
 
+import 'she_colors.dart';
+
 class V3Colors {
-  // Dark mode (primary — ADR-009)
-  static const background = Color(0xFF0B1D37);       // Deep Navy
-  static const surface = Color(0xFF152946);           // Lighter Navy (cards)
-  static const primary = Color(0xFF56B4FA);           // Bright Sky Blue
-  static const secondary = Color(0xFF1D70B8);         // Medium Royal Blue
-  static const textPrimary = Color(0xFFFFFFFF);
-  static const textSecondary = Color(0xFFA0AEC0);     // Muted Gray-Blue
-  static const success = Color(0xFF00C853);
-  static const error = Color(0xFFD50000);
-  static const warning = Color(0xFFFFAB00);
+  // ---- Active palette (ADR-009 dark-first + optional light mode) ----
+  //
+  // These used to be `static const` dark values. They are now getters backed by
+  // [SheColors.current] so the whole app can switch between the dark and light
+  // palettes at runtime without rewriting every call site.
+  //
+  // ⚠️ Consequence: `V3Colors.*` is no longer a compile-time constant, so it can
+  // no longer appear inside a `const` expression — those call sites must drop
+  // the `const`.
+  static Color get background => SheColors.current.background;
+  static Color get surface => SheColors.current.surface;
+  static Color get primary => SheColors.current.primary;
+  static Color get secondary => SheColors.current.secondary;
+  static Color get textPrimary => SheColors.current.textPrimary;
+  static Color get textSecondary => SheColors.current.textSecondary;
+  static Color get success => SheColors.current.success;
+  static Color get error => SheColors.current.error;
+  static Color get warning => SheColors.current.warning;
 
   // ===========================================================================
   // Prototype palette (SHE-V3 UI/UX redesign, 2026-10-03)
@@ -38,29 +48,29 @@ class V3Colors {
   //   #FF6678 error     -> errorAlt   (new; error above is #D50000)
   //   #8ED1FF sky       -> sky        (new — gradient tail on sliders/bars)
   //   #081527 night     -> night      (new — deeper than bg; on-primary text)
-  static const surface2 = Color(0xFF1B3555);
-  static const ink = Color(0xFFF5F9FF);
-  static const text2 = Color(0xFFA8B8CC);
-  static const dim = Color(0xFF71839A);
-  static const successAlt = Color(0xFF42D392);
-  static const warningAlt = Color(0xFFF5B84B);
-  static const errorAlt = Color(0xFFFF6678);
-  static const sky = Color(0xFF8ED1FF);
-  static const night = Color(0xFF081527);
+  static Color get surface2 => SheColors.current.surface2;
+  static Color get ink => SheColors.current.ink;
+  static Color get text2 => SheColors.current.text2;
+  static Color get dim => SheColors.current.dim;
+  static Color get successAlt => SheColors.current.successAlt;
+  static Color get warningAlt => SheColors.current.warningAlt;
+  static Color get errorAlt => SheColors.current.errorAlt;
+  static Color get sky => SheColors.current.sky;
+  static Color get night => SheColors.current.night;
 
   // ---- Hairline / elevated surfaces ----
   // The prototype leans on white-at-low-alpha for borders and fills rather than
   // solid hex. These keep that consistent instead of each screen re-picking an
   // alpha (they had drifted between 0.06 and 0.12).
-  static const border = Color(0x0FFFFFFF);        // white @ 6%  — default card edge
-  static const borderStrong = Color(0x1FFFFFFF);  // white @ 12% — hover / active edge
-  static const fill = Color(0x0DFFFFFF);          // white @ 5%  — inset rows, chips
-  static const fillStrong = Color(0x17FFFFFF);    // white @ 9%  — pressed / selected
+  static Color get border => SheColors.current.border;
+  static Color get borderStrong => SheColors.current.borderStrong;
+  static Color get fill => SheColors.current.fill;
+  static Color get fillStrong => SheColors.current.fillStrong;
 
   // ---- Gradient stops used by the hero card, sliders and bars ----
-  static const heroTop = Color(0xFF183457);
-  static const heroMid = Color(0xFF122B4C);
-  static const heroBottom = Color(0xFF0F2342);
+  static Color get heroTop => SheColors.current.heroTop;
+  static Color get heroMid => SheColors.current.heroMid;
+  static Color get heroBottom => SheColors.current.heroBottom;
 
   // Light mode (accessibility fallback)
   static const lightBackground = Color(0xFFF5F7FA);
@@ -94,19 +104,19 @@ class V3Colors {
   /// Kept here (rather than in the widget) so the dashboard, the devices list
   /// and any future screen theme a given kind identically — the prototype
   /// defines this exactly once and every surface reads from it.
-  static const Map<String, Color> deviceTint = {
-    'light': warningAlt,       // #F5B84B
-    'outlet': primary,         // #56B4FA
-    'gate': sky,               // #8ED1FF
-    'irrigation': successAlt,  // #42D392
-    'camera': primary,
-    'appliance': successAlt,
-    'climate': sky,
-    'meter': warningAlt,
-    'sensor': text2,           // #A8B8CC
-    'tv': primary,
-    'generic': text2,
-  };
+  static Map<String, Color> get deviceTint => {
+        'light': warningAlt, // #F5B84B
+        'outlet': primary, // #56B4FA
+        'gate': sky, // #8ED1FF
+        'irrigation': successAlt, // #42D392
+        'camera': primary,
+        'appliance': successAlt,
+        'climate': sky,
+        'meter': warningAlt,
+        'sensor': text2, // #A8B8CC
+        'tv': primary,
+        'generic': text2,
+      };
 
   /// Fallback tint for an unknown kind — matches the prototype's `?? generic`.
   static Color tintForKind(String? kind) =>

@@ -212,7 +212,7 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
           child: Container(
             padding: const EdgeInsets.all(V3Spacing.md),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient:  LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
@@ -235,7 +235,7 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
                   children: [
                     Text(
                       energy.todayKwh.toStringAsFixed(1),
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: V3Typography.metricLg,
                         fontWeight: FontWeight.w700,
@@ -243,7 +243,7 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    const Text(
+                     Text(
                       'kWh',
                       style: TextStyle(
                         color: V3Colors.dim,
@@ -256,7 +256,7 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
                 const SizedBox(height: 6),
                 Text(
                   '≈ ${EtbFormatter.format(costEtb, 'am')} · estimated',
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.successAlt,
                     fontSize: V3Typography.body,
                     fontWeight: FontWeight.w600,
@@ -290,10 +290,10 @@ class _HomeEnergyScreenState extends ConsumerState<HomeEnergyScreen> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline,
+                   Icon(Icons.info_outline,
                       size: 18, color: V3Colors.warningAlt),
                   const SizedBox(width: 10),
-                  const Expanded(
+                   Expanded(
                     child: Text(
                       'No per-board readings yet. Tap a board to see its own '
                       'energy history.',
@@ -355,7 +355,7 @@ class _Stat extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.dim,
             fontSize: V3Typography.badge,
           ),
@@ -363,7 +363,7 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.ink,
             fontSize: 15,
             fontWeight: FontWeight.w600,
@@ -412,7 +412,7 @@ class _WeeklyBars extends StatelessWidget {
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                               colors: i == data.length - 1
-                                  ? const [V3Colors.sky, V3Colors.primary]
+                                  ?  [V3Colors.sky, V3Colors.primary]
                                   : [
                                       V3Colors.primary.withValues(alpha: 0.55),
                                       V3Colors.primary.withValues(alpha: 0.16),
@@ -433,7 +433,7 @@ class _WeeklyBars extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     _weekdayLabels[(data[i].day.weekday - 1) % 7],
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.dim,
                       fontSize: V3Typography.micro,
                       fontWeight: FontWeight.w500,
@@ -442,7 +442,7 @@ class _WeeklyBars extends StatelessWidget {
                   if (i == data.length - 1)
                     Text(
                       '${data[i].kwh.toStringAsFixed(1)}kWh',
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.primary,
                         fontSize: 8.5,
                         fontWeight: FontWeight.w600,
@@ -477,7 +477,7 @@ class _PerBoardList extends ConsumerWidget {
       error: (_, __) => const SizedBox.shrink(),
       data: (nodes) {
         if (nodes.isEmpty) {
-          return const Padding(
+          return  Padding(
             padding: EdgeInsets.symmetric(horizontal: V3Spacing.md),
             child: Text(
               'No boards yet.',
@@ -533,7 +533,7 @@ class _BoardRow extends ConsumerWidget {
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -545,19 +545,19 @@ class _BoardRow extends ConsumerWidget {
             ),
           ),
           dailyAsync.when(
-            loading: () => const SizedBox(
+            loading: () =>  SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
                   strokeWidth: 2, color: V3Colors.primary),
             ),
-            error: (_, __) => const Text(
+            error: (_, __) =>  Text(
               '—',
               style: TextStyle(color: V3Colors.dim, fontSize: 15),
             ),
             data: (kwh) => Text(
               '${kwh.toStringAsFixed(1)} kWh',
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.primary,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -565,7 +565,7 @@ class _BoardRow extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: V3Spacing.xs),
-          const Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
+           Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
         ],
       ),
     );

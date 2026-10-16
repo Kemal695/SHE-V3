@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/storage/secure_storage.dart';
+import '../../core/storage/settings_store.dart';
 import '../../core/network/base_url_provider.dart';
 import '../auth/auth_service.dart';
 import 'server_settings_dialog.dart';
@@ -25,7 +26,7 @@ class SettingsScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+            icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
             onPressed: () => context.go('/dashboard'),
           ),
           title: const Text('Settings'),
@@ -44,11 +45,11 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.primary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.person, color: V3Colors.primary, size: 20),
+                  child:  Icon(Icons.person, color: V3Colors.primary, size: 20),
                 ),
                 title: const Text('Profile'),
                 subtitle: const Text('View your account info'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () {},
               ),
               ListTile(
@@ -58,11 +59,11 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.warning.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.workspace_premium, color: V3Colors.warning, size: 20),
+                  child:  Icon(Icons.workspace_premium, color: V3Colors.warning, size: 20),
                 ),
                 title: const Text('Subscription'),
                 subtitle: const Text('Free plan — upgrade to Premium'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () => context.push('/payments/B2C_PREMIUM'),
               ),
               const Divider(indent: 16, endIndent: 16),
@@ -76,12 +77,12 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.primary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.language, color: V3Colors.primary, size: 20),
+                  child:  Icon(Icons.language, color: V3Colors.primary, size: 20),
                 ),
                 title: const Text('Language'),
                 subtitle: Text(ref.watch(localeProvider).languageCode == 'am'
                     ? 'አማርኛ (Amharic)' : 'English'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () => _showLanguageDialog(context, ref),
               ),
               ListTile(
@@ -91,12 +92,15 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.secondary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.dark_mode, color: V3Colors.secondary, size: 20),
+                  child:  Icon(Icons.dark_mode, color: V3Colors.secondary, size: 20),
                 ),
                 title: const Text('Theme'),
-                subtitle: const Text('Dark mode (default)'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
-                onTap: () {},
+                subtitle: Text(
+                    ref.watch(themeModeProvider) == ThemeMode.light
+                        ? 'Light'
+                        : 'Dark'),
+                trailing: Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                onTap: () => _showThemeDialog(context, ref),
               ),
               // ---- Server / endpoint override ----
               // Also reachable from the login screen, so a bad URL can be fixed
@@ -108,14 +112,14 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.secondary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.dns, color: V3Colors.secondary, size: 20),
+                  child:  Icon(Icons.dns, color: V3Colors.secondary, size: 20),
                 ),
                 title: const Text('Server'),
                 subtitle: Text(
                   ref.watch(apiBaseUrlProvider),
                   overflow: TextOverflow.ellipsis,
                 ),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () => showServerSettingsDialog(context, ref),
               ),
               const Divider(indent: 16, endIndent: 16),
@@ -129,11 +133,11 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.success.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.security, color: V3Colors.success, size: 20),
+                  child:  Icon(Icons.security, color: V3Colors.success, size: 20),
                 ),
                 title: const Text('Two-Factor Authentication'),
                 subtitle: const Text('Enable MFA (coming in Phase 5B)'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 enabled: false,
                 onTap: null,
               ),
@@ -148,11 +152,11 @@ class SettingsScreen extends ConsumerWidget {
                     color: V3Colors.textSecondary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(V3Radius.full),
                   ),
-                  child: const Icon(Icons.info_outline, color: V3Colors.textSecondary, size: 20),
+                  child:  Icon(Icons.info_outline, color: V3Colors.textSecondary, size: 20),
                 ),
                 title: const Text('Version'),
                 subtitle: const Text('SHE V3 — 3.0.0'),
-                trailing: const Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () {},
               ),
               const Divider(indent: 16, endIndent: 16),
@@ -186,7 +190,7 @@ class SettingsScreen extends ConsumerWidget {
       padding: const EdgeInsets.only(left: V3Spacing.lg, top: V3Spacing.md, bottom: V3Spacing.xs),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
+        style:  TextStyle(
           color: V3Colors.textSecondary,
           fontSize: V3Typography.overlineSize,
           fontWeight: FontWeight.w600,
@@ -207,7 +211,7 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               title: const Text('አማርኛ (Amharic)'),
               leading: ref.watch(localeProvider).languageCode == 'am'
-                  ? const Icon(Icons.check, color: V3Colors.primary)
+                  ?  Icon(Icons.check, color: V3Colors.primary)
                   : null,
               onTap: () async {
                 ref.read(localeProvider.notifier).state = const Locale('am');
@@ -218,11 +222,48 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               title: const Text('English'),
               leading: ref.watch(localeProvider).languageCode == 'en'
-                  ? const Icon(Icons.check, color: V3Colors.primary)
+                  ?  Icon(Icons.check, color: V3Colors.primary)
                   : null,
               onTap: () async {
                 ref.read(localeProvider.notifier).state = const Locale('en');
                 await SecureStorage.saveLocale('en');
+                if (context.mounted) Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Dark/light switch (ADR-009 dark-first + optional light mode).
+  void _showThemeDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Theme'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('Dark'),
+              leading: ref.watch(themeModeProvider) == ThemeMode.dark
+                  ? Icon(Icons.check, color: V3Colors.primary)
+                  : null,
+              onTap: () async {
+                ref.read(themeModeProvider.notifier).state = ThemeMode.dark;
+                await SettingsStore.setThemeMode('dark');
+                if (context.mounted) Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              title: const Text('Light'),
+              leading: ref.watch(themeModeProvider) == ThemeMode.light
+                  ? Icon(Icons.check, color: V3Colors.primary)
+                  : null,
+              onTap: () async {
+                ref.read(themeModeProvider.notifier).state = ThemeMode.light;
+                await SettingsStore.setThemeMode('light');
                 if (context.mounted) Navigator.pop(context);
               },
             ),

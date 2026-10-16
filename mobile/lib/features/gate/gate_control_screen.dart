@@ -186,7 +186,7 @@ class _GateControlScreenState extends ConsumerState<GateControlScreen> {
                       padding: const EdgeInsets.only(bottom: V3Spacing.md),
                       child: Text(
                         l!.gateSubtitle,
-                        style: const TextStyle(
+                        style:  TextStyle(
                           color: V3Colors.text2,
                           fontSize: 13,
                         ),
@@ -210,7 +210,7 @@ class _GateControlScreenState extends ConsumerState<GateControlScreen> {
                                 displayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style:  TextStyle(
                                   color: V3Colors.ink,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w600,

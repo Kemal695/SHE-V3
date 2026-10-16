@@ -31,6 +31,16 @@ class SettingsStore {
 
   static Future<void> setWsBaseUrl(String value) => _box.put(_wsBaseUrlKey, value);
 
+  // ---- Theme mode (ADR-009 dark-first + optional light mode) ----
+  static const String _themeModeKey = 'theme_mode';
+
+  /// 'dark' (default) or 'light'. Stored as a primitive string so the Hive box
+  /// stays primitive-only.
+  static String get themeMode => (_box.get(_themeModeKey) as String?) ?? 'dark';
+
+  static Future<void> setThemeMode(String value) =>
+      _box.put(_themeModeKey, value);
+
   /// True when the user has overridden either value.
   static bool get hasOverride =>
       _box.containsKey(_apiBaseUrlKey) || _box.containsKey(_wsBaseUrlKey);
@@ -63,5 +73,6 @@ class SettingsStore {
     // "reset" kept local control silently enabled with stale credentials.
     await _box.delete(_localPopKey);
     await _box.delete(_localHostKey);
+    await _box.delete(_themeModeKey);
   }
 }

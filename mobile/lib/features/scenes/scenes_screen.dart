@@ -111,10 +111,10 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: V3Colors.surface,
-            title: const Text('Delete scene?',
+            title:  Text('Delete scene?',
                 style: TextStyle(color: V3Colors.textPrimary)),
             content: Text('This removes "${scene.name}". Devices are not changed.',
-                style: const TextStyle(color: V3Colors.textSecondary)),
+                style:  TextStyle(color: V3Colors.textSecondary)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -122,7 +122,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
+                child:  Text('Delete',
                     style: TextStyle(color: V3Colors.error)),
               ),
             ],
@@ -142,7 +142,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
       backgroundColor: V3Colors.background,
       body: SafeArea(
         child: scenesAsync.when(
-          loading: () => const Center(
+          loading: () =>  Center(
             child: CircularProgressIndicator(color: V3Colors.primary),
           ),
           error: (err, _) => Center(
@@ -150,7 +150,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               padding: const EdgeInsets.all(V3Spacing.xl),
               child: Text('Could not load scenes: $err',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: V3Colors.text2)),
+                  style:  TextStyle(color: V3Colors.text2)),
             ),
           ),
           data: (scenes) => RefreshIndicator(
@@ -204,7 +204,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                       'Scenes step through their devices 200 ms apart, so a room '
                       'changes gradually instead of all at once.',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.dim, fontSize: 11, height: 1.5),
                     ),
                   ),
@@ -235,14 +235,14 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
           Container(
             width: 8,
             height: 8,
-            decoration: const BoxDecoration(
+            decoration:  BoxDecoration(
                 color: V3Colors.successAlt, shape: BoxShape.circle),
           ),
           const SizedBox(width: V3Spacing.sm),
           Expanded(
             child: Text(
               '${running.name} is running · ${running.actionCount} steps',
-              style: const TextStyle(
+              style:  TextStyle(
                   color: V3Colors.successAlt,
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600),
@@ -321,7 +321,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                     scene.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.ink,
                       fontSize: 14.5,
                       fontWeight: FontWeight.w700,
@@ -330,7 +330,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                   const SizedBox(height: 2),
                   Text(
                     '${scene.actionCount} action(s)',
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.dim, fontSize: 11),
                   ),
                 ],
@@ -384,7 +384,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.play_arrow, color: V3Colors.successAlt),
+              leading:  Icon(Icons.play_arrow, color: V3Colors.successAlt),
               title: const Text('Activate'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -392,7 +392,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.info_outline,
+              leading:  Icon(Icons.info_outline,
                   color: V3Colors.text2),
               title: const Text('Details'),
               onTap: () {
@@ -401,7 +401,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.edit_outlined, color: V3Colors.text2),
+              leading:  Icon(Icons.edit_outlined, color: V3Colors.text2),
               title: const Text('Edit'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -409,7 +409,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.delete_outline,
+              leading:  Icon(Icons.delete_outline,
                   color: V3Colors.errorAlt),
               title: const Text('Delete'),
               onTap: () {
@@ -431,7 +431,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
           borderRadius: BorderRadius.circular(V3Radius.xl),
           border: Border.all(color: V3Colors.borderStrong),
         ),
-        child: const Column(
+        child:  Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add, size: 24, color: V3Colors.dim),
@@ -554,7 +554,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
       backgroundColor: V3Colors.surface,
       title: Text(
         widget.existing == null ? 'New scene' : 'Edit scene',
-        style: const TextStyle(color: V3Colors.textPrimary),
+        style:  TextStyle(color: V3Colors.textPrimary),
       ),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 480),
@@ -565,41 +565,41 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
             children: [
               TextField(
                 controller: _nameCtrl,
-                style: const TextStyle(color: V3Colors.textPrimary),
+                style:  TextStyle(color: V3Colors.textPrimary),
                 decoration: InputDecoration(
                   labelText: 'Scene name',
                   labelStyle:
-                      const TextStyle(color: V3Colors.textSecondary),
+                       TextStyle(color: V3Colors.textSecondary),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(V3Radius.md),
                     borderSide:
-                        const BorderSide(color: V3Colors.textSecondary),
+                         BorderSide(color: V3Colors.textSecondary),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(V3Radius.md),
-                    borderSide: const BorderSide(
+                    borderSide:  BorderSide(
                         color: V3Colors.primary, width: 1.5),
                   ),
                 ),
               ),
               const SizedBox(height: V3Spacing.md),
-              const Text(
+               Text(
                 'Devices',
                 style: TextStyle(
                     color: V3Colors.textSecondary, fontSize: 12),
               ),
               const SizedBox(height: V3Spacing.xs),
               devicesAsync.when(
-                loading: () => const Padding(
+                loading: () =>  Padding(
                   padding: EdgeInsets.all(V3Spacing.md),
                   child:
                       CircularProgressIndicator(color: V3Colors.primary),
                 ),
                 error: (e, _) => Text('Could not load devices: $e',
-                    style: const TextStyle(color: V3Colors.error)),
+                    style:  TextStyle(color: V3Colors.error)),
                 data: (devices) {
                   if (devices.isEmpty) {
-                    return const Text('No devices found in this home.',
+                    return  Text('No devices found in this home.',
                         style: TextStyle(color: V3Colors.textSecondary));
                   }
                   return Column(
@@ -611,7 +611,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         title: Text(d.label,
-                            style: const TextStyle(
+                            style:  TextStyle(
                                 color: V3Colors.textPrimary,
                                 fontSize: 14)),
                         value: included,
@@ -627,7 +627,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                             ? Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text('Off',
+                                   Text('Off',
                                       style: TextStyle(
                                           color: V3Colors.textSecondary,
                                           fontSize: 11)),
@@ -637,7 +637,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                                     onChanged: (v) => setState(
                                         () => _selected[k] = v),
                                   ),
-                                  const Text('On',
+                                   Text('On',
                                       style: TextStyle(
                                           color: V3Colors.textSecondary,
                                           fontSize: 11)),
@@ -656,7 +656,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel',
+          child:  Text('Cancel',
               style: TextStyle(color: V3Colors.textSecondary)),
         ),
         ElevatedButton(

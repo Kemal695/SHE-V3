@@ -92,7 +92,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                       children: [
                         Text(
                           l?.dashboard ?? 'My Home',
-                          style: const TextStyle(
+                          style:  TextStyle(
                             color: V3Colors.ink,
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
@@ -100,7 +100,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                         ),
                         const SizedBox(height: 2),
                         emailAsync.when(
-                          loading: () => const Text(
+                          loading: () =>  Text(
                             'Loading…',
                             style: TextStyle(
                                 color: V3Colors.dim,
@@ -111,7 +111,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                             email ?? 'Addis Ababa, Ethiopia',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style:  TextStyle(
                               color: V3Colors.text2,
                               fontSize: V3Typography.meta,
                             ),
@@ -141,11 +141,11 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                         color: V3Colors.warningAlt.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(V3Radius.md),
                       ),
-                      child: const Icon(Icons.workspace_premium,
+                      child:  Icon(Icons.workspace_premium,
                           size: 20, color: V3Colors.warningAlt),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -169,7 +169,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
                         ],
                       ),
                     ),
-                    const Icon(Icons.chevron_right,
+                     Icon(Icons.chevron_right,
                         size: 20, color: V3Colors.dim),
                   ],
                 ),
@@ -314,7 +314,7 @@ class _MenuTile extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.ink,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -325,7 +325,7 @@ class _MenuTile extends StatelessWidget {
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.dim,
                       fontSize: V3Typography.meta,
                     ),
@@ -333,7 +333,7 @@ class _MenuTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, size: 20, color: V3Colors.dim),
+             Icon(Icons.chevron_right, size: 20, color: V3Colors.dim),
           ],
         ),
       ),

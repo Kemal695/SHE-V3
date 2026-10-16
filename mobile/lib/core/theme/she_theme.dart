@@ -11,26 +11,29 @@ import 'v3_design_tokens.dart';
 
 class SheTheme {
   // ---- Brand colors (V3-DESIGN-SYSTEM §2) ----
-  static const Color deepNavy = Color(0xFF0B1D37);          // background
-  static const Color lighterNavy = Color(0xFF152946);       // surface cards
-  static const Color brightSkyBlue = Color(0xFF56B4FA);     // accent / active glow
-  static const Color textPrimary = Color(0xFFF5F7FA);
-  static const Color textSecondary = Color(0xFF9BA8BC);
-  static const Color textMuted = Color(0xFF6B7785);
-  static const Color error = Color(0xFFFF5252);
-  static const Color success = Color(0xFF4CAF50);
-  static const Color warning = Color(0xFFFFC107);
+  //
+  // Delegates to the active palette so `SheTheme.*` (used by the members /
+  // provisioning / telemetry screens) follows the light/dark switch exactly
+  // like `V3Colors.*` does. These can no longer be used in `final` expressions.
+  static Color get deepNavy => V3Colors.background;
+  static Color get lighterNavy => V3Colors.surface;
+  static Color get brightSkyBlue => V3Colors.primary;
+  static Color get textPrimary => V3Colors.ink;
+  static Color get textSecondary => V3Colors.text2;
+  static Color get textMuted => V3Colors.dim;
+  static Color get error => V3Colors.error;
+  static Color get success => V3Colors.success;
+  static Color get warning => V3Colors.warning;
 
   // ---- Prototype palette (SHE-V3 UI/UX redesign) ----
   // Mirrors V3Colors so Material-level widgets (snackbars, dialog themes, the
-  // scaffold) land on the same values the hand-built screens use. Without this
-  // the redesign's #42D392 would sit next to Material's #4CAF50.
-  static const Color raisedNavy = V3Colors.surface2;
-  static const Color nightNavy = V3Colors.night;
-  static const Color skyTint = V3Colors.sky;
-  static const Color successGreen = V3Colors.successAlt;
-  static const Color warningAmber = V3Colors.warningAlt;
-  static const Color errorRose = V3Colors.errorAlt;
+  // scaffold) land on the same values the hand-built screens use.
+  static Color get raisedNavy => V3Colors.surface2;
+  static Color get nightNavy => V3Colors.night;
+  static Color get skyTint => V3Colors.sky;
+  static Color get successGreen => V3Colors.successAlt;
+  static Color get warningAmber => V3Colors.warningAlt;
+  static Color get errorRose => V3Colors.errorAlt;
 
   // ---- Spacing ----
   static const double radiusLg = 16.0;
@@ -131,7 +134,7 @@ class SheTheme {
         // and the scene-activation toasts land on the redesign automatically.
         snackBarTheme: SnackBarThemeData(
           backgroundColor: raisedNavy,
-          contentTextStyle: const TextStyle(
+          contentTextStyle:  TextStyle(
             color: V3Colors.ink,
             fontSize: 13,
             fontWeight: FontWeight.w500,
@@ -140,11 +143,11 @@ class SheTheme {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: V3Colors.borderStrong, width: 1),
+            side:  BorderSide(color: V3Colors.borderStrong, width: 1),
           ),
         ),
         // Bottom sheets match SHEBottomSheet: rounded top, raised navy, hairline.
-        bottomSheetTheme: const BottomSheetThemeData(
+        bottomSheetTheme:  BottomSheetThemeData(
           backgroundColor: V3Colors.surface2,
           surfaceTintColor: Colors.transparent,
           elevation: 0,
@@ -158,10 +161,10 @@ class SheTheme {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(V3Radius.xl),
-            side: const BorderSide(color: V3Colors.borderStrong, width: 1),
+            side:  BorderSide(color: V3Colors.borderStrong, width: 1),
           ),
         ),
-        progressIndicatorTheme: const ProgressIndicatorThemeData(
+        progressIndicatorTheme:  ProgressIndicatorThemeData(
           color: brightSkyBlue,
           linearTrackColor: V3Colors.fillStrong,
         ),

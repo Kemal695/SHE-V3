@@ -143,7 +143,7 @@ class _OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     // Dark text on the amber fill (V3-DESIGN-SYSTEM: Warning = #F5B84B).
-    const onAmber = V3Colors.night;
+    final onAmber = V3Colors.night;
 
     return Material(
       color: Colors.transparent,

@@ -160,7 +160,7 @@ class _SceneDetailScreenState extends ConsumerState<SceneDetailScreen> {
                       ),
                       const SizedBox(height: V3Spacing.sm),
                       if (scene.actions.isEmpty)
-                        const Padding(
+                         Padding(
                           padding: EdgeInsets.symmetric(
                               horizontal: V3Spacing.md),
                           child: Text(
@@ -228,7 +228,7 @@ class _Hero extends StatelessWidget {
                 fit: BoxFit.cover,
                 // A missing/broken asset must not blank the screen — fall back
                 // to the brand gradient so the hero still reads as a hero.
-                errorBuilder: (_, __, ___) => const DecoratedBox(
+                errorBuilder: (_, __, ___) =>  DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -238,7 +238,7 @@ class _Hero extends StatelessWidget {
                   ),
                 ),
               ),
-              const DecoratedBox(
+               DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
@@ -260,7 +260,7 @@ class _Hero extends StatelessWidget {
                       scene.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -271,7 +271,7 @@ class _Hero extends StatelessWidget {
                       _summary(scene),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.text2,
                         fontSize: V3Typography.body,
                       ),
@@ -334,7 +334,7 @@ class _ActionRow extends StatelessWidget {
               name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.ink,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,

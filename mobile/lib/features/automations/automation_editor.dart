@@ -286,7 +286,7 @@ class _AutomationEditorDialogState
       backgroundColor: V3Colors.surface,
       title: Text(
         widget.existing == null ? 'New automation' : 'Edit automation',
-        style: const TextStyle(color: V3Colors.textPrimary),
+        style:  TextStyle(color: V3Colors.textPrimary),
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -297,21 +297,21 @@ class _AutomationEditorDialogState
             children: [
               TextField(
                 controller: _nameCtrl,
-                style: const TextStyle(color: V3Colors.textPrimary),
-                decoration: const InputDecoration(
+                style:  TextStyle(color: V3Colors.textPrimary),
+                decoration:  InputDecoration(
                   labelText: 'Name',
                   labelStyle: TextStyle(color: V3Colors.textSecondary),
                 ),
               ),
               const SizedBox(height: V3Spacing.md),
-              const Text(
+               Text(
                 'When',
                 style: TextStyle(color: V3Colors.textSecondary, fontSize: 12),
               ),
               DropdownButton<AutomationTriggerType>(
                 value: _trigger,
                 dropdownColor: V3Colors.surface,
-                style: const TextStyle(color: V3Colors.textPrimary),
+                style:  TextStyle(color: V3Colors.textPrimary),
                 items: AutomationTriggerType.values
                     .map(
                       (t) => DropdownMenuItem<AutomationTriggerType>(
@@ -331,10 +331,10 @@ class _AutomationEditorDialogState
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            icon: const Icon(Icons.schedule,
+                            icon:  Icon(Icons.schedule,
                                 size: 16, color: V3Colors.primary),
                             label: Text('At $_timeLabel',
-                                style: const TextStyle(
+                                style:  TextStyle(
                                     color: V3Colors.textPrimary)),
                             onPressed: () async {
                               final picked = await showTimePicker(
@@ -357,7 +357,7 @@ class _AutomationEditorDialogState
                         DropdownButton<String>(
                           value: _repeat,
                           dropdownColor: V3Colors.surface,
-                          style: const TextStyle(color: V3Colors.textPrimary),
+                          style:  TextStyle(color: V3Colors.textPrimary),
                           items: const [
                             DropdownMenuItem(
                                 value: 'everyDay', child: Text('Every day')),
@@ -382,18 +382,18 @@ class _AutomationEditorDialogState
                       const SizedBox(height: V3Spacing.sm),
                       TextField(
                         controller: _cronCtrl,
-                        style: const TextStyle(color: V3Colors.textPrimary),
+                        style:  TextStyle(color: V3Colors.textPrimary),
                         decoration: InputDecoration(
                           labelText: 'Cron (min hour day month weekday)',
                           hintText: '0 6 * * *',
                           labelStyle:
-                              const TextStyle(color: V3Colors.textSecondary),
+                               TextStyle(color: V3Colors.textSecondary),
                           hintStyle:
-                              const TextStyle(color: V3Colors.textSecondary),
+                               TextStyle(color: V3Colors.textSecondary),
                           errorText: _cronIsValid
                               ? null
                               : 'Needs 5 fields, e.g. "0 6 * * *"',
-                          errorStyle: const TextStyle(
+                          errorStyle:  TextStyle(
                               color: V3Colors.error, fontSize: 11),
                         ),
                       ),
@@ -403,14 +403,14 @@ class _AutomationEditorDialogState
               if (_trigger == AutomationTriggerType.nodeState)
                 devicesAsync.when(
                   loading: () =>
-                      const CircularProgressIndicator(color: V3Colors.primary),
+                       CircularProgressIndicator(color: V3Colors.primary),
                   error: (e, _) => Text(
                     'Devices unavailable: $e',
-                    style: const TextStyle(color: V3Colors.error),
+                    style:  TextStyle(color: V3Colors.error),
                   ),
                   data: (devices) {
                     if (devices.isEmpty) {
-                      return const Text(
+                      return  Text(
                         'No devices found in this home.',
                         style: TextStyle(color: V3Colors.textSecondary),
                       );
@@ -421,7 +421,7 @@ class _AutomationEditorDialogState
                         DropdownButton<SceneDeviceOption>(
                           value: _sourceDevice,
                           dropdownColor: V3Colors.surface,
-                          style: const TextStyle(color: V3Colors.textPrimary),
+                          style:  TextStyle(color: V3Colors.textPrimary),
                           items: devices
                               .map(
                                 (d) => DropdownMenuItem<SceneDeviceOption>(
@@ -438,9 +438,9 @@ class _AutomationEditorDialogState
                               child: TextField(
                                 controller: TextEditingController(
                                     text: _paramName),
-                                style: const TextStyle(
+                                style:  TextStyle(
                                     color: V3Colors.textPrimary),
-                                decoration: const InputDecoration(
+                                decoration:  InputDecoration(
                                   labelText: 'Param',
                                   labelStyle: TextStyle(
                                       color: V3Colors.textSecondary),
@@ -453,7 +453,7 @@ class _AutomationEditorDialogState
                               value: _comparator,
                               dropdownColor: V3Colors.surface,
                               style:
-                                  const TextStyle(color: V3Colors.textPrimary),
+                                   TextStyle(color: V3Colors.textPrimary),
                               items: _comparators
                                   .map(
                                     (c) => DropdownMenuItem<String>(
@@ -469,7 +469,7 @@ class _AutomationEditorDialogState
                         ),
                         Row(
                           children: [
-                            const Text('matches',
+                             Text('matches',
                                 style: TextStyle(
                                     color: V3Colors.textSecondary)),
                             const SizedBox(width: V3Spacing.sm),
@@ -480,7 +480,7 @@ class _AutomationEditorDialogState
                                   setState(() => _triggerValue = v),
                             ),
                             Text(_triggerValue ? 'On' : 'Off',
-                                style: const TextStyle(
+                                style:  TextStyle(
                                     color: V3Colors.textPrimary)),
                           ],
                         ),
@@ -490,7 +490,7 @@ class _AutomationEditorDialogState
                 ),
               const Divider(color: Colors.white24),
               const SizedBox(height: V3Spacing.sm),
-              const Text(
+               Text(
                 'Then switch',
                 style: TextStyle(color: V3Colors.textSecondary, fontSize: 12),
               ),
@@ -510,7 +510,7 @@ class _AutomationEditorDialogState
                         value: _actionDevice,
                         dropdownColor: V3Colors.surface,
                         isExpanded: true,
-                        style: const TextStyle(color: V3Colors.textPrimary),
+                        style:  TextStyle(color: V3Colors.textPrimary),
                         items: devices
                             .map(
                               (d) => DropdownMenuItem<SceneDeviceOption>(
@@ -529,7 +529,7 @@ class _AutomationEditorDialogState
                             onChanged: (v) => setState(() => _actionPower = v),
                           ),
                           Text(_actionPower ? 'On' : 'Off',
-                              style: const TextStyle(
+                              style:  TextStyle(
                                   color: V3Colors.textPrimary)),
                         ],
                       ),
@@ -544,7 +544,7 @@ class _AutomationEditorDialogState
               // decoding a cron expression after the fact.
               Text(
                 _summary(),
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.primary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
@@ -557,7 +557,7 @@ class _AutomationEditorDialogState
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text(
+          child:  Text(
             'Cancel',
             style: TextStyle(color: V3Colors.textSecondary),
           ),

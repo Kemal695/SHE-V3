@@ -81,7 +81,7 @@ class _HapticSliderState extends State<HapticSlider>
               children: [
                 Text(
                   widget.label!,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.textSecondary,
                     fontSize: V3Typography.labelSize,
                     fontWeight: FontWeight.w500,
@@ -89,7 +89,7 @@ class _HapticSliderState extends State<HapticSlider>
                 ),
                 Text(
                   '${displayValue.toStringAsFixed(widget.snapIncrement < 1 ? 1 : 0)}${widget.unit ?? ''}',
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.primary,
                     fontSize: V3Typography.labelSize,
                     fontWeight: FontWeight.w600,

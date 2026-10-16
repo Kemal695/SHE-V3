@@ -272,7 +272,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.bluetooth_searching,
+               Icon(Icons.bluetooth_searching,
                   size: 64, color: SheTheme.brightSkyBlue),
               const SizedBox(height: 16),
 
@@ -319,7 +319,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                         leading: const Icon(Icons.memory),
                         title: Text(d),
                         trailing: _selectedDevice == d
-                            ? const Icon(Icons.check,
+                            ?  Icon(Icons.check,
                                 color: SheTheme.brightSkyBlue)
                             : null,
                         onTap: _isLoading ? null : () => _scanWifi(d),
@@ -471,7 +471,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: Text(_error!,
-                      style: const TextStyle(color: SheTheme.error)),
+                      style:  TextStyle(color: SheTheme.error)),
                 ),
             ],
           ),

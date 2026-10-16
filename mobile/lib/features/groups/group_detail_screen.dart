@@ -189,7 +189,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       backgroundColor: V3Colors.background,
       body: SafeArea(
         child: groupsAsync.when(
-          loading: () => const Center(
+          loading: () =>  Center(
             child: CircularProgressIndicator(color: V3Colors.primary),
           ),
           error: (e, _) => _message(
@@ -212,7 +212,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             final name = group['name']?.toString() ?? widget.groupName;
 
             return devicesAsync.when(
-              loading: () => const Center(
+              loading: () =>  Center(
                 child: CircularProgressIndicator(color: V3Colors.primary),
               ),
               error: (e, _) => _message(
@@ -248,7 +248,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               children: [
                 Text(text,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: V3Colors.text2)),
+                    style:  TextStyle(color: V3Colors.text2)),
                 if (onRetry != null) ...[
                   const SizedBox(height: V3Spacing.md),
                   SHEButton(label: 'Retry', onPressed: onRetry),
@@ -329,13 +329,13 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               // With a chosen cover photo, show it under a navy scrim so the
               // title stays readable; otherwise the brand gradient hero.
               gradient: coverAsset != null
-                  ? const LinearGradient(
+                  ?  LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [Colors.transparent, V3Colors.night],
                       stops: [0.25, 1.0],
                     )
-                  : const LinearGradient(
+                  :  LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
@@ -388,7 +388,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 Text(name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 20,
                         fontWeight: FontWeight.w700)),
@@ -397,7 +397,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   '${members.length} device(s) · '
                   '${members.where((d) => isOn(d['id'].toString())).length} on',
                   style:
-                      const TextStyle(color: V3Colors.text2, fontSize: 12),
+                       TextStyle(color: V3Colors.text2, fontSize: 12),
                 ),
                 const SizedBox(height: V3Spacing.md),
                 Row(
@@ -433,7 +433,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           const SizedBox(height: V3Spacing.sm),
 
           if (members.isEmpty)
-            const Padding(
+             Padding(
               padding: EdgeInsets.symmetric(vertical: V3Spacing.lg),
               child: Text(
                 'No devices in this group yet.',
@@ -484,13 +484,13 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             child: Text(name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600)),
           ),
           if (busy)
-            const Padding(
+             Padding(
               padding: EdgeInsets.only(right: V3Spacing.sm),
               child: SizedBox(
                   width: 14,

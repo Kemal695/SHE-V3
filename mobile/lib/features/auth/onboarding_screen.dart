@@ -189,7 +189,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
                                   _index < _slideCount - 1
                                       ? l.next
                                       : l.getStarted,
-                                  style: const TextStyle(
+                                  style:  TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600,
                                     color: V3Colors.night,
@@ -197,7 +197,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
                                 ),
                                 if (_index < _slideCount - 1) ...[
                                   const SizedBox(width: 6),
-                                  const Icon(
+                                   Icon(
                                     Icons.arrow_forward,
                                     size: 16,
                                     color: V3Colors.night,

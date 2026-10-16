@@ -741,7 +741,7 @@ class _DeviceTile extends StatelessWidget {
                   device.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -756,7 +756,7 @@ class _DeviceTile extends StatelessWidget {
                       SHEStatusBadge(online: device.isOnline),
                     if (isOn && device.isOnline && !queued) ...[
                       const SizedBox(width: 6),
-                      const Text(
+                       Text(
                         'On',
                         style: TextStyle(
                           color: V3Colors.primary,
@@ -812,7 +812,7 @@ class _GateDeviceTile extends StatelessWidget {
                   row.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -823,7 +823,7 @@ class _GateDeviceTile extends StatelessWidget {
                   children: [
                     SHEStatusBadge(online: row.isOnline),
                     const SizedBox(width: 6),
-                    const Icon(
+                     Icon(
                       Icons.chevron_right,
                       size: 16,
                       color: V3Colors.text2,

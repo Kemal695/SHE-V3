@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/storage/settings_store.dart';
+
 import '../core/storage/secure_storage.dart';
 import '../core/network/dio_client.dart';
 import '../features/auth/login_screen.dart';
@@ -289,4 +291,11 @@ final StateProvider<Locale> localeProvider = StateProvider<Locale>((ref) {
     }
   });
   return const Locale('am');   // Default: Amharic
+});
+
+// ---- Theme mode provider (ADR-009 dark-first + optional light mode) ----
+// Persisted in the Hive `settings` box. Dark stays the default, so an existing
+// install is unaffected until the user opts into light mode.
+final StateProvider<ThemeMode> themeModeProvider = StateProvider<ThemeMode>((ref) {
+  return SettingsStore.themeMode == 'light' ? ThemeMode.light : ThemeMode.dark;
 });

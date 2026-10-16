@@ -144,7 +144,7 @@ class _AppShellState extends State<AppShell> {
                 ? Row(
                     children: [
                       _SHENavRail(navigationShell: shell),
-                      const VerticalDivider(
+                       VerticalDivider(
                         width: 1,
                         thickness: 1,
                         color: V3Colors.border,
@@ -173,7 +173,7 @@ class _SHEBottomNav extends StatelessWidget {
     final current = navigationShell.currentIndex;
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration:  BoxDecoration(
         color: Color(0xF20E2039), // #0E2039 @ 95%, matching the prototype
         border: Border(top: BorderSide(color: V3Colors.border, width: 1)),
       ),
@@ -315,14 +315,14 @@ class _SHENavRail extends StatelessWidget {
       ),
       labelType: NavigationRailLabelType.all,
       indicatorColor: V3Colors.primary.withValues(alpha: 0.15),
-      selectedIconTheme: const IconThemeData(color: V3Colors.primary, size: 22),
-      unselectedIconTheme: const IconThemeData(color: V3Colors.dim, size: 22),
-      selectedLabelTextStyle: const TextStyle(
+      selectedIconTheme:  IconThemeData(color: V3Colors.primary, size: 22),
+      unselectedIconTheme:  IconThemeData(color: V3Colors.dim, size: 22),
+      selectedLabelTextStyle:  TextStyle(
         color: V3Colors.primary,
         fontSize: V3Typography.navLabel,
         fontWeight: FontWeight.w600,
       ),
-      unselectedLabelTextStyle: const TextStyle(
+      unselectedLabelTextStyle:  TextStyle(
         color: V3Colors.dim,
         fontSize: V3Typography.navLabel,
         fontWeight: FontWeight.w500,

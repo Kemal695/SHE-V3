@@ -119,7 +119,7 @@ class _Row extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.textPrimary,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -127,7 +127,7 @@ class _Row extends StatelessWidget {
               ),
               Text(
                 subtitle,
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.textSecondary,
                   fontSize: 12,
                 ),

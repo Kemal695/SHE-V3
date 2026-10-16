@@ -187,7 +187,7 @@ class SwitchDeviceCard extends StatelessWidget {
                   ),
                 ],
               ),
-              Text(name, style: const TextStyle(
+              Text(name, style:  TextStyle(
                 color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize,
                 fontWeight: FontWeight.w600,
@@ -255,7 +255,7 @@ class LightbulbDeviceCard extends StatelessWidget {
                       onChanged: (v) => onParamWrite!(device['id'], 'Power', v)),
                 ],
               ),
-              Text(name, style: const TextStyle(color: V3Colors.textPrimary,
+              Text(name, style:  TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600)),
               if (brightnessParam != null && isOn && onParamWrite != null)
                 Padding(
@@ -322,13 +322,13 @@ class FanDeviceCard extends StatelessWidget {
                   // Fan icon rotates when ON (V3-DESIGN-SYSTEM §1.10)
                   isOn
                     ? _RotatingFanIcon(speed: speed)
-                    : const Icon(Icons.mode_fan_off, size: 32, color: V3Colors.textSecondary),
+                    :  Icon(Icons.mode_fan_off, size: 32, color: V3Colors.textSecondary),
                   if (powerParam != null && onParamWrite != null)
                     SHEToggle(value: isOn,
                       onChanged: (v) => onParamWrite!(device['id'], 'Power', v)),
                 ],
               ),
-              Text(name, style: const TextStyle(color: V3Colors.textPrimary,
+              Text(name, style:  TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600)),
               if (speedParam != null && isOn && onParamWrite != null)
                 Padding(
@@ -382,9 +382,9 @@ class TempSensorCard extends StatelessWidget {
             children: [
               Icon(Icons.thermostat, size: 32,
                 color: isOnline ? V3Colors.primary : V3Colors.textSecondary),
-              Text(name, style: const TextStyle(color: V3Colors.textPrimary,
+              Text(name, style:  TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600)),
-              Text('${temp.toStringAsFixed(1)}°C', style: const TextStyle(
+              Text('${temp.toStringAsFixed(1)}°C', style:  TextStyle(
                 color: V3Colors.primary, fontSize: V3Typography.displaySize,
                 fontWeight: FontWeight.w700)),
             ],
@@ -432,9 +432,9 @@ class EnergyMeterCard extends StatelessWidget {
             children: [
               Icon(Icons.bolt, size: 32,
                 color: power > 0 && isOnline ? V3Colors.warning : V3Colors.textSecondary),
-              const Text('Energy', style: TextStyle(color: V3Colors.textPrimary,
+               Text('Energy', style: TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600)),
-              Text('${power.toStringAsFixed(1)} W', style: const TextStyle(
+              Text('${power.toStringAsFixed(1)} W', style:  TextStyle(
                 color: V3Colors.primary, fontSize: V3Typography.displaySize,
                 fontWeight: FontWeight.w700)),
             ],
@@ -476,7 +476,7 @@ class GenericDeviceCard extends StatelessWidget {
             children: [
               Icon(Icons.device_unknown, size: 32,
                 color: isOnline ? V3Colors.primary : V3Colors.textSecondary),
-              Text(name, style: const TextStyle(color: V3Colors.textPrimary,
+              Text(name, style:  TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600)),
               ...params.cast<Map<String, dynamic>?>().map((p) {
                 if (p == null) return const SizedBox.shrink();
@@ -488,7 +488,7 @@ class GenericDeviceCard extends StatelessWidget {
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(paramName, style: const TextStyle(color: V3Colors.textSecondary)),
+                      Text(paramName, style:  TextStyle(color: V3Colors.textSecondary)),
                       if (onParamWrite != null)
                         SHEToggle(value: value == true,
                           onChanged: (v) => onParamWrite!(device['id'], paramName, v)),
@@ -497,7 +497,7 @@ class GenericDeviceCard extends StatelessWidget {
                 }
                 return Padding(
                   padding: const EdgeInsets.only(top: V3Spacing.xs),
-                  child: Text('$paramName: $value', style: const TextStyle(
+                  child: Text('$paramName: $value', style:  TextStyle(
                     color: V3Colors.textSecondary, fontSize: V3Typography.captionSize)),
                 );
               }),
@@ -551,10 +551,10 @@ class _NodeCard extends StatelessWidget {
                   ),
                 ],
               ),
-              Text(name, style: const TextStyle(color: V3Colors.textPrimary,
+              Text(name, style:  TextStyle(color: V3Colors.textPrimary,
                 fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600),
                 maxLines: 2, overflow: TextOverflow.ellipsis),
-              Text(sku, style: const TextStyle(color: V3Colors.textSecondary,
+              Text(sku, style:  TextStyle(color: V3Colors.textSecondary,
                 fontSize: V3Typography.captionSize)),
             ],
           ),
@@ -616,7 +616,7 @@ class _RotatingFanIconState extends State<_RotatingFanIcon>
       // is animated by a RotationTransition, so the replacement needs rotational
       // symmetry to read as a spinning fan — Icons.toys is a pinwheel and spins
       // cleanly, whereas Icons.air (wavy lines) looks wrong under rotation.
-      child: const Icon(Icons.toys, size: 32, color: V3Colors.primary),
+      child:  Icon(Icons.toys, size: 32, color: V3Colors.primary),
     );
   }
 }

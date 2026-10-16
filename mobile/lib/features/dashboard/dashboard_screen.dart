@@ -569,7 +569,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   Text(name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.ink,
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700)),
@@ -577,7 +577,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   Text(
                     '${members.length} device(s) · $onCount on',
                     style:
-                        const TextStyle(color: V3Colors.dim, fontSize: 11),
+                         TextStyle(color: V3Colors.dim, fontSize: 11),
                   ),
                 ],
               ),
@@ -676,11 +676,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: V3Colors.surface,
-            title: const Text('Delete group?',
+            title:  Text('Delete group?',
                 style: TextStyle(color: V3Colors.ink)),
             content: Text(
                 'This removes "$name". Devices are not changed.',
-                style: const TextStyle(color: V3Colors.text2)),
+                style:  TextStyle(color: V3Colors.text2)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -688,7 +688,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Delete',
+                child:  Text('Delete',
                     style: TextStyle(color: V3Colors.errorAlt)),
               ),
             ],
@@ -726,7 +726,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
+        decoration:  BoxDecoration(
           color: V3Colors.surface2,
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           border: Border(top: BorderSide(color: V3Colors.borderStrong)),
@@ -751,7 +751,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 14),
             Text(
               name,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.ink,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -909,7 +909,7 @@ class _Header extends StatelessWidget {
                   greeting,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -918,7 +918,7 @@ class _Header extends StatelessWidget {
                 const SizedBox(height: 1),
                 Row(
                   children: [
-                    const Icon(Icons.home_outlined,
+                     Icon(Icons.home_outlined,
                         size: 13, color: V3Colors.text2),
                     const SizedBox(width: 4),
                     Expanded(
@@ -926,7 +926,7 @@ class _Header extends StatelessWidget {
                         'My Home · Addis Ababa',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style:  TextStyle(
                           color: V3Colors.text2,
                           fontSize: V3Typography.meta,
                         ),
@@ -1004,7 +1004,7 @@ class _HeroStatus extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(V3Spacing.md),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient:  LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
@@ -1022,7 +1022,7 @@ class _HeroStatus extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Expanded(
+                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -1063,7 +1063,7 @@ class _HeroStatus extends StatelessWidget {
                       const SizedBox(width: 6),
                       Text(
                         live ? 'Live' : 'Offline',
-                        style: const TextStyle(
+                        style:  TextStyle(
                           color: V3Colors.primary,
                           fontSize: V3Typography.chip,
                           fontWeight: FontWeight.w600,
@@ -1121,9 +1121,9 @@ class _ClimateCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.thermostat, size: 18, color: V3Colors.primary),
+               Icon(Icons.thermostat, size: 18, color: V3Colors.primary),
               const SizedBox(width: 8),
-              const Text('Climate',
+               Text('Climate',
                   style: TextStyle(
                       color: V3Colors.ink,
                       fontSize: 14,
@@ -1221,7 +1221,7 @@ class _ClimateGauge extends StatelessWidget {
                     value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.ink,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -1231,7 +1231,7 @@ class _ClimateGauge extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.text2,
                       fontSize: 11,
                     ),
@@ -1265,7 +1265,7 @@ class _Stat extends StatelessWidget {
         const SizedBox(width: 7),
         Text(
           value,
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.ink,
             fontSize: 15,
             fontWeight: FontWeight.w700,
@@ -1274,7 +1274,7 @@ class _Stat extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.text2,
             fontSize: V3Typography.meta,
           ),
@@ -1383,7 +1383,7 @@ class _SceneTile extends StatelessWidget {
               maxLines: 2,
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.text2,
                 fontSize: 10.5,
                 fontWeight: FontWeight.w500,
@@ -1416,7 +1416,7 @@ class _CreateSceneTile extends StatelessWidget {
             style: BorderStyle.solid,
           ),
         ),
-        child: const Column(
+        child:  Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add, size: 20, color: V3Colors.dim),
@@ -1521,7 +1521,7 @@ class _BentoCard extends ConsumerWidget {
               name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.ink,
                 fontSize: V3Typography.cardTitle,
                 fontWeight: FontWeight.w600,
@@ -1636,7 +1636,7 @@ class _QuickAction extends StatelessWidget {
             const SizedBox(height: V3Spacing.sm),
             Text(
               label,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.text2,
                 fontSize: 10.5,
                 fontWeight: FontWeight.w500,
@@ -1679,7 +1679,7 @@ class _EnergyMiniCard extends ConsumerWidget {
                     height: 20,
                     child: SHESkeleton(width: 90, height: 18),
                   ),
-                  error: (_, __) => const Text(
+                  error: (_, __) =>  Text(
                     'Unavailable',
                     style: TextStyle(
                       color: V3Colors.dim,
@@ -1688,7 +1688,7 @@ class _EnergyMiniCard extends ConsumerWidget {
                   ),
                   data: (s) => Text(
                     s.isReal ? 'Live metrics' : 'Phase 4',
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.ink,
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
@@ -1696,7 +1696,7 @@ class _EnergyMiniCard extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                 Text(
                   'Consumption & cost',
                   style: TextStyle(
                     color: V3Colors.dim,
@@ -1706,7 +1706,7 @@ class _EnergyMiniCard extends ConsumerWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, size: 20, color: V3Colors.dim),
+           Icon(Icons.chevron_right, size: 20, color: V3Colors.dim),
         ],
       ),
     );
@@ -1755,7 +1755,7 @@ class _WeatherCard extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
-                  children: const [
+                  children:  [
                     Icon(Icons.location_on_outlined,
                         size: 12, color: V3Colors.text2),
                     SizedBox(width: 3),
@@ -1769,7 +1769,7 @@ class _WeatherCard extends ConsumerWidget {
                   headline,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.ink,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -1781,12 +1781,12 @@ class _WeatherCard extends ConsumerWidget {
           if (humidity != null)
             Row(
               children: [
-                const Icon(Icons.water_drop_outlined,
+                 Icon(Icons.water_drop_outlined,
                     size: 14, color: V3Colors.text2),
                 const SizedBox(width: 4),
                 Text(
                   '${humidity.toStringAsFixed(0)}%',
-                  style: const TextStyle(
+                  style:  TextStyle(
                       color: V3Colors.text2, fontSize: V3Typography.meta),
                 ),
               ],

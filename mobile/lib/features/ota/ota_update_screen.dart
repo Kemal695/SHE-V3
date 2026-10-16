@@ -312,7 +312,7 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
                   children: [
                     Text(
                       headline,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -321,7 +321,7 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
                     const SizedBox(height: 2),
                     Text(
                       detail,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.text2, fontSize: 12.5),
                     ),
                   ],
@@ -335,14 +335,14 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
             const SizedBox(height: 6),
             Text(
               '${overall.round()}%',
-              style: const TextStyle(
+              style:  TextStyle(
                   color: V3Colors.text2, fontSize: V3Typography.meta),
             ),
           ],
           if (_error != null) ...[
             const SizedBox(height: V3Spacing.sm),
             Text(_error!,
-                style: const TextStyle(
+                style:  TextStyle(
                     color: V3Colors.errorAlt, fontSize: 12.5)),
           ],
           if (failed && _isAdminList()) ...[
@@ -350,7 +350,7 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
             Text(
               l?.otaAdminHint ??
                   'An admin can start a new rollout from the admin console.',
-              style: const TextStyle(
+              style:  TextStyle(
                   color: V3Colors.dim, fontSize: V3Typography.meta),
             ),
           ],
@@ -421,14 +421,14 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.memory, size: 18, color: V3Colors.primary),
+                 Icon(Icons.memory, size: 18, color: V3Colors.primary),
                 const SizedBox(width: V3Spacing.sm),
                 Expanded(
                   child: Text(
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.ink,
                       fontSize: 14.5,
                       fontWeight: FontWeight.w600,
@@ -452,7 +452,7 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
             const SizedBox(height: 6),
             Text(
               l?.otaFirmware(version) ?? 'Firmware $version',
-              style: const TextStyle(
+              style:  TextStyle(
                   color: V3Colors.text2, fontSize: 12.5),
             ),
             if (approval != null && approval.progress > 0) ...[
@@ -464,7 +464,7 @@ class _OtaUpdateScreenState extends ConsumerState<OtaUpdateScreen> {
               const SizedBox(height: 6),
               Text(
                 approval.lastError!,
-                style: const TextStyle(
+                style:  TextStyle(
                     color: V3Colors.errorAlt, fontSize: 11.5),
               ),
             ],

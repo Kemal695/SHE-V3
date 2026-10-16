@@ -198,7 +198,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+          icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
           onPressed: () => context.go('/dashboard'),
         ),
         title: const Text('Voice Control'),
@@ -330,7 +330,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                     Row(
                       children: [
                         Icon(Icons.lightbulb_outline,
                             color: V3Colors.warning, size: 20),
@@ -397,7 +397,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         padding: const EdgeInsets.only(bottom: V3Spacing.xs),
         child: Text(
           text.toUpperCase(),
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.textSecondary,
             fontSize: V3Typography.overlineSize,
             fontWeight: FontWeight.w600,
@@ -411,13 +411,13 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.format_quote,
+             Icon(Icons.format_quote,
                 size: 16, color: V3Colors.textSecondary),
             const SizedBox(width: V3Spacing.sm),
             Expanded(
               child: Text(
                 command,
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.textPrimary,
                   fontSize: V3Typography.bodySize,
                   height: 1.6, // Ethiopic needs the taller line height
@@ -427,7 +427,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
             const SizedBox(width: V3Spacing.sm),
             Text(
               hint,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.textSecondary,
                 fontSize: V3Typography.captionSize,
               ),
@@ -461,7 +461,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.textPrimary,
                       fontSize: V3Typography.labelSize,
                       fontWeight: FontWeight.w600,
@@ -490,7 +490,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                 padding: const EdgeInsets.only(left: 28),
                 child: Text(
                   extra,
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.textSecondary,
                     fontSize: V3Typography.captionSize,
                   ),

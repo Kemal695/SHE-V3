@@ -143,7 +143,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                                   alignment: Alignment.centerLeft,
                                   widthFactor: _barController.value,
                                   child: Container(
-                                    decoration: const BoxDecoration(
+                                    decoration:  BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [
                                           V3Colors.primary,
@@ -207,7 +207,7 @@ class _SplashWordmark extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(
+          child:  Icon(
             Icons.wifi_tethering,
             size: 44,
             color: V3Colors.primary,

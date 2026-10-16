@@ -98,7 +98,7 @@ class _SHEToggleState extends State<SHEToggle>
                   child: Container(
                     width: thumbSize,
                     height: thumbSize,
-                    decoration: const BoxDecoration(
+                    decoration:  BoxDecoration(
                       color: V3Colors.textPrimary,
                       shape: BoxShape.circle,
                     ),

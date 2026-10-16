@@ -77,7 +77,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+            icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
             onPressed: () => context.go('/dashboard'),
           ),
           title: Text('Upgrade to $planName'),
@@ -95,7 +95,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                       Container(
                         width: 56, height: 56,
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
+                          gradient:  LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [V3Colors.primary, V3Colors.secondary],
@@ -108,7 +108,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                       const SizedBox(height: V3Spacing.md),
                       Text('SHE $planName', style: Theme.of(context).textTheme.headlineMedium),
                       const SizedBox(height: V3Spacing.xs),
-                      Text(planPrice, style: const TextStyle(
+                      Text(planPrice, style:  TextStyle(
                         color: V3Colors.primary,
                         fontSize: V3Typography.titleSize,
                         fontWeight: FontWeight.w700,
@@ -132,7 +132,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
               // ---- Loading ----
               if (_isLoading)
-                const Padding(
+                 Padding(
                   padding: EdgeInsets.all(V3Spacing.lg),
                   child: Center(
                     child: Column(
@@ -157,10 +157,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: V3Colors.error, size: 20),
+                       Icon(Icons.error_outline, color: V3Colors.error, size: 20),
                       const SizedBox(width: V3Spacing.sm),
                       Expanded(child: Text(_errorMessage!,
-                          style: const TextStyle(color: V3Colors.error, fontSize: V3Typography.captionSize))),
+                          style:  TextStyle(color: V3Colors.error, fontSize: V3Typography.captionSize))),
                     ],
                   ),
                 ),
@@ -182,7 +182,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               const SizedBox(height: V3Spacing.md),
 
               // ---- Payment methods ----
-              const Row(
+               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.phone_android, size: 16, color: V3Colors.textSecondary),
@@ -210,9 +210,9 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       padding: const EdgeInsets.symmetric(vertical: V3Spacing.xs),
       child: Row(
         children: [
-          const Icon(Icons.check_circle, color: V3Colors.success, size: 18),
+           Icon(Icons.check_circle, color: V3Colors.success, size: 18),
           const SizedBox(width: V3Spacing.sm),
-          Expanded(child: Text(text, style: const TextStyle(
+          Expanded(child: Text(text, style:  TextStyle(
             color: V3Colors.textPrimary,
             fontSize: V3Typography.bodySize,
           ))),

@@ -97,7 +97,7 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Select time',
+           Text('Select time',
               style: TextStyle(
                   color: V3Colors.ink,
                   fontSize: 15,
@@ -127,7 +127,7 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
                       label: (i) => (i + 1).toString().padLeft(2, '0'),
                       onChanged: (i) => setState(() => _hour12 = i + 1),
                     )),
-                    const Text(':',
+                     Text(':',
                         style: TextStyle(
                             color: V3Colors.ink,
                             fontSize: 22,
@@ -168,17 +168,17 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.repeat, size: 18, color: V3Colors.primary),
+                   Icon(Icons.repeat, size: 18, color: V3Colors.primary),
                   const SizedBox(width: V3Spacing.sm),
-                  const Text('Repeat',
+                   Text('Repeat',
                       style: TextStyle(color: V3Colors.dim, fontSize: 12.5)),
                   const Spacer(),
                   Text(_repeatLabel,
-                      style: const TextStyle(
+                      style:  TextStyle(
                           color: V3Colors.ink,
                           fontSize: 13,
                           fontWeight: FontWeight.w600)),
-                  const Icon(Icons.chevron_right,
+                   Icon(Icons.chevron_right,
                       size: 18, color: V3Colors.dim),
                 ],
               ),
@@ -195,7 +195,7 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
                   onPressed: () => Navigator.of(context).pop(),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: V3Colors.text2,
-                    side: const BorderSide(color: V3Colors.border),
+                    side:  BorderSide(color: V3Colors.border),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(V3Radius.lg)),
@@ -247,7 +247,7 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Repeat',
+             Text('Repeat',
                 style: TextStyle(
                     color: V3Colors.ink,
                     fontSize: 15,
@@ -261,10 +261,10 @@ class _TimeWheelSheetState extends State<_TimeWheelSheet> {
                     'weekends' => 'Weekends (Sat–Sun)',
                     _ => 'Every day',
                   },
-                  style: const TextStyle(color: V3Colors.ink, fontSize: 13.5),
+                  style:  TextStyle(color: V3Colors.ink, fontSize: 13.5),
                 ),
                 trailing: _repeat == r
-                    ? const Icon(Icons.check, color: V3Colors.primary, size: 18)
+                    ?  Icon(Icons.check, color: V3Colors.primary, size: 18)
                     : null,
                 onTap: () => Navigator.of(context).pop(r),
               ),

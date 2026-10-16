@@ -94,7 +94,7 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
             builder: (ctx, setLocal) => AlertDialog(
               backgroundColor: SheTheme.lighterNavy,
               title: Text(l10n?.addMember ?? 'Add Member',
-                  style: const TextStyle(color: SheTheme.textPrimary)),
+                  style:  TextStyle(color: SheTheme.textPrimary)),
               content: Form(
                 key: formKey,
                 child: Column(
@@ -103,12 +103,12 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
                     TextFormField(
                       controller: emailController,
                       keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: SheTheme.textPrimary),
+                      style:  TextStyle(color: SheTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: l10n?.email ?? 'Email',
                         hintText: l10n?.memberEmailHint ?? 'member@example.com',
                         labelStyle:
-                            const TextStyle(color: SheTheme.textSecondary),
+                             TextStyle(color: SheTheme.textSecondary),
                       ),
                       validator: (v) {
                         final value = v?.trim() ?? '';
@@ -126,11 +126,11 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
                     DropdownButtonFormField<String>(
                       initialValue: role,
                       dropdownColor: SheTheme.lighterNavy,
-                      style: const TextStyle(color: SheTheme.textPrimary),
+                      style:  TextStyle(color: SheTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: l10n?.role ?? 'Role',
                         labelStyle:
-                            const TextStyle(color: SheTheme.textSecondary),
+                             TextStyle(color: SheTheme.textSecondary),
                       ),
                       // OWNER is deliberately not offered: the server only lets
                       // an existing OWNER grant it, so exposing it here would
@@ -214,10 +214,10 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
           builder: (ctx) => AlertDialog(
             backgroundColor: SheTheme.lighterNavy,
             title: Text(l10n?.removeMemberTitle ?? 'Remove member',
-                style: const TextStyle(color: SheTheme.textPrimary)),
+                style:  TextStyle(color: SheTheme.textPrimary)),
             content: Text(
               l10n?.removeMemberConfirm(email) ?? 'Remove $email from this home?',
-              style: const TextStyle(color: SheTheme.textSecondary),
+              style:  TextStyle(color: SheTheme.textSecondary),
             ),
             actions: [
               TextButton(
@@ -270,13 +270,13 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline,
+                 Icon(Icons.error_outline,
                     color: SheTheme.error, size: 48),
                 const SizedBox(height: 12),
                 Text(
                   '${l10n?.error ?? 'Error'}: ${_errorMessage(e)}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: SheTheme.textSecondary),
+                  style:  TextStyle(color: SheTheme.textSecondary),
                 ),
                 const SizedBox(height: 16),
                 FilledButton(onPressed: _reload, child: const Text('Retry')),
@@ -292,19 +292,19 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.group_outlined,
+                     Icon(Icons.group_outlined,
                         size: 56, color: SheTheme.textMuted),
                     const SizedBox(height: 12),
                     Text(l10n?.noMembers ?? 'No members yet',
                         style:
-                            const TextStyle(color: SheTheme.textPrimary)),
+                             TextStyle(color: SheTheme.textPrimary)),
                     const SizedBox(height: 6),
                     Text(
                       l10n?.noMembersHint ??
                           'Invite someone by email to share control of this home.',
                       textAlign: TextAlign.center,
                       style:
-                          const TextStyle(color: SheTheme.textSecondary),
+                           TextStyle(color: SheTheme.textSecondary),
                     ),
                   ],
                 ),
@@ -366,7 +366,7 @@ class _MemberTile extends StatelessWidget {
           CircleAvatar(
             backgroundColor: SheTheme.brightSkyBlue.withValues(alpha: 0.18),
             child: Text(initial,
-                style: const TextStyle(color: SheTheme.brightSkyBlue)),
+                style:  TextStyle(color: SheTheme.brightSkyBlue)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -375,7 +375,7 @@ class _MemberTile extends StatelessWidget {
               children: [
                 Text(
                   name.isNotEmpty ? name : email,
-                  style: const TextStyle(
+                  style:  TextStyle(
                       color: SheTheme.textPrimary,
                       fontWeight: FontWeight.w600),
                   overflow: TextOverflow.ellipsis,
@@ -383,7 +383,7 @@ class _MemberTile extends StatelessWidget {
                 if (name.isNotEmpty && email.isNotEmpty)
                   Text(
                     email,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: SheTheme.textSecondary, fontSize: 12),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -395,7 +395,7 @@ class _MemberTile extends StatelessWidget {
             value: currentRole,
             dropdownColor: SheTheme.lighterNavy,
             underline: const SizedBox.shrink(),
-            style: const TextStyle(color: SheTheme.brightSkyBlue, fontSize: 13),
+            style:  TextStyle(color: SheTheme.brightSkyBlue, fontSize: 13),
             items: kHomeRoles
                 .map((r) => DropdownMenuItem(
                       value: r,
@@ -407,7 +407,7 @@ class _MemberTile extends StatelessWidget {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.person_remove_outlined,
+            icon:  Icon(Icons.person_remove_outlined,
                 color: SheTheme.textMuted),
             tooltip: l10n?.remove ?? 'Remove',
             onPressed: onRemove,

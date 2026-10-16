@@ -80,7 +80,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         resizeToAvoidBottomInset: true,
         appBar: AppBar(
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+            icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
             onPressed: () => context.go('/login'),
           ),
           title: const Text('Create Account'),
@@ -100,7 +100,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   Container(
                     width: 64, height: 64,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
+                      gradient:  LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [V3Colors.primary, V3Colors.secondary],
@@ -200,11 +200,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.error_outline, color: V3Colors.error, size: 20),
+                           Icon(Icons.error_outline, color: V3Colors.error, size: 20),
                           const SizedBox(width: V3Spacing.sm),
                           Expanded(
                             child: Text(_errorMessage!,
-                                style: const TextStyle(color: V3Colors.error, fontSize: V3Typography.captionSize)),
+                                style:  TextStyle(color: V3Colors.error, fontSize: V3Typography.captionSize)),
                           ),
                         ],
                       ),

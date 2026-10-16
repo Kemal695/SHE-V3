@@ -129,7 +129,7 @@ class _AddSceneButton extends StatelessWidget {
             style: BorderStyle.solid,
           ),
         ),
-        child: const Icon(Icons.add, color: V3Colors.textSecondary, size: 24),
+        child:  Icon(Icons.add, color: V3Colors.textSecondary, size: 24),
       ),
     );
   }

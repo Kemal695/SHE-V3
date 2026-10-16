@@ -184,7 +184,7 @@ class _RadialButton extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             action.label,
-            style: const TextStyle(
+            style:  TextStyle(
               color: V3Colors.textSecondary,
               fontSize: 10,
             ),

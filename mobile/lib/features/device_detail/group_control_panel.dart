@@ -90,7 +90,7 @@ class _GroupControlPanelState extends ConsumerState<GroupControlPanel> {
       children: [
         Text(
           'MASTER CONTROL',
-          style: const TextStyle(
+          style:  TextStyle(
             color: V3Colors.textSecondary,
             fontSize: V3Typography.overlineSize,
             fontWeight: FontWeight.w600,

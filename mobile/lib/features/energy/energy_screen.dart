@@ -39,7 +39,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: V3Colors.textPrimary),
+          icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
           onPressed: () {
             // The per-node device page is gone; return to wherever this was
             // opened from (dashboard long-press, or the Energy tab).
@@ -55,7 +55,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
       ),
       body: SafeArea(
         child: energyAsync.when(
-          loading: () => const Center(
+          loading: () =>  Center(
             child: CircularProgressIndicator(color: V3Colors.primary, strokeWidth: 3),
           ),
           error: (err, _) => Center(
@@ -64,7 +64,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline, size: 48, color: V3Colors.error),
+                   Icon(Icons.error_outline, size: 48, color: V3Colors.error),
                   const SizedBox(height: V3Spacing.md),
                   Text('Failed to load energy data',
                       style: Theme.of(context).textTheme.headlineMedium),
@@ -97,7 +97,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
             padding: const EdgeInsets.all(V3Spacing.lg),
             child: Column(
               children: [
-                const Text('Current Power', style: TextStyle(
+                 Text('Current Power', style: TextStyle(
                   color: V3Colors.textSecondary,
                   fontSize: V3Typography.labelSize,
                   fontWeight: FontWeight.w500,
@@ -111,7 +111,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
                   builder: (context, value, _) {
                     return Text(
                       '${value.toStringAsFixed(1)} W',
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.primary,
                         fontSize: V3Typography.displaySize,
                         fontWeight: FontWeight.w700,
@@ -147,9 +147,9 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
                     padding: const EdgeInsets.all(V3Spacing.md),
                     child: Column(
                       children: [
-                        const Icon(Icons.bolt, color: V3Colors.warning, size: 24),
+                         Icon(Icons.bolt, color: V3Colors.warning, size: 24),
                         const SizedBox(height: V3Spacing.sm),
-                        const Text('Energy', style: TextStyle(
+                         Text('Energy', style: TextStyle(
                           color: V3Colors.textSecondary,
                           fontSize: V3Typography.captionSize,
                         )),
@@ -167,14 +167,14 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
                     padding: const EdgeInsets.all(V3Spacing.md),
                     child: Column(
                       children: [
-                        const Icon(Icons.payments_outlined, color: V3Colors.success, size: 24),
+                         Icon(Icons.payments_outlined, color: V3Colors.success, size: 24),
                         const SizedBox(height: V3Spacing.sm),
-                        const Text('Cost', style: TextStyle(
+                         Text('Cost', style: TextStyle(
                           color: V3Colors.textSecondary,
                           fontSize: V3Typography.captionSize,
                         )),
                         Text(EtbFormatter.format(costEtb, 'am'),
-                            style: const TextStyle(
+                            style:  TextStyle(
                               color: V3Colors.success,
                               fontSize: V3Typography.titleSize,
                               fontWeight: FontWeight.w700,
@@ -247,7 +247,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
         Card(
           child: ListTile(
             contentPadding: const EdgeInsets.all(V3Spacing.md),
-            leading: const Icon(Icons.warning_amber, color: V3Colors.warning, size: 28),
+            leading:  Icon(Icons.warning_amber, color: V3Colors.warning, size: 28),
             title: Text('Anomaly Detection', style: Theme.of(context).textTheme.titleMedium),
             subtitle: Text('Alerts when consumption is 3x above 7-day baseline',
                 style: Theme.of(context).textTheme.bodySmall),
@@ -261,7 +261,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
             padding: const EdgeInsets.all(V3Spacing.md),
             child: Row(
               children: [
-                const Icon(Icons.trending_up, color: V3Colors.primary, size: 28),
+                 Icon(Icons.trending_up, color: V3Colors.primary, size: 28),
                 const SizedBox(width: V3Spacing.md),
                 Expanded(
                   child: Column(
@@ -277,7 +277,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
                 ),
                 Text(
                   EtbFormatter.format(costEtb * 30, 'am'),
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.primary,
                     fontSize: V3Typography.bodySize,
                     fontWeight: FontWeight.w700,
@@ -311,7 +311,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
         ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            axisNameWidget: const Text('kWh', style: TextStyle(
+            axisNameWidget:  Text('kWh', style: TextStyle(
               color: V3Colors.textSecondary,
               fontSize: V3Typography.captionSize,
             )),
@@ -320,7 +320,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
               reservedSize: 30,
               getTitlesWidget: (value, meta) => Text(
                 value.toStringAsFixed(0),
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.textSecondary,
                   fontSize: V3Typography.captionSize,
                 ),
@@ -334,7 +334,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
               interval: (_selectedDays / 4).ceil().toDouble(),
               getTitlesWidget: (value, meta) => Text(
                 'Day ${value.toInt() + 1}',
-                style: const TextStyle(
+                style:  TextStyle(
                   color: V3Colors.textSecondary,
                   fontSize: V3Typography.captionSize,
                 ),
@@ -364,7 +364,7 @@ class _EnergyScreenState extends ConsumerState<EnergyScreen> {
               return touchedSpots.map((spot) {
                 return LineTooltipItem(
                   '${spot.y.toStringAsFixed(2)} kWh',
-                  const TextStyle(
+                   TextStyle(
                     color: V3Colors.textPrimary,
                     fontSize: V3Typography.labelSize,
                     fontWeight: FontWeight.w600,

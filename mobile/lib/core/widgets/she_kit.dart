@@ -57,7 +57,7 @@ class SHEAppBar extends StatelessWidget {
           ? null
           : BoxDecoration(
               color: V3Colors.background.withValues(alpha: 0.95),
-              border: const Border(
+              border:  Border(
                 bottom: BorderSide(color: V3Colors.border, width: 1),
               ),
             ),
@@ -97,7 +97,7 @@ class SHEAppBar extends StatelessWidget {
                       subtitle!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.text2,
                         fontSize: V3Typography.meta,
                       ),
@@ -340,7 +340,7 @@ class _CircleIconButton extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: const BoxDecoration(
+        decoration:  BoxDecoration(
           color: V3Colors.surface,
           shape: BoxShape.circle,
         ),
@@ -502,13 +502,13 @@ class SHESearchField extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.search, size: 16, color: V3Colors.dim),
+           Icon(Icons.search, size: 16, color: V3Colors.dim),
           const SizedBox(width: V3Spacing.sm),
           Expanded(
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              style: const TextStyle(color: V3Colors.ink, fontSize: 14),
+              style:  TextStyle(color: V3Colors.ink, fontSize: 14),
               cursorColor: V3Colors.primary,
               decoration: InputDecoration(
                 isDense: true,
@@ -517,7 +517,7 @@ class SHESearchField extends StatelessWidget {
                 focusedBorder: InputBorder.none,
                 filled: false,
                 hintText: hint,
-                hintStyle: const TextStyle(color: V3Colors.dim, fontSize: 14),
+                hintStyle:  TextStyle(color: V3Colors.dim, fontSize: 14),
                 contentPadding: EdgeInsets.zero,
               ),
             ),
@@ -531,7 +531,7 @@ class SHESearchField extends StatelessWidget {
                   controller.clear();
                   onChanged?.call('');
                 },
-                child: const Icon(Icons.close, size: 16, color: V3Colors.dim),
+                child:  Icon(Icons.close, size: 16, color: V3Colors.dim),
               );
             },
           ),
@@ -616,7 +616,7 @@ class SHESectionHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.ink,
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -632,13 +632,13 @@ class SHESectionHeader extends StatelessWidget {
                 children: [
                   Text(
                     action!,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.primary,
                       fontSize: V3Typography.chip,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const Icon(Icons.chevron_right,
+                   Icon(Icons.chevron_right,
                       size: 14, color: V3Colors.primary),
                 ],
               ),
@@ -682,20 +682,24 @@ class SHEEmptyState extends StatelessWidget {
   final String body;
   final String? actionLabel;
   final VoidCallback? onAction;
-  final Color tone;
+  /// Accent colour. Defaults to the theme primary when omitted — the default
+  /// can't be `V3Colors.primary` directly, since that is no longer a
+  /// compile-time constant (default parameter values must be `final`).
+  final Color? tone;
 
-  const SHEEmptyState({
+   SHEEmptyState({
     super.key,
     required this.icon,
     required this.title,
     required this.body,
     this.actionLabel,
     this.onAction,
-    this.tone = V3Colors.primary,
+    this.tone,
   });
 
   @override
   Widget build(BuildContext context) {
+    final toneColor = tone ?? V3Colors.primary;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: V3Spacing.xl, vertical: 40),
       child: Column(
@@ -705,23 +709,23 @@ class SHEEmptyState extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: tone.withValues(alpha: 0.10),
+              color: toneColor.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(V3Radius.xl),
               boxShadow: [
                 BoxShadow(
-                  color: tone.withValues(alpha: 0.27),
+                  color: toneColor.withValues(alpha: 0.27),
                   blurRadius: 32,
                   spreadRadius: -8,
                 ),
               ],
             ),
-            child: Icon(icon, size: 28, color: tone),
+            child: Icon(icon, size: 28, color: toneColor),
           ),
           const SizedBox(height: V3Spacing.md),
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style:  TextStyle(
               color: V3Colors.ink,
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -733,7 +737,7 @@ class SHEEmptyState extends StatelessWidget {
             child: Text(
               body,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style:  TextStyle(
                 color: V3Colors.text2,
                 fontSize: V3Typography.body,
                 height: 1.5,
@@ -812,7 +816,7 @@ class SHEProgressBar extends StatelessWidget {
             decoration: BoxDecoration(
               color: gradient ? null : (tone ?? V3Colors.primary),
               gradient: gradient
-                  ? const LinearGradient(
+                  ?  LinearGradient(
                       colors: [V3Colors.primary, V3Colors.sky],
                     )
                   : null,
@@ -859,7 +863,7 @@ class SHEBottomSheet extends StatelessWidget {
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.78,
             ),
-            decoration: const BoxDecoration(
+            decoration:  BoxDecoration(
               color: V3Colors.surface2,
               borderRadius:
                   BorderRadius.vertical(top: Radius.circular(28)),
@@ -888,7 +892,7 @@ class SHEBottomSheet extends StatelessWidget {
                     Text(
                       title!,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -947,7 +951,7 @@ class SHEStepper extends StatelessWidget {
                 ),
                 child: Center(
                   child: i < step
-                      ? const Icon(Icons.check,
+                      ?  Icon(Icons.check,
                           size: 14, color: V3Colors.night)
                       : Text(
                           '${i + 1}',

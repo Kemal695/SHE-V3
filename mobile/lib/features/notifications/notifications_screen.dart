@@ -293,7 +293,7 @@ class _NotificationTile extends StatelessWidget {
                     n.body,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style:  TextStyle(
                       color: V3Colors.dim,
                       fontSize: V3Typography.meta,
                     ),
@@ -302,7 +302,7 @@ class _NotificationTile extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   _relativeTime(n.at),
-                  style: const TextStyle(
+                  style:  TextStyle(
                     color: V3Colors.dim,
                     fontSize: V3Typography.micro,
                   ),
@@ -316,7 +316,7 @@ class _NotificationTile extends StatelessWidget {
               width: 8,
               height: 8,
               margin: const EdgeInsets.only(top: 4),
-              decoration: const BoxDecoration(
+              decoration:  BoxDecoration(
                 color: V3Colors.primary,
                 shape: BoxShape.circle,
               ),

@@ -224,7 +224,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   const SizedBox(height: 10),
                                   Text(
                                     _errorMessage!,
-                                    style: const TextStyle(
+                                    style:  TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                       color: V3Colors.errorAlt,
@@ -266,7 +266,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                         onTap: _isLoading ? null : _submit,
                                         child: Center(
                                           child: _isLoading
-                                              ? const SizedBox(
+                                              ?  SizedBox(
                                                   height: 22,
                                                   width: 22,
                                                   child:
@@ -277,7 +277,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                                 )
                                               : Text(
                                                   l.login,
-                                                  style: const TextStyle(
+                                                  style:  TextStyle(
                                                     fontSize: 15,
                                                     fontWeight: FontWeight.w600,
                                                     color: V3Colors.night,
@@ -445,7 +445,7 @@ class _LoginBrand extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(
+          child:  Icon(
             Icons.wifi_tethering,
             size: 34,
             color: V3Colors.primary,
@@ -589,7 +589,7 @@ class _LoginField extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 state.errorText ?? '',
-                style: const TextStyle(
+                style:  TextStyle(
                   fontSize: 12,
                   color: V3Colors.errorAlt,
                 ),

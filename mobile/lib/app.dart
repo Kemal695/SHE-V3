@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/theme/v3_design_tokens.dart';
+import 'core/theme/she_colors.dart';
 import 'core/widgets/offline_banner.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -21,15 +22,23 @@ class SheApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
     final locale = ref.watch(localeProvider);
+    final themeMode = ref.watch(themeModeProvider);
+
+    // ADR-009 is dark-first, but the palette is now switchable. `V3Colors.*`
+    // (referenced across ~40 screens) reads [SheColors.current], so point it at
+    // the active palette before the tree builds.
+    final isLight = themeMode == ThemeMode.light;
+    SheColors.current = isLight ? SheColors.light : SheColors.dark;
+    final brightness = isLight ? Brightness.light : Brightness.dark;
 
     return MaterialApp.router(
       title: 'Smart Home Ethiopia',
       debugShowCheckedModeBanner: false,
 
-      // ---- Theme (V3-DESIGN-SYSTEM, ADR-009 — dark mode first) ----
-      theme: _buildTheme(),
-      darkTheme: _buildTheme(),
-      themeMode: ThemeMode.dark,
+      // ---- Theme (V3-DESIGN-SYSTEM, ADR-009 — dark-first + light mode) ----
+      theme: _buildTheme(brightness),
+      darkTheme: _buildTheme(brightness),
+      themeMode: isLight ? ThemeMode.light : ThemeMode.dark,
 
       // ---- Localization (V3-I18N — Amharic first) ----
       locale: locale,
@@ -46,34 +55,54 @@ class SheApp extends ConsumerWidget {
 
       // ---- Premium scroll behavior — no overscroll glow on Android ----
       builder: (context, child) {
-        return ScrollConfiguration(
-          behavior: _NoGlowScrollBehavior(),
-          // Screen 22 (Offline state): floats the amber "You're offline" banner
-          // above every route — tabs and full-screen detail pages alike.
-          child: OfflineBannerHost(child: child!),
+        return KeyedSubtree(
+          // Force a full subtree rebuild when the palette changes. The screens
+          // read V3Colors directly (not through Theme.of), so they would not
+          // otherwise re-render on a theme switch.
+          key: ValueKey(isLight ? 'light' : 'dark'),
+          child: ScrollConfiguration(
+            behavior: _NoGlowScrollBehavior(),
+            // Screen 22 (Offline state): floats the amber "You're offline"
+            // banner above every route — tabs and full-screen detail pages
+            // alike.
+            child: OfflineBannerHost(child: child!),
+          ),
         );
       },
     );
   }
 
-  ThemeData _buildTheme() {
+  /// Builds the Material [ColorScheme] for the active palette.
+  ///
+  /// `ColorScheme.dark()`/`.light()` provide the correct default on-* pairings;
+  /// the brand colours are then overridden from the active [SheColors].
+  ColorScheme _colorScheme(Brightness brightness) {
+    final base = brightness == Brightness.dark
+        ? const ColorScheme.dark()
+        : const ColorScheme.light();
+    return base.copyWith(
+      primary: V3Colors.primary,
+      secondary: V3Colors.secondary,
+      surface: V3Colors.surface,
+      error: V3Colors.error,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+      onSurface: V3Colors.textPrimary,
+      onError: Colors.white,
+    );
+  }
+
+  ThemeData _buildTheme(Brightness brightness) {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: brightness,
       scaffoldBackgroundColor: V3Colors.background,
-      colorScheme: const ColorScheme.dark(
-        primary: V3Colors.primary,
-        secondary: V3Colors.secondary,
-        surface: V3Colors.surface,
-        error: V3Colors.error,
-        onPrimary: Colors.white,
-        onSecondary: Colors.white,
-        onSurface: V3Colors.textPrimary,
-        onError: Colors.white,
-      ),
+      // Register the active palette so `context.sheColors` works for new code.
+      extensions: [SheColors.current],
+      colorScheme: _colorScheme(brightness),
 
       // ---- AppBar ----
-      appBarTheme: const AppBarTheme(
+      appBarTheme:  AppBarTheme(
         backgroundColor: V3Colors.background,
         foregroundColor: V3Colors.textPrimary,
         elevation: 0,
@@ -142,20 +171,20 @@ class SheApp extends ConsumerWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(V3Radius.md),
-          borderSide: const BorderSide(color: V3Colors.primary, width: 1.5),
+          borderSide:  BorderSide(color: V3Colors.primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(V3Radius.md),
-          borderSide: const BorderSide(color: V3Colors.error),
+          borderSide:  BorderSide(color: V3Colors.error),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        labelStyle: const TextStyle(color: V3Colors.textSecondary),
+        labelStyle:  TextStyle(color: V3Colors.textSecondary),
         hintStyle: TextStyle(color: V3Colors.textSecondary.withValues(alpha: 0.5)),
-        floatingLabelStyle: const TextStyle(color: V3Colors.primary),
+        floatingLabelStyle:  TextStyle(color: V3Colors.primary),
       ),
 
       // ---- Text ----
-      textTheme: const TextTheme(
+      textTheme:  TextTheme(
         displayLarge: TextStyle(color: V3Colors.textPrimary, fontSize: V3Typography.displaySize, fontWeight: FontWeight.w700, height: 1.2),
         headlineMedium: TextStyle(color: V3Colors.textPrimary, fontSize: V3Typography.headlineSize, fontWeight: FontWeight.w600, height: 1.3),
         titleLarge: TextStyle(color: V3Colors.textPrimary, fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600, height: 1.3),
@@ -186,7 +215,7 @@ class SheApp extends ConsumerWidget {
         backgroundColor: V3Colors.surface,
         // Flutter 3.44 removed SnackBarThemeData.contentTextColor; style the
         // content text instead.
-        contentTextStyle: const TextStyle(color: V3Colors.textPrimary),
+        contentTextStyle:  TextStyle(color: V3Colors.textPrimary),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(V3Radius.md)),
       ),
@@ -195,12 +224,12 @@ class SheApp extends ConsumerWidget {
       dialogTheme: DialogThemeData(
         backgroundColor: V3Colors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(V3Radius.xl)),
-        titleTextStyle: const TextStyle(color: V3Colors.textPrimary, fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600),
-        contentTextStyle: const TextStyle(color: V3Colors.textSecondary, fontSize: V3Typography.bodySize),
+        titleTextStyle:  TextStyle(color: V3Colors.textPrimary, fontSize: V3Typography.titleSize, fontWeight: FontWeight.w600),
+        contentTextStyle:  TextStyle(color: V3Colors.textSecondary, fontSize: V3Typography.bodySize),
       ),
 
       // ---- Bottom sheet ----
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme:  BottomSheetThemeData(
         backgroundColor: V3Colors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(V3Radius.xl)),

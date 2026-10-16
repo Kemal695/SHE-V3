@@ -138,7 +138,7 @@ class _AutomationTimeWheelsState extends State<AutomationTimeWheels> {
                       },
                     ),
                   ),
-                  const Text(':',
+                   Text(':',
                       style: TextStyle(
                           color: V3Colors.ink,
                           fontSize: 22,
@@ -180,17 +180,17 @@ class _AutomationTimeWheelsState extends State<AutomationTimeWheels> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.repeat, size: 18, color: V3Colors.primary),
+                 Icon(Icons.repeat, size: 18, color: V3Colors.primary),
                 const SizedBox(width: V3Spacing.sm),
-                const Text('Repeat',
+                 Text('Repeat',
                     style: TextStyle(color: V3Colors.dim, fontSize: 12.5)),
                 const Spacer(),
                 Text(_repeatLabel,
-                    style: const TextStyle(
+                    style:  TextStyle(
                         color: V3Colors.ink,
                         fontSize: 13,
                         fontWeight: FontWeight.w600)),
-                const Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
+                 Icon(Icons.chevron_right, size: 18, color: V3Colors.dim),
               ],
             ),
           ),
@@ -211,7 +211,7 @@ class _AutomationTimeWheelsState extends State<AutomationTimeWheels> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Repeat',
+             Text('Repeat',
                 style: TextStyle(
                     color: V3Colors.ink,
                     fontSize: 15,
@@ -225,10 +225,10 @@ class _AutomationTimeWheelsState extends State<AutomationTimeWheels> {
                     'weekends' => 'Weekends (Sat–Sun)',
                     _ => 'Every day',
                   },
-                  style: const TextStyle(color: V3Colors.ink, fontSize: 13.5),
+                  style:  TextStyle(color: V3Colors.ink, fontSize: 13.5),
                 ),
                 trailing: _repeat == r
-                    ? const Icon(Icons.check, color: V3Colors.primary, size: 18)
+                    ?  Icon(Icons.check, color: V3Colors.primary, size: 18)
                     : null,
                 onTap: () => Navigator.of(context).pop(r),
               ),
