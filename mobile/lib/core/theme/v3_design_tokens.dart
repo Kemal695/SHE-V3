@@ -72,6 +72,9 @@ class V3Colors {
   static Color get heroMid => SheColors.current.heroMid;
   static Color get heroBottom => SheColors.current.heroBottom;
 
+  /// Bottom-nav / side-rail chrome background.
+  static Color get navBar => SheColors.current.navBar;
+
   // Light mode (accessibility fallback)
   static const lightBackground = Color(0xFFF5F7FA);
   static const lightSurface = Color(0xFFFFFFFF);

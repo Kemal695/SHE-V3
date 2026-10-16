@@ -43,6 +43,7 @@ class SheColors extends ThemeExtension<SheColors> {
     required this.heroTop,
     required this.heroMid,
     required this.heroBottom,
+    required this.navBar,
   });
 
   final Color background;
@@ -70,6 +71,9 @@ class SheColors extends ThemeExtension<SheColors> {
   final Color heroTop;
   final Color heroMid;
   final Color heroBottom;
+
+  /// Bottom-nav / side-rail chrome background (a translucent bar over the body).
+  final Color navBar;
 
   /// The palette currently in use.
   ///
@@ -104,6 +108,7 @@ class SheColors extends ThemeExtension<SheColors> {
     heroTop: Color(0xFF183457),
     heroMid: Color(0xFF122B4C),
     heroBottom: Color(0xFF0F2342),
+    navBar: Color(0xF20E2039), // #0E2039 @ 95%
   );
 
   /// Light mode.
@@ -137,6 +142,7 @@ class SheColors extends ThemeExtension<SheColors> {
     heroTop: Color(0xFFFFFFFF),
     heroMid: Color(0xFFF1F6FC),
     heroBottom: Color(0xFFE7EFF9),
+    navBar: Color(0xF7FFFFFF), // white @ 97%
   );
 
   @override
@@ -166,6 +172,7 @@ class SheColors extends ThemeExtension<SheColors> {
     Color? heroTop,
     Color? heroMid,
     Color? heroBottom,
+    Color? navBar,
   }) {
     return SheColors(
       background: background ?? this.background,
@@ -193,6 +200,7 @@ class SheColors extends ThemeExtension<SheColors> {
       heroTop: heroTop ?? this.heroTop,
       heroMid: heroMid ?? this.heroMid,
       heroBottom: heroBottom ?? this.heroBottom,
+      navBar: navBar ?? this.navBar,
     );
   }
 

@@ -173,8 +173,8 @@ class _SHEBottomNav extends StatelessWidget {
     final current = navigationShell.currentIndex;
 
     return Container(
-      decoration:  BoxDecoration(
-        color: Color(0xF20E2039), // #0E2039 @ 95%, matching the prototype
+      decoration: BoxDecoration(
+        color: V3Colors.navBar, // themed (was a hardcoded dark literal)
         border: Border(top: BorderSide(color: V3Colors.border, width: 1)),
       ),
       child: SafeArea(
@@ -307,7 +307,7 @@ class _SHENavRail extends StatelessWidget {
     final current = navigationShell.currentIndex;
 
     return NavigationRail(
-      backgroundColor: const Color(0xF20E2039), // matches the bottom nav
+      backgroundColor: V3Colors.navBar, // themed (matches the bottom nav)
       selectedIndex: current,
       onDestinationSelected: (i) => navigationShell.goBranch(
         i,

@@ -488,7 +488,7 @@ class _AutomationEditorDialogState
                     );
                   },
                 ),
-              const Divider(color: Colors.white24),
+              Divider(color: V3Colors.border),
               const SizedBox(height: V3Spacing.sm),
                Text(
                 'Then switch',
@@ -537,7 +537,7 @@ class _AutomationEditorDialogState
                   );
                 },
               ),
-              const Divider(color: Colors.white24),
+              Divider(color: V3Colors.border),
               const SizedBox(height: V3Spacing.sm),
               // Plain-language preview. The whole point is that the user can
               // confirm the rule reads correctly BEFORE saving, instead of
