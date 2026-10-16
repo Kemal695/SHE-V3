@@ -108,6 +108,22 @@ public class OtaService {
     }
 
     /**
+     * Per-node approvals for a batch.
+     *
+     * Added 2026-10-08 for the mobile OTA screen (#17 on the design sheet).
+     * {@code getBatch()} only exposes {@code approval_count}, so the app had no
+     * way to show WHICH nodes are pending, or their individual progress and
+     * failure reason — a rollout was a single opaque status.
+     */
+    public List<OtaDtos.ApprovalResponse> listApprovals(UUID batchId) {
+        OtaBatch batch = getOwnedBatchOrThrow(batchId);
+        homeService.requireHomeAccess(batch.getHomeId(), "MEMBER");
+        return approvalRepository.findAllByBatchId(batchId).stream()
+                .map(this::toApprovalResponse)
+                .toList();
+    }
+
+    /**
      * Start batch — creates PENDING approvals for matching nodes + publishes ota/url via MQTT.
      */
     public OtaDtos.BatchActionResponse startBatch(UUID batchId) {

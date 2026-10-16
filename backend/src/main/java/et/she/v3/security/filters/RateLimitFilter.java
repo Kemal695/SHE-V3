@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -33,8 +34,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final StringRedisTemplate redis;
 
-    public RateLimitFilter(StringRedisTemplate redis) {
+    /**
+     * Requests per minute for the general API bucket. Comes from
+     * `she.api.rate-limit.per-user-per-minute` (default 600).
+     *
+     * The bucket is keyed by IP rather than by user: this filter runs in the
+     * servlet chain, BEFORE authentication, so there is no principal to key on
+     * yet. `per-tenant-per-minute` therefore cannot be applied here — it is
+     * enforced per authenticated tenant elsewhere. The value used to be
+     * hardcoded, which silently ignored the documented setting.
+     */
+    private final int apiPerMinute;
+
+    public RateLimitFilter(StringRedisTemplate redis,
+                           @Value("${she.api.rate-limit.per-user-per-minute:600}") int apiPerMinute) {
         this.redis = redis;
+        this.apiPerMinute = apiPerMinute;
     }
 
     @Override
@@ -66,9 +81,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             maxRequests = 100;
             windowSeconds = 60;
         } else {
-            // Default API rate limit: 600 per min per IP
+            // Default API rate limit — configured, not hardcoded (see apiPerMinute).
             limitKey = RATE_LIMIT_PREFIX + "api:" + ip;
-            maxRequests = 600;
+            maxRequests = apiPerMinute;
             windowSeconds = 60;
         }
 

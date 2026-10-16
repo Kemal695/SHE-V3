@@ -39,6 +39,16 @@ public class OtaController {
         return ResponseEntity.ok(Map.of("data", otaService.getBatch(batchId)));
     }
 
+    /**
+     * Per-node rollout progress for a batch. The batch response only carries
+     * {@code approval_count}, which is not enough for the mobile OTA screen to
+     * show which nodes are pending / downloading / failed.
+     */
+    @GetMapping("/ota/batches/{batchId}/approvals")
+    public ResponseEntity<Map<String, Object>> listApprovals(@PathVariable UUID batchId) {
+        return ResponseEntity.ok(Map.of("data", otaService.listApprovals(batchId)));
+    }
+
     @PostMapping("/ota/batches/{batchId}/start")
     public ResponseEntity<Map<String, Object>> startBatch(@PathVariable UUID batchId) {
         return ResponseEntity.ok(Map.of("data", otaService.startBatch(batchId)));

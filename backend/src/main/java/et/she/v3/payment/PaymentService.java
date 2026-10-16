@@ -4,6 +4,7 @@ import et.she.v3.entity.Payment;
 import et.she.v3.entity.Subscription;
 import et.she.v3.entity.User;
 import et.she.v3.errors.SheException;
+import et.she.v3.notification.NotificationService;
 import et.she.v3.repository.PaymentRepository;
 import et.she.v3.repository.SubscriptionRepository;
 import et.she.v3.repository.UserRepository;
@@ -65,6 +66,7 @@ public class PaymentService {
     private final StringRedisTemplate redis;
     private final TenantContextInterceptor tenantContextInterceptor;
     private final WsEventBus wsEventBus;
+    private final NotificationService notificationService;
 
     @org.springframework.beans.factory.annotation.Value("${she.payment.chapa.webhook-secret:}")
     private String webhookSecret;
@@ -91,7 +93,8 @@ public class PaymentService {
                           UserRepository userRepository,
                           StringRedisTemplate redis,
                           TenantContextInterceptor tenantContextInterceptor,
-                          WsEventBus wsEventBus) {
+                          WsEventBus wsEventBus,
+                          NotificationService notificationService) {
         this.chapaClient = chapaClient;
         this.paymentRepository = paymentRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -99,6 +102,7 @@ public class PaymentService {
         this.redis = redis;
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.wsEventBus = wsEventBus;
+        this.notificationService = notificationService;
     }
 
     // =========================================================================
@@ -290,6 +294,19 @@ public class PaymentService {
 
         // Step 6: WebSocket push
         wsEventBus.publishSubscriptionActivated(payment.getTenantId(), payment.getUserId(), payment.getPlan());
+
+        // Design sheet #15: record the payment in the user's notification inbox.
+        try {
+            String plan = payment.getPlan();
+            notificationService.record(payment.getTenantId(), payment.getUserId(),
+                    "subscription", "SYSTEM", "Payment successful",
+                    (plan == null || plan.isBlank())
+                            ? "Your subscription is now active."
+                            : plan + " is now active.",
+                    null, null);
+        } catch (Exception e) {
+            log.debug("subscription notification failed: {}", e.getMessage());
+        }
 
         // Step 7: Audit log (TODO: write to audit_log table)
         log.info("Payment completed: id={} plan={} amount={}ETB chapa_ref={}",

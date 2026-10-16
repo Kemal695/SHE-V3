@@ -225,6 +225,24 @@ public class WsEventBus extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Push a {@code notification.received} event to the tenant's sessions.
+     * V3-API-SPECIFICATION §14.3. Emitted by {@code NotificationService} when an
+     * inbox row is created, so a live client sees it without a refetch.
+     *
+     * @param payload {kind, category, title, body, nodeId?, timestamp}
+     */
+    public void publishNotificationReceived(UUID tenantId, Map<String, Object> payload) {
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("event", "notification.received");
+        data.put("data", payload);
+        if (tenantId != null) {
+            broadcast(tenantId, data);
+        } else {
+            broadcastToAll(data);
+        }
+    }
+
     // =========================================================================
     // Broadcast helpers
     // =========================================================================

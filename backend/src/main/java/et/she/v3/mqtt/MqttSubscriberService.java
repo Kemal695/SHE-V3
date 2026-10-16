@@ -11,6 +11,7 @@ import et.she.v3.repository.NodeRepository;
 import et.she.v3.repository.OtaApprovalRepository;
 import et.she.v3.entity.OtaApproval;
 import et.she.v3.security.TenantContextInterceptor;
+import et.she.v3.notification.NotificationService;
 import et.she.v3.service.AutomationService;
 import et.she.v3.websocket.WsEventBus;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -101,6 +102,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
     private final TenantContextInterceptor tenantContextInterceptor;
     private final AutomationService automationService;
     private final WsEventBus wsEventBus;
+    private final NotificationService notificationService;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     /**
@@ -148,6 +150,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
                                    TenantContextInterceptor tenantContextInterceptor,
                                    AutomationService automationService,
                                    WsEventBus wsEventBus,
+                                   NotificationService notificationService,
                                  org.springframework.jdbc.core.JdbcTemplate jdbcTemplate,
                                  org.springframework.transaction.PlatformTransactionManager txManager) {
         this.props = props;
@@ -161,6 +164,7 @@ public class MqttSubscriberService implements MqttCallbackExtended {
           this.tenantContextInterceptor = tenantContextInterceptor;
           this.automationService = automationService;
           this.wsEventBus = wsEventBus;
+          this.notificationService = notificationService;
         this.jdbcTemplate = jdbcTemplate;
         this.txTemplate = new org.springframework.transaction.support.TransactionTemplate(txManager);
     }
@@ -742,6 +746,20 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         log.info("Node {} status={}", node.getNodeId(), status);
 
         wsEventBus.publishNodePresence(node.getTenantId(), node.getHomeId(), node.getId(), online, Instant.now());
+
+        // Design sheet #15: surface the presence change in the notification inbox,
+        // fanned out to every active home member. Wrapped so a notification problem
+        // can never break MQTT ingest.
+        try {
+            notificationService.recordForHome(
+                    node.getTenantId(), node.getHomeId(), "presence", "SYSTEM",
+                    online ? "Device back online" : "Device offline",
+                    online ? "Reconnected and reporting normally."
+                           : "Check power and network for this device.",
+                    node.getId());
+        } catch (Exception e) {
+            log.debug("presence notification failed: {}", e.getMessage());
+        }
     }
 
     /**
