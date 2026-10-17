@@ -19,8 +19,16 @@ import java.util.UUID;
 @Table(name = "media")
 public class MediaAsset {
 
+    /**
+     * Assigned by {@link et.she.v3.service.MediaService} BEFORE the bytes are
+     * written, because the file is named after it and that name is what the
+     * client stores in `scenes.icon` / `scenes.image`.
+     *
+     * Deliberately NOT @GeneratedValue: with a generator Hibernate ignores the
+     * assigned value on save() and inserts a fresh UUID, so the row id and the
+     * file name diverged and every stored URL 404'd.
+     */
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "tenant_id", nullable = false)

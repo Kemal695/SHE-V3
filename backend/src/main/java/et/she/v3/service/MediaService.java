@@ -3,6 +3,7 @@ package et.she.v3.service;
 import et.she.v3.entity.MediaAsset;
 import et.she.v3.errors.SheException;
 import et.she.v3.repository.MediaAssetRepository;
+import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,11 +36,14 @@ public class MediaService {
     public static final String URL_PREFIX = "/api/v3/media/";
 
     private final MediaAssetRepository repository;
+    private final EntityManager entityManager;
     private final Path root;
 
     public MediaService(MediaAssetRepository repository,
+                        EntityManager entityManager,
                         @Value("${she.media.dir:./data/media}") String dir) {
         this.repository = repository;
+        this.entityManager = entityManager;
         this.root = Paths.get(dir).toAbsolutePath().normalize();
     }
 
@@ -88,7 +92,10 @@ public class MediaService {
             asset.setContentType(contentType);
             asset.setByteSize(bytes.length);
             asset.setStoragePath(target.toString());
-            repository.save(asset);
+            // persist(), not repository.save(): save() takes the merge path for a
+            // non-null id, which with a @GeneratedValue id would insert a
+            // DIFFERENT uuid than the one the file is named after.
+            entityManager.persist(asset);
         } catch (RuntimeException e) {
             // Don't leave an orphaned file behind if the row could not be written.
             try { Files.deleteIfExists(target); } catch (IOException ignored) { }
