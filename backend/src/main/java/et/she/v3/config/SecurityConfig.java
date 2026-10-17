@@ -49,7 +49,8 @@ public class SecurityConfig {
                 // Actuator health + info (no auth — needed for k8s probes + Cloudflare health checks)
                 .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
                 // Auth endpoints — public
-                .requestMatchers("/api/v3/auth/login", "/api/v3/auth/register").permitAll()
+                .requestMatchers("/api/v3/auth/login", "/api/v3/auth/register",
+                        "/api/v3/auth/oauth/**").permitAll()
                 .requestMatchers("/api/v3/auth/refresh").permitAll()
                 .requestMatchers("/api/v3/tenant/branding").permitAll()
                 // Chapa payment webhook — no session/JWT; authenticated by HMAC-SHA256 inside
