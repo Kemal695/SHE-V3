@@ -44,6 +44,7 @@ import '../features/automations/automations_screen.dart';
 import '../features/provisioning/provisioning_screen.dart';
 import '../features/scenes/scene_detail_screen.dart';
 import '../features/scenes/scenes_screen.dart';
+import '../features/settings/profile_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/voice/voice_screen.dart';
 import '../features/telemetry/telemetry_screen.dart';
@@ -178,6 +179,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/profile',
+        builder: (context, state) => const ProfileScreen(),
       ),
       GoRoute(
         path: '/voice',

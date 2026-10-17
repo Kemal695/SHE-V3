@@ -119,6 +119,27 @@ class AuthService {
     return response.data['data'];
   }
 
+  /// PATCH /auth/me — edit the signed-in user's own profile.
+  ///
+  /// Only the fields passed are sent, so a name-only edit cannot clear the phone
+  /// number. Pass an empty string to clear a field.
+  Future<Map<String, dynamic>> updateProfile({
+    String? fullName,
+    String? phoneNumber,
+    String? preferredLanguage,
+  }) async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.patch(
+      ApiConstants.authMe,
+      data: {
+        if (fullName != null) 'full_name': fullName,
+        if (phoneNumber != null) 'phone_number': phoneNumber,
+        if (preferredLanguage != null) 'preferred_language': preferredLanguage,
+      },
+    );
+    return response.data['data'] as Map<String, dynamic>;
+  }
+
   /// Unwraps the canonical {data: {...}} envelope with safe casts (M9 fix).
   Map<String, dynamic> _responseData(Response response) {
     final body = response.data;

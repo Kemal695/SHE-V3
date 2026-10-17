@@ -6,6 +6,7 @@ import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
+import et.she.v3.dto.UpdateProfileRequest;
 import et.she.v3.entity.Home;
 import et.she.v3.entity.HomeMember;
 import et.she.v3.entity.Tenant;
@@ -426,6 +427,59 @@ public class AuthServiceImpl implements AuthService {
                 ),
                 tenant.getBrandingConfig()
         );
+    }
+
+    /**
+     * PATCH /api/v3/auth/me — the signed-in user editing their own profile.
+     *
+     * Only the fields actually supplied are written, so a name-only edit cannot
+     * clobber the phone number. Length limits are enforced here (the columns are
+     * 120/32) so an over-long value is a clean 422, not a 500 from the database.
+     */
+    @Override
+    @Transactional
+    public MeResponse updateMe(UpdateProfileRequest req) {
+        var principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(principal instanceof AuthenticatedUser auth)) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Not authenticated", 401);
+        }
+        User user = userRepository.findActiveById(auth.userId())
+                .orElseThrow(() -> new SheException("USER_NOT_FOUND",
+                        "Authenticated user not found", 404));
+
+        if (req.full_name() != null) {
+            String name = req.full_name().trim();
+            if (name.isEmpty()) {
+                throw new SheException("VALIDATION_ERROR", "Name cannot be empty", 422);
+            }
+            if (name.length() > 120) {
+                throw new SheException("VALIDATION_ERROR",
+                        "Name must be 120 characters or fewer", 422);
+            }
+            user.setFullName(name);
+        }
+
+        if (req.phone_number() != null) {
+            String phone = req.phone_number().trim();
+            if (phone.length() > 32) {
+                throw new SheException("VALIDATION_ERROR",
+                        "Phone number must be 32 characters or fewer", 422);
+            }
+            // Empty string clears it (the column is nullable).
+            user.setPhoneNumber(phone.isEmpty() ? null : phone);
+        }
+
+        if (req.preferred_language() != null) {
+            String lang = req.preferred_language().trim().toLowerCase();
+            if (!lang.equals("en") && !lang.equals("am")) {
+                throw new SheException("VALIDATION_ERROR",
+                        "Language must be 'en' or 'am'", 422);
+            }
+            user.setPreferredLanguage(lang);
+        }
+
+        userRepository.save(user);
+        return me();
     }
 
     // =========================================================================

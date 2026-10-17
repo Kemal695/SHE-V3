@@ -48,9 +48,9 @@ class SettingsScreen extends ConsumerWidget {
                   child:  Icon(Icons.person, color: V3Colors.primary, size: 20),
                 ),
                 title: const Text('Profile'),
-                subtitle: const Text('View your account info'),
+                subtitle: const Text('View and edit your account info'),
                 trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
-                onTap: () {},
+                onTap: () => context.push('/profile'),
               ),
               ListTile(
                 leading: Container(

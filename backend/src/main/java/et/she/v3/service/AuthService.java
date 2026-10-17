@@ -5,6 +5,7 @@ import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
+import et.she.v3.dto.UpdateProfileRequest;
 
 import java.util.Map;
 
@@ -63,4 +64,11 @@ public interface AuthService {
      * @param idToken  the signed ID token from the native SDK
      */
     AuthResponse oauthLogin(String provider, String idToken);
+
+    /**
+     * PATCH /api/v3/auth/me
+     * The signed-in user editing their own profile (name / phone / language).
+     * Returns the refreshed /auth/me payload.
+     */
+    MeResponse updateMe(UpdateProfileRequest req);
 }

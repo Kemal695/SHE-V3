@@ -6,10 +6,12 @@ import et.she.v3.dto.MeResponse;
 import et.she.v3.dto.OAuthRequest;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
+import et.she.v3.dto.UpdateProfileRequest;
 import et.she.v3.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -85,6 +87,18 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<Map<String, Object>> me() {
         MeResponse me = authService.me();
+        return ResponseEntity.ok(Map.of("data", me));
+    }
+
+    /**
+     * PATCH /api/v3/auth/me — the signed-in user updating their own profile.
+     * Body: {full_name?, phone_number?, preferred_language?}. Returns the
+     * refreshed /auth/me payload.
+     */
+    @PatchMapping("/me")
+    public ResponseEntity<Map<String, Object>> updateMe(
+            @RequestBody UpdateProfileRequest req) {
+        MeResponse me = authService.updateMe(req);
         return ResponseEntity.ok(Map.of("data", me));
     }
 
