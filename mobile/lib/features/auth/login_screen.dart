@@ -428,27 +428,24 @@ class _LoginBrand extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // Official SHE logo (transparent PNG) with a soft brand glow.
         Container(
-          width: 64,
-          height: 64,
+          width: 84,
+          height: 84,
           decoration: BoxDecoration(
-            color: V3Colors.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: V3Colors.primary.withValues(alpha: 0.30),
-            ),
+            shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: V3Colors.primary.withValues(alpha: 0.50),
-                blurRadius: 40,
-                spreadRadius: -8,
+                color: V3Colors.primary.withValues(alpha: 0.40),
+                blurRadius: 44,
+                spreadRadius: -10,
               ),
             ],
           ),
-          child:  Icon(
-            Icons.wifi_tethering,
-            size: 34,
-            color: V3Colors.primary,
+          child: Image.asset(
+            'assets/branding/she_logo.png',
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
           ),
         ),
         const SizedBox(height: 12),

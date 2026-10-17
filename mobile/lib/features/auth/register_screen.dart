@@ -97,17 +97,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: V3Spacing.xl),
 
                   // ---- Header ----
-                  Container(
-                    width: 64, height: 64,
-                    decoration: BoxDecoration(
-                      gradient:  LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [V3Colors.primary, V3Colors.secondary],
-                      ),
-                      borderRadius: BorderRadius.circular(V3Radius.xl),
+                  // Official SHE logo (transparent PNG). Align keeps it at its
+                  // intrinsic size inside the stretch column.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Image.asset(
+                      'assets/branding/she_logo.png',
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
                     ),
-                    child: const Icon(Icons.person_add, size: 32, color: Colors.white),
                   ),
                   const SizedBox(height: V3Spacing.lg),
                   Text('Join Smart Home Ethiopia',

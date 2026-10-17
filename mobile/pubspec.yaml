@@ -98,3 +98,5 @@ flutter:
   # Onboarding screens; the app previously shipped no image assets at all.
   assets:
     - assets/img/
+    # Official SHE logo (transparent PNG) — used by splash, login and register.
+    - assets/branding/

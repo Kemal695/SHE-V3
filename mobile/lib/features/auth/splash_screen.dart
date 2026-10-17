@@ -191,26 +191,22 @@ class _SplashWordmark extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 80,
-          height: 80,
+          width: 104,
+          height: 104,
           decoration: BoxDecoration(
-            color: V3Colors.background.withValues(alpha: 0.70),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: V3Colors.primary.withValues(alpha: 0.30),
-            ),
+            shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: V3Colors.primary.withValues(alpha: 0.65),
-                blurRadius: 60,
-                spreadRadius: -8,
+                color: V3Colors.primary.withValues(alpha: 0.55),
+                blurRadius: 64,
+                spreadRadius: -10,
               ),
             ],
           ),
-          child:  Icon(
-            Icons.wifi_tethering,
-            size: 44,
-            color: V3Colors.primary,
+          child: Image.asset(
+            'assets/branding/she_logo.png',
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
           ),
         ),
         const SizedBox(height: 20),

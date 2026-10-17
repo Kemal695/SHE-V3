@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SHE brand colours (ADR-009). Deep Navy is used by the launch screen and
+     the adaptive launcher icon background. -->
+<resources>
+    <color name="she_navy">#0B1D37</color>
+    <color name="ic_launcher_background">#0B1D37</color>
+</resources>
