@@ -113,8 +113,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Branded entry point: always the SHE dark palette (matches the mockup).
-    const p = SheColors.dark;
+    // Follow the app's light/dark setting. In light mode the screen is light and
+    // the logo uses the navy-window variant (see _LoginLogo).
+    final p = context.sheColors;
 
     return PopScope(
       canPop: false,
@@ -123,7 +124,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         // Light status-bar icons on the navy background.
-        value: SystemUiOverlayStyle.light,
+        value: Theme.of(context).brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         child: Scaffold(
           resizeToAvoidBottomInset: true,
           backgroundColor: p.background,
@@ -414,7 +417,10 @@ class _LoginLogo extends StatelessWidget {
         ],
       ),
       child: Image.asset(
-        'assets/branding/she_logo.png',
+        // White window panes read on dark surfaces; navy panes on light ones.
+        Theme.of(context).brightness == Brightness.dark
+            ? 'assets/branding/she_logo.png'
+            : 'assets/branding/she_logo_light.png',
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
       ),
@@ -450,7 +456,7 @@ class _LoginField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const p = SheColors.dark;
+    final p = context.sheColors;
     return FormField<String>(
       validator: validator,
       autovalidateMode: AutovalidateMode.onUserInteraction,
