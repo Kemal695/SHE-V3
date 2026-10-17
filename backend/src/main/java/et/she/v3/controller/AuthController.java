@@ -3,6 +3,7 @@ package et.she.v3.controller;
 import et.she.v3.dto.AuthResponse;
 import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
+import et.she.v3.dto.OAuthRequest;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
 import et.she.v3.service.AuthService;
@@ -47,6 +48,25 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@Valid @RequestBody LoginRequest req) {
         AuthResponse auth = authService.login(req);
+        return ResponseEntity.ok(Map.of("data", auth));
+    }
+
+    /**
+     * POST /api/v3/auth/oauth/google — exchange a Google ID token for a JWT pair.
+     * Creates the account (and a default home) on first sign-in.
+     */
+    @PostMapping("/oauth/google")
+    public ResponseEntity<Map<String, Object>> oauthGoogle(@Valid @RequestBody OAuthRequest req) {
+        AuthResponse auth = authService.oauthLogin("google", req.id_token());
+        return ResponseEntity.ok(Map.of("data", auth));
+    }
+
+    /**
+     * POST /api/v3/auth/oauth/apple — exchange an Apple ID token for a JWT pair.
+     */
+    @PostMapping("/oauth/apple")
+    public ResponseEntity<Map<String, Object>> oauthApple(@Valid @RequestBody OAuthRequest req) {
+        AuthResponse auth = authService.oauthLogin("apple", req.id_token());
         return ResponseEntity.ok(Map.of("data", auth));
     }
 

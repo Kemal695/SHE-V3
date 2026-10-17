@@ -41,4 +41,20 @@ public interface UserRepository extends JpaRepository<User, UUID> {
           AND u.deletedAt IS NULL
         """)
     Optional<User> findActiveById(@Param("id") UUID id);
+
+    /**
+     * Find a non-deleted user already linked to a given OAuth provider identity.
+     * Used by /auth/oauth/{provider} so a returning social user is matched by
+     * subject (stable) rather than email (Apple only sends it once).
+     */
+    @Query("""
+        SELECT u FROM User u
+        WHERE u.tenantId = :tenantId
+          AND u.oauthProvider = :provider
+          AND u.oauthSubject = :subject
+          AND u.deletedAt IS NULL
+        """)
+    Optional<User> findActiveByOauth(@Param("tenantId") UUID tenantId,
+                                     @Param("provider") String provider,
+                                     @Param("subject") String subject);
 }

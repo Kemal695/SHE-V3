@@ -111,6 +111,39 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     return 'Login failed. Please try again.';
   }
 
+  Future<void> _socialSignIn(String provider) async {
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final auth = ref.read(authServiceProvider);
+      if (provider == 'Google') {
+        await auth.loginWithGoogle();
+      } else {
+        await auth.loginWithApple();
+      }
+      if (mounted) context.go('/dashboard');
+    } catch (e) {
+      setState(() => _errorMessage = _socialError(provider, e));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _socialError(String provider, Object e) {
+    final s = e.toString().toLowerCase();
+    if (s.contains('cancel')) return '$provider sign-in cancelled';
+    if (s.contains('503') || s.contains('not configured')) {
+      return '$provider sign-in is not available on this server';
+    }
+    if (s.contains('socket') || s.contains('timeout')) {
+      return 'Cannot reach server. Check your connection.';
+    }
+    return '$provider sign-in failed. Please try again.';
+  }
+
   @override
   Widget build(BuildContext context) {
     // Light branded entry screen (per the approved light look): the login is
@@ -319,6 +352,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                             const SizedBox(height: 18),
 
+                            // ---- Google / Apple ----
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SocialButton(
+                                    label: 'Google',
+                                    glyph: const _GoogleGlyph(),
+                                    onTap: _isLoading
+                                        ? null
+                                        : () => _socialSignIn('Google'),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _SocialButton(
+                                    label: 'Apple',
+                                    glyph: Icon(Icons.apple,
+                                        size: 20, color: p.ink),
+                                    onTap: _isLoading
+                                        ? null
+                                        : () => _socialSignIn('Apple'),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 14),
+
                             // ---- Create account ----
                             SizedBox(
                               height: 52,
@@ -521,6 +582,69 @@ class _LoginField extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Outlined social sign-in button (Google / Apple).
+class _SocialButton extends StatelessWidget {
+  const _SocialButton({
+    required this.label,
+    required this.glyph,
+    required this.onTap,
+  });
+
+  final String label;
+  final Widget glyph;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const p = SheColors.light;
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: p.ink,
+          side: BorderSide(color: p.borderStrong),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: EdgeInsets.zero,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            glyph,
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Google "G" mark (single-colour, matching the Google brand blue).
+class _GoogleGlyph extends StatelessWidget {
+  const _GoogleGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text(
+      'G',
+      style: TextStyle(
+        fontSize: 17,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF4285F4),
+      ),
     );
   }
 }

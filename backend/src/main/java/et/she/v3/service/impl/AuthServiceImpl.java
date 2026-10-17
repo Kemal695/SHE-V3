@@ -17,6 +17,7 @@ import et.she.v3.repository.TenantRepository;
 import et.she.v3.repository.UserRepository;
 import et.she.v3.security.AuthenticatedUser;
 import et.she.v3.security.JwtService;
+import et.she.v3.security.OAuthTokenVerifier;
 import et.she.v3.security.TenantContextInterceptor;
 import et.she.v3.audit.AuditService;
 import et.she.v3.service.AuthService;
@@ -51,6 +52,7 @@ public class AuthServiceImpl implements AuthService {
     private final StringRedisTemplate redis;
     private final TenantContextInterceptor tenantContextInterceptor;
     private final AuditService auditService;
+    private final OAuthTokenVerifier oauthTokenVerifier;
 
     public AuthServiceImpl(UserRepository userRepository,
                            TenantRepository tenantRepository,
@@ -61,7 +63,8 @@ public class AuthServiceImpl implements AuthService {
                            SheProperties props,
                            StringRedisTemplate redis,
                            TenantContextInterceptor tenantContextInterceptor,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           OAuthTokenVerifier oauthTokenVerifier) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.homeRepository = homeRepository;
@@ -72,6 +75,7 @@ public class AuthServiceImpl implements AuthService {
         this.redis = redis;
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.auditService = auditService;
+        this.oauthTokenVerifier = oauthTokenVerifier;
     }
 
     // =========================================================================
@@ -232,6 +236,86 @@ public class AuthServiceImpl implements AuthService {
 
         auditService.record(tenant.getId(), "USER", user.getId(), "auth.login.success",
                 "user", user.getId(), Map.of("email", req.email()), null, null, null);
+
+        return issueTokens(user, tenant);
+    }
+
+    // =========================================================================
+    // OAUTH (Google / Apple)
+    // =========================================================================
+
+    @Override
+    public AuthResponse oauthLogin(String provider, String idToken) {
+        OAuthTokenVerifier.OAuthUserInfo info = "apple".equalsIgnoreCase(provider)
+                ? oauthTokenVerifier.verifyApple(idToken)
+                : oauthTokenVerifier.verifyGoogle(idToken);
+
+        // Same pre-resolution RLS window as login()/register().
+        tenantContextInterceptor.setRlsGucsForTenantLookup();
+        Tenant tenant = tenantRepository.findBySubdomain("default")
+                .orElseThrow(() -> new SheException("INTERNAL_ERROR",
+                        "Default B2C tenant not seeded", 500));
+        tenantContextInterceptor.setRlsGucsForBootstrap(tenant.getId());
+
+        // 1) Returning social user — match by the stable subject.
+        User user = userRepository
+                .findActiveByOauth(tenant.getId(), info.provider(), info.subject())
+                .orElse(null);
+
+        // 2) Existing password account with the same email — link it.
+        if (user == null && info.email() != null && !info.email().isBlank()) {
+            user = userRepository.findActiveByEmail(tenant.getId(), info.email()).orElse(null);
+            if (user != null) {
+                user.setOauthProvider(info.provider());
+                user.setOauthSubject(info.subject());
+                user = userRepository.save(user);
+            }
+        }
+
+        // 3) New user — provision exactly like register(): user + default home.
+        if (user == null) {
+            if (info.email() == null || info.email().isBlank()) {
+                throw new SheException("OAUTH_EMAIL_REQUIRED",
+                        "The provider did not share an email address", 409);
+            }
+            User u = new User();
+            u.setTenantId(tenant.getId());
+            u.setEmail(info.email());
+            // Social accounts have no password; store a random unusable hash so the
+            // NOT NULL column is satisfied and password login can never match.
+            u.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
+            u.setPlatformRole("USER");
+            u.setTenantRole(null);
+            u.setFullName(info.name());
+            u.setPreferredLanguage("en");
+            u.setOauthProvider(info.provider());
+            u.setOauthSubject(info.subject());
+            u = userRepository.save(u);
+
+            Home home = new Home();
+            home.setTenantId(tenant.getId());
+            home.setOwnerUserId(u.getId());
+            home.setName("My Home");
+            home = homeRepository.save(home);
+
+            HomeMember member = new HomeMember();
+            member.setTenantId(tenant.getId());
+            member.setHomeId(home.getId());
+            member.setUserId(u.getId());
+            member.setRole("OWNER");
+            member.setGrantedByUserId(u.getId());
+            homeMemberRepository.save(member);
+
+            user = u;
+            auditService.record(tenant.getId(), "USER", user.getId(), "auth.oauth.register",
+                    "user", user.getId(), Map.of("provider", info.provider()), null, null, null);
+        }
+
+        user.setLastLoginAt(Instant.now());
+        userRepository.save(user);
+
+        auditService.record(tenant.getId(), "USER", user.getId(), "auth.oauth.login",
+                "user", user.getId(), Map.of("provider", info.provider()), null, null, null);
 
         return issueTokens(user, tenant);
     }

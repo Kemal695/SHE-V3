@@ -23,6 +23,17 @@ class ApiConstants {
   static const String authLogin = '$apiPrefix/auth/login';
   static const String authRefresh = '$apiPrefix/auth/refresh';
   static const String authLogout = '$apiPrefix/auth/logout';
+
+  /// Social sign-in — the backend verifies the provider ID token against its
+  /// public JWKS before issuing our JWT pair.
+  static const String authOauthGoogle = '$apiPrefix/auth/oauth/google';
+  static const String authOauthApple = '$apiPrefix/auth/oauth/apple';
+
+  /// Google OAuth *web* client ID (the ID-token audience). Injected at build:
+  ///   --dart-define=GOOGLE_SERVER_CLIENT_ID=xxxx.apps.googleusercontent.com
+  /// Empty means Google sign-in is not configured in this build.
+  static const String googleServerClientId =
+      String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID', defaultValue: '');
   static const String authMe = '$apiPrefix/auth/me';
 
   // Homes + rooms + members

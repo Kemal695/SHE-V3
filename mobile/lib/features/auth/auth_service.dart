@@ -6,6 +6,8 @@
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../../core/network/dio_client.dart';
@@ -48,6 +50,52 @@ class AuthService {
       'password': password,
       'mfa_code': mfaCode,
     });
+    final data = _responseData(response);
+    _saveTokens(data);
+    return data;
+  }
+
+  /// Sign in with Google. The native SDK returns an ID token which the backend
+  /// verifies against Google's JWKS before issuing our JWT pair. Creates the
+  /// account (and a default home) on first sign-in.
+  Future<Map<String, dynamic>> loginWithGoogle() async {
+    final signIn = GoogleSignIn(
+      scopes: const ['email', 'profile'],
+      serverClientId: ApiConstants.googleServerClientId.isEmpty
+          ? null
+          : ApiConstants.googleServerClientId,
+    );
+    final account = await signIn.signIn();
+    if (account == null) {
+      throw Exception('Google sign-in cancelled');
+    }
+    final auth = await account.authentication;
+    final idToken = auth.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('Google did not return an ID token');
+    }
+    return _oauthLogin(ApiConstants.authOauthGoogle, idToken);
+  }
+
+  /// Sign in with Apple. `sign_in_with_apple` returns an identity token which the
+  /// backend verifies against Apple's JWKS.
+  Future<Map<String, dynamic>> loginWithApple() async {
+    final credential = await SignInWithApple.getAppleIDCredential(
+      scopes: [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+    );
+    final idToken = credential.identityToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw Exception('Apple did not return an identity token');
+    }
+    return _oauthLogin(ApiConstants.authOauthApple, idToken);
+  }
+
+  Future<Map<String, dynamic>> _oauthLogin(String path, String idToken) async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.post(path, data: {'id_token': idToken});
     final data = _responseData(response);
     _saveTokens(data);
     return data;

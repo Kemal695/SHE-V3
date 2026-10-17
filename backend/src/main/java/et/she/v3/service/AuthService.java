@@ -53,4 +53,14 @@ public interface AuthService {
      * POST /api/v3/nodes/claim (P1-3). Verified by NodeServiceImpl.claim().
      */
     Map<String, Object> claimToken();
+
+    /**
+     * POST /api/v3/auth/oauth/{provider}
+     * Verifies a Google / Apple ID token, then finds, links or creates the user
+     * (with a default home) and issues the same JWT pair as password login.
+     *
+     * @param provider "google" or "apple" (case-insensitive)
+     * @param idToken  the signed ID token from the native SDK
+     */
+    AuthResponse oauthLogin(String provider, String idToken);
 }
