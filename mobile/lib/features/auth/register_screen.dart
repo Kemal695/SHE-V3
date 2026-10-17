@@ -102,7 +102,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Image.asset(
-                      'assets/branding/she_logo.png',
+                      // Dark surfaces use the white-window mark; light surfaces
+                      // use the navy-window variant so the panes stay visible.
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 'assets/branding/she_logo.png'
+                          : 'assets/branding/she_logo_light.png',
                       width: 72,
                       height: 72,
                       fit: BoxFit.contain,
