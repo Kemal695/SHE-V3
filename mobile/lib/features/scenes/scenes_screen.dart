@@ -16,6 +16,7 @@ import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../device_detail/node_service.dart' show nodeServiceProvider;
+import 'scene_icons.dart';
 import 'scene_service.dart';
 
 class ScenesScreen extends ConsumerStatefulWidget {
@@ -459,34 +460,8 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
     );
   }
 
-  /// Maps a stored icon name onto a Material glyph. Unknown names fall back to
-  /// the sparkle, so a scene authored elsewhere still renders.
-  IconData _sceneIcon(String? name) {
-    switch (name) {
-      case 'sunrise':
-        return Icons.wb_twilight;
-      case 'sunset':
-        return Icons.nightlight_outlined;
-      case 'moon':
-        return Icons.dark_mode_outlined;
-      case 'door-open':
-        return Icons.meeting_room_outlined;
-      case 'tv':
-        return Icons.tv_outlined;
-      case 'droplets':
-        return Icons.water_drop_outlined;
-      case 'shield':
-        return Icons.shield_outlined;
-      case 'clock':
-        return Icons.schedule;
-      case 'sun':
-        return Icons.wb_sunny_outlined;
-      case 'coffee':
-        return Icons.coffee_outlined;
-      default:
-        return Icons.auto_awesome;
-    }
-  }
+  /// Maps a stored icon name onto a Material glyph (see [kSceneIconChoices]).
+  IconData _sceneIcon(String? name) => sceneIconFor(name);
 
   Future<void> _openEditor(BuildContext context, Scene? existing) async {
     final result = await showDialog<_EditorResult>(
@@ -544,10 +519,43 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
   final Map<String, bool> _selected = {};
   bool _saving = false;
 
+  /// The icon key being edited. Previously there was no picker and Save echoed
+  /// `widget.existing?.icon`, so a scene's icon could never change.
+  late String _icon;
+
+  /// The existing actions are seeded once the device list arrives: the map key
+  /// is `nodeId|deviceName`, which only a [SceneDeviceOption] knows.
+  bool _seeded = false;
+
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.existing?.name ?? '');
+    final stored = widget.existing?.icon;
+    _icon = (stored != null && kSceneIconChoices.containsKey(stored))
+        ? stored
+        : 'scene';
+  }
+
+  /// Seed the checkbox map from the scene being edited.
+  ///
+  /// Without this, opening "Edit scene" showed every device UNCHECKED and Save
+  /// then replaced the scene's actions with an empty list — i.e. editing a
+  /// scene silently wiped it.
+  void _seedSelection(List<SceneDeviceOption> devices) {
+    // Skip an empty list: it may just be the provider's first frame, and
+    // marking seeded there would drop the real seeding when devices arrive.
+    if (_seeded || devices.isEmpty) return;
+    _seeded = true;
+    final existing = widget.existing;
+    if (existing == null) return;
+    final byDeviceId = {for (final d in devices) d.deviceId: d};
+    for (final a in existing.actions) {
+      if (a.paramName != 'Power') continue;
+      final d = byDeviceId[a.nodeDeviceId];
+      if (d == null) continue;
+      _selected[_key(d)] = a.value == true || a.value?.toString() == 'true';
+    }
   }
 
   @override
@@ -596,6 +604,25 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
               ),
               const SizedBox(height: V3Spacing.md),
                Text(
+                'Icon',
+                style: TextStyle(
+                    color: V3Colors.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: V3Spacing.xs),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final entry in kSceneIconChoices.entries)
+                    _IconChoice(
+                      icon: entry.value,
+                      selected: _icon == entry.key,
+                      onTap: () => setState(() => _icon = entry.key),
+                    ),
+                ],
+              ),
+              const SizedBox(height: V3Spacing.md),
+               Text(
                 'Devices',
                 style: TextStyle(
                     color: V3Colors.textSecondary, fontSize: 12),
@@ -610,6 +637,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                 error: (e, _) => Text('Could not load devices: $e',
                     style:  TextStyle(color: V3Colors.error)),
                 data: (devices) {
+                  _seedSelection(devices);
                   if (devices.isEmpty) {
                     return  Text('No devices found in this home.',
                         style: TextStyle(color: V3Colors.textSecondary));
@@ -723,12 +751,52 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
         context,
         _EditorResult(
           name: name,
-          icon: widget.existing?.icon ?? 'scene',
+          icon: _icon,
           actions: actions,
         ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+/// One tappable icon swatch in the scene editor's icon picker.
+class _IconChoice extends StatelessWidget {
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _IconChoice({
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: selected
+              ? V3Colors.primary
+              : V3Colors.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(V3Radius.md),
+          border: Border.all(
+            color: selected
+                ? V3Colors.primary
+                : V3Colors.primary.withValues(alpha: 0.22),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: selected ? V3Colors.night : V3Colors.primary,
+        ),
+      ),
+    );
   }
 }

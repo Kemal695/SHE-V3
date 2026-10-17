@@ -46,6 +46,7 @@ import '../device_detail/node_service.dart';
 import '../notifications/notification_store.dart';
 import '../voice/voice_hold_button.dart';
 import 'widgets/energy_summary_card.dart';
+import '../scenes/scene_icons.dart';
 import '../scenes/scene_service.dart';
 
 final homeNodesProvider =
@@ -1354,18 +1355,7 @@ class _SceneTile extends StatelessWidget {
   final String icon;
   final VoidCallback onTap;
 
-  static IconData _iconFor(String key) {
-    final k = key.toLowerCase();
-    if (k.contains('sunrise') || k.contains('morning')) return Icons.wb_twilight;
-    if (k.contains('door') || k.contains('away') || k.contains('leaving')) {
-      return Icons.door_front_door_outlined;
-    }
-    if (k.contains('movie') || k.contains('tv')) return Icons.movie_outlined;
-    if (k.contains('moon') || k.contains('night') || k.contains('sleep')) {
-      return Icons.dark_mode_outlined;
-    }
-    return Icons.auto_awesome;
-  }
+  static IconData _iconFor(String key) => sceneIconFor(key);
 
   @override
   Widget build(BuildContext context) {
