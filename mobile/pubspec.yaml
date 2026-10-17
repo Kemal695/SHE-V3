@@ -67,6 +67,11 @@ dependencies:
   # keeps the app out of the gallery permission conversation entirely.
   image_picker: ^1.1.2
 
+  # ---- Location automations (foreground geofence) ----
+  # Used only while the app is open: the position stream stops when the app is
+  # backgrounded, so no background-location permission is requested.
+  geolocator: ^13.0.1
+
   # ---- Voice control (phone-side) ----
   # On-device wake word / speech recognition. Deliberately NOT the firmware
   # Picovoice path (Phase 4C, R16-only): this runs on the phone, so it works

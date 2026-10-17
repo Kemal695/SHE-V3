@@ -95,6 +95,10 @@ public class HomeServiceImpl implements HomeService {
         Home home = getAuthorizedHomeOrThrow(id, "ADMIN");
         if (req.name() != null) home.setName(req.name());
         if (req.address() != null) home.setAddress(req.address());
+        // Location automations (V43). Only overwrite what was supplied, so a
+        // rename cannot wipe a captured home point.
+        if (req.latitude() != null) home.setLatitude(req.latitude());
+        if (req.longitude() != null) home.setLongitude(req.longitude());
         homeRepository.save(home);
         return toResponse(home);
     }
@@ -336,6 +340,7 @@ public class HomeServiceImpl implements HomeService {
 
     private HomeDtos.HomeResponse toResponse(Home h) {
         return new HomeDtos.HomeResponse(h.getId(), h.getName(), h.getAddress(),
+                h.getLatitude(), h.getLongitude(),
                 h.getOwnerUserId(),
                 h.getCreatedAt() != null ? h.getCreatedAt().toString() : null);
     }

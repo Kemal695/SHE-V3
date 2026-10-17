@@ -51,7 +51,7 @@ final homeAutomationsProvider =
 });
 
 /// Trigger types offered by the editor.
-enum AutomationTriggerType { manual, schedule, nodeState }
+enum AutomationTriggerType { manual, schedule, nodeState, location }
 
 extension AutomationTriggerTypeX on AutomationTriggerType {
   String get wireName {
@@ -62,6 +62,8 @@ extension AutomationTriggerTypeX on AutomationTriggerType {
         return 'SCHEDULE';
       case AutomationTriggerType.nodeState:
         return 'NODE_STATE';
+      case AutomationTriggerType.location:
+        return 'LOCATION';
     }
   }
 
@@ -73,6 +75,8 @@ extension AutomationTriggerTypeX on AutomationTriggerType {
         return 'Schedule';
       case AutomationTriggerType.nodeState:
         return 'When a device changes';
+      case AutomationTriggerType.location:
+        return 'Location';
     }
   }
 }
@@ -181,8 +185,11 @@ class Automation {
 
   AutomationTriggerType get triggerType {
     final type = trigger['type'] as String? ?? 'MANUAL';
-    if (type == 'SCHEDULE') return AutomationTriggerType.schedule;
+    if (type == 'SCHEDULE' || type == 'SOLAR') {
+      return AutomationTriggerType.schedule;
+    }
     if (type == 'NODE_STATE') return AutomationTriggerType.nodeState;
+    if (type == 'LOCATION') return AutomationTriggerType.location;
     return AutomationTriggerType.manual;
   }
 }

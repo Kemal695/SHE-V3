@@ -248,6 +248,14 @@ class _AutomationEditorDialogState
           'value': _triggerValue,
         },
       AutomationTriggerType.manual => {'type': 'MANUAL'},
+      // The wizard owns the location UI; this older editor has no controls for
+      // it, so it preserves the existing values rather than inventing defaults.
+      AutomationTriggerType.location => {
+          'type': 'LOCATION',
+          'mode': (widget.existing?.trigger['mode'] as String?) ?? 'arrive',
+          'radius_m':
+              (widget.existing?.trigger['radius_m'] as num?)?.toInt() ?? 200,
+        },
     };
 
     final actions = <AutomationActionDraft>[];

@@ -33,6 +33,13 @@ public class Home {
     @Column(name = "address")
     private String address;
 
+    /** Home point for LOCATION automations (V43). Null = not captured yet. */
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -53,6 +60,15 @@ public class Home {
     public void setName(String name) { this.name = name; }
     public String getAddress() { return address; }
     public void setAddress(String address) { this.address = address; }
+
+    // ---- Location automations (migration V43) ----
+    /** Home latitude; null = never captured. */
+    public Double getLatitude() { return latitude; }
+    public void setLatitude(Double latitude) { this.latitude = latitude; }
+
+    /** Home longitude; null = never captured. */
+    public Double getLongitude() { return longitude; }
+    public void setLongitude(Double longitude) { this.longitude = longitude; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

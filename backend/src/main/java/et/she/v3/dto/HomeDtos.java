@@ -14,9 +14,12 @@ public class HomeDtos {
     // ─── Home ────────────────────────────────────────────────────────────────
     public record CreateHomeRequest(@NotBlank @Size(max = 100) String name, String address) {}
 
-    public record UpdateHomeRequest(@Size(max = 100) String name, String address) {}
+    public record UpdateHomeRequest(@Size(max = 100) String name, String address,
+                                    Double latitude, Double longitude) {}
 
-    public record HomeResponse(UUID id, String name, String address, UUID owner_user_id, String created_at) {}
+    public record HomeResponse(UUID id, String name, String address,
+                               Double latitude, Double longitude,
+                               UUID owner_user_id, String created_at) {}
 
     // ─── Room ────────────────────────────────────────────────────────────────
     public record CreateRoomRequest(@NotBlank @Size(max = 100) String name, String icon, Integer sort_order) {}

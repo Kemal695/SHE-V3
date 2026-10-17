@@ -2,6 +2,11 @@
     <!-- Voice control (phone-side speech recognition) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Location automations (foreground geofence). Foreground-only: the app
+         never asks for ACCESS_BACKGROUND_LOCATION, so the fence stops when the
+         app is not open. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <!-- Optional: lets the recognizer keep working if the user backgrounds the
          app mid-utterance. Not required for the normal foreground flow. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>

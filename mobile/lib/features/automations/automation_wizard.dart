@@ -15,12 +15,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../core/network/api_error.dart';
 import '../../core/offline/offline_automations.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
+import '../device_detail/node_service.dart' show nodeServiceProvider;
 import '../scenes/scene_service.dart'
     show SceneDeviceOption, homeDevicesProvider;
 import 'automation_service.dart';
@@ -66,6 +68,16 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
 
   /// sunrise | sunset — only meaningful while [_sunrise] is true.
   String _solarEvent = 'sunrise';
+
+  // --- Location (foreground geofence) ---
+  /// arrive | leave.
+  String _locationMode = 'arrive';
+
+  /// Fence radius in metres.
+  int _radiusM = 200;
+
+  /// True while the home's point is being captured/uploaded.
+  bool _savingLocation = false;
 
   // --- If (optional) ---
   bool _hasCondition = false;
@@ -405,6 +417,11 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           'value': _triggerValue,
         },
       AutomationTriggerType.manual => <String, Object>{'type': 'MANUAL'},
+      AutomationTriggerType.location => <String, Object>{
+          'type': 'LOCATION',
+          'mode': _locationMode,
+          'radius_m': _radiusM,
+        },
     };
 
     // One draft per action row — the backend stores each as its own rule.
@@ -679,12 +696,11 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           icon: Icons.place_outlined,
           title: 'Location',
           subtitle: 'When you arrive or leave home',
-          selected: false,
-          onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location triggers are not supported yet'),
-            ),
-          ),
+          selected: _trigger == AutomationTriggerType.location,
+          onTap: () => setState(() {
+            _sunrise = false;
+            _trigger = AutomationTriggerType.location;
+          }),
         ),
         _option(
           icon: Icons.touch_app,
@@ -696,7 +712,155 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
             _trigger = AutomationTriggerType.manual;
           }),
         ),
+        if (_trigger == AutomationTriggerType.location) ..._locationConfig(),
       ];
+
+  // ------------------------------------------------------------- Location
+
+  /// Arrive/leave + radius, and the one-time "capture the home point" action.
+  ///
+  /// The fence is evaluated on the phone while the app is open, so the home's
+  /// coordinates have to be stored first — without them the watcher cannot run.
+  List<Widget> _locationConfig() => [
+        const SizedBox(height: V3Spacing.md),
+        Container(
+          padding: const EdgeInsets.all(V3Spacing.md),
+          decoration: BoxDecoration(
+            color: V3Colors.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(V3Radius.lg),
+            border: Border.all(
+              color: V3Colors.primary.withValues(alpha: 0.20),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Trigger when I…',
+                  style: TextStyle(
+                      color: V3Colors.textSecondary, fontSize: 12)),
+              const SizedBox(height: V3Spacing.xs),
+              Row(
+                children: [
+                  Expanded(
+                    child: _choiceChip(
+                      label: 'Arrive home',
+                      selected: _locationMode == 'arrive',
+                      onTap: () => setState(() => _locationMode = 'arrive'),
+                    ),
+                  ),
+                  const SizedBox(width: V3Spacing.xs),
+                  Expanded(
+                    child: _choiceChip(
+                      label: 'Leave home',
+                      selected: _locationMode == 'leave',
+                      onTap: () => setState(() => _locationMode = 'leave'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: V3Spacing.md),
+              Text('Distance: $_radiusM m',
+                  style: TextStyle(
+                      color: V3Colors.textSecondary, fontSize: 12)),
+              Slider(
+                value: _radiusM.toDouble(),
+                min: 100,
+                max: 1000,
+                divisions: 9,
+                label: '$_radiusM m',
+                onChanged: (v) => setState(() => _radiusM = v.round()),
+              ),
+              const SizedBox(height: V3Spacing.xs),
+              // Capture the home point on first use. Uses the CURRENT position,
+              // so it must be pressed while standing at home.
+              OutlinedButton.icon(
+                onPressed: _savingLocation ? null : _captureHomeLocation,
+                icon: _savingLocation
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.my_location, size: 18),
+                label: Text(_savingLocation
+                    ? 'Saving…'
+                    : 'Set home location to my current position'),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Runs while the app is open. Stand at home when you set this.',
+                style: TextStyle(color: V3Colors.dim, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+      ];
+
+  Widget _choiceChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(V3Radius.md),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? V3Colors.primary.withValues(alpha: 0.18)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(V3Radius.md),
+          border: Border.all(
+            color: selected
+                ? V3Colors.primary
+                : V3Colors.textSecondary.withValues(alpha: 0.30),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? V3Colors.primary : V3Colors.textSecondary,
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Ask for location permission and PATCH the home with the current point.
+  Future<void> _captureHomeLocation() async {
+    setState(() => _savingLocation = true);
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw 'Location permission is required';
+      }
+      final pos = await Geolocator.getCurrentPosition();
+      await ref.read(nodeServiceProvider).updateHomeLocation(
+            widget.homeId,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Home location saved')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not set home location: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingLocation = false);
+    }
+  }
 
   // ---------------------------------------------------------------- Details
 
@@ -704,6 +868,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
         AutomationTriggerType.schedule =>
           _sunrise ? 'Sunrise or sunset' : 'What time?',
         AutomationTriggerType.nodeState => 'Which device?',
+        AutomationTriggerType.location => 'Arrive or leave?',
         AutomationTriggerType.manual => 'Nothing to set up',
       };
 
@@ -759,14 +924,26 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           const SizedBox(height: V3Spacing.md),
           _addConditionButton(),
         ];
+      case AutomationTriggerType.location:
+        // The fence is configured on the "When" step, so there is nothing left
+        // to pick here — step 2 only confirms the choice.
+        return [
+           Text('Runs when your phone crosses the home fence.',
+              style: TextStyle(color: V3Colors.text2, fontSize: 12.5)),
+          const SizedBox(height: V3Spacing.sm),
+           Text(
+            'Set the distance and capture the home point on the previous step. '
+            'This works while the app is open.',
+            style: TextStyle(color: V3Colors.dim, fontSize: 11.5),
+          ),
+        ];
       case AutomationTriggerType.manual:
         return [
           Container(
             padding: const EdgeInsets.all(V3Spacing.md),
             decoration: BoxDecoration(
               color: V3Colors.surface,
-              borderRadius: BorderRadius.circular(V3Radius.xl),
-              border: Border.all(color: V3Colors.border),
+              borderRadius: BorderRadius.circular(V3Radius.xl),              border: Border.all(color: V3Colors.border),
             ),
             child:  Text(
               'A manual automation has nothing to configure — it only runs when '

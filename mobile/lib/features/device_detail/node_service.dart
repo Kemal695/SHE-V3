@@ -23,6 +23,19 @@ class NodeService {
     return List<Map<String, dynamic>>.from(response.data['data']);
   }
 
+  /// PATCH /homes/{id} — currently only used to store the home's coordinates,
+  /// which the foreground geofence measures distance against (V43).
+  Future<void> updateHomeLocation(
+    String homeId, {
+    required double latitude,
+    required double longitude,
+  }) async {
+    await _dio.patch(
+      '/api/v3/homes/$homeId',
+      data: {'latitude': latitude, 'longitude': longitude},
+    );
+  }
+
   Future<List<Map<String, dynamic>>> listNodesByHome(String homeId) async {
     final response = await _dio.get(ApiConstants.homeNodes(homeId));
     return List<Map<String, dynamic>>.from(response.data['data']);

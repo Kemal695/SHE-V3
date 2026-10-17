@@ -613,6 +613,8 @@ class _AutomationsScreenState extends ConsumerState<AutomationsScreen> {
         return Icons.wb_twilight;
       case 'NODE_STATE':
         return Icons.bolt;
+      case 'LOCATION':
+        return Icons.place_outlined;
       default:
         return Icons.play_circle_outline;
     }
