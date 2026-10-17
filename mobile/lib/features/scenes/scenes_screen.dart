@@ -263,6 +263,10 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
       onTap: _busy ? null : () => _activate(scene),
       onLongPress: _busy ? null : () => _showSceneMenu(scene),
       child: Container(
+        // Same as the dashboard group tile: the corner bloom sits outside the
+        // card (-24/-32) and would otherwise paint a sharp square edge past the
+        // rounded top-right corner.
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: active
               ? V3Colors.primary.withValues(alpha: isDark ? 0.22 : 0.13)

@@ -520,6 +520,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         '&name=${Uri.encodeComponent(name)}',
       ),
       child: Container(
+        // The corner bloom is positioned outside the tile (-24/-32), and a
+        // Container does not clip its child by default — the glow spilled past
+        // the rounded corner and left a sharp square edge at the top-right.
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: allOn
               ? V3Colors.primary.withValues(alpha: isDark ? 0.22 : 0.13)
