@@ -72,10 +72,10 @@ public class SceneService {
             @JsonProperty("device_name") String deviceName,
             Map<String, Object> params
     ) {}
-    public record CreateSceneRequest(String name, String icon, List<SceneActionIn> actions) {}
-    public record UpdateSceneRequest(String name, String icon, List<SceneActionIn> actions) {}
+    public record CreateSceneRequest(String name, String icon, String image, List<SceneActionIn> actions) {}
+    public record UpdateSceneRequest(String name, String icon, String image, List<SceneActionIn> actions) {}
     public record SceneActionOut(UUID nodeDeviceId, String paramName, Object value) {}
-    public record SceneOut(UUID id, UUID homeId, String name, String icon, Integer sortOrder,
+    public record SceneOut(UUID id, UUID homeId, String name, String icon, String image, Integer sortOrder,
                            List<SceneActionOut> actions, Instant createdAt) {}
     public record FailedAction(UUID nodeId, String deviceName, String reason) {}
     public record ActivationResult(UUID executionId, int acceptedCount, List<FailedAction> failed) {}
@@ -104,6 +104,7 @@ public class SceneService {
         scene.setHomeId(homeId);
         scene.setName(req.name().trim());
         scene.setIcon(req.icon());
+        scene.setImage(req.image());
         scene.setSortOrder(0);
         scene = sceneRepository.save(scene);
         replaceActions(scene, req.actions());
@@ -115,6 +116,8 @@ public class SceneService {
         Scene scene = requireScene(id);
         if (req.name() != null && !req.name().isBlank()) scene.setName(req.name().trim());
         if (req.icon() != null) scene.setIcon(req.icon());
+        // An empty string is the client's "remove the cover" signal.
+        if (req.image() != null) scene.setImage(req.image().isBlank() ? null : req.image());
         if (req.actions() != null) replaceActions(scene, req.actions());
         return toOut(sceneRepository.save(scene));
     }
@@ -227,7 +230,8 @@ public class SceneService {
         List<SceneActionOut> outs = sceneActionRepository.findAllBySceneId(s.getId()).stream()
                 .map(a -> new SceneActionOut(a.getNodeDeviceId(), a.getParamName(), toPlain(a.getValue())))
                 .toList();
-        return new SceneOut(s.getId(), s.getHomeId(), s.getName(), s.getIcon(), s.getSortOrder(), outs, s.getCreatedAt());
+        return new SceneOut(s.getId(), s.getHomeId(), s.getName(), s.getIcon(), s.getImage(),
+                s.getSortOrder(), outs, s.getCreatedAt());
     }
 
     /** JsonNode → plain Java so it can go into the params map and serialize cleanly. */

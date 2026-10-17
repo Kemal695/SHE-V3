@@ -10,6 +10,13 @@ spring:
   application:
     name: she-backend
 
+  # ---- Uploads (migration V41) ----
+  # Spring's default limit is 1 MB, which rejects every real phone photo.
+  servlet:
+    multipart:
+      max-file-size: 6MB
+      max-request-size: 8MB
+
   # ---- Flyway (V3-DATABASE-DESIGN §1, V3-OPS-RUNBOOK §2.3) ----
   flyway:
     enabled: ${SPRING_FLYWAY_ENABLED:true}
@@ -161,6 +168,12 @@ management:
 # SHE-specific configuration (bound to @ConfigurationProperties)
 # =============================================================================
 she:
+  # ---- Uploaded images (migration V41) ----
+  # Where POST /api/v3/media writes the bytes. Local disk by default; point it at
+  # a mounted volume in production. Files are named by their media row id.
+  media:
+    dir: ${SHE_MEDIA_DIR:./data/media}
+
   # ---- Social sign-in (Google / Apple) ----
   # Comma-separated allowed ID-token audiences.
   #   Google: the OAuth *web* client id (and optionally the Android client id).

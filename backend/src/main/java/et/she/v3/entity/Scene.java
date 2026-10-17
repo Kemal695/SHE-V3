@@ -35,6 +35,14 @@ public class Scene {
     @Column(name = "icon", length = 50)
     private String icon;
 
+    /**
+     * Cover image — either an uploaded `/api/v3/media/{id}` URL (migration V41)
+     * or, for older rows, a bundled asset key. Null → the card shows the icon
+     * only.
+     */
+    @Column(name = "image", length = 300)
+    private String image;
+
     @Column(name = "sort_order", nullable = false)
     private Integer sortOrder = 0;
 
@@ -74,6 +82,9 @@ public class Scene {
 
     public String getIcon() { return icon; }
     public void setIcon(String icon) { this.icon = icon; }
+
+    public String getImage() { return image; }
+    public void setImage(String image) { this.image = image; }
 
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }

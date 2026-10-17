@@ -16,12 +16,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/local/local_control_service.dart';
+import '../../core/media/media_service.dart';
 import '../../core/network/api_error.dart';
 import '../../core/network/ws_client.dart'
     show livePowerProvider, wsConnectedProvider;
 import '../../core/offline/command_queue.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
+import '../../core/widgets/she_icon_or_image.dart';
 import '../../core/widgets/she_toggle.dart';
 import '../device_detail/device_detail_screen.dart'
     show
@@ -268,6 +270,12 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     final live = <String, bool>{};
     // Chosen cover photo (detail hero only); null → brand gradient hero.
     final imageKey = group['image']?.toString();
+    // An uploaded cover (V41) resolves to a URL; a pre-V41 row holds a bundled
+    // asset key. Exactly one of these is non-null.
+    final String? coverUrl =
+        (imageKey != null && MediaUrls.isUploaded(imageKey))
+            ? MediaUrls.resolve(imageKey)
+            : null;
     final String? coverAsset = (imageKey != null &&
             imageKey != 'none' &&
             kGroupImageChoices.containsKey(imageKey) &&
@@ -328,7 +336,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
             decoration: BoxDecoration(
               // With a chosen cover photo, show it under a navy scrim so the
               // title stays readable; otherwise the brand gradient hero.
-              gradient: coverAsset != null
+              gradient: (coverAsset != null || coverUrl != null)
                   ?  LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
@@ -344,12 +352,17 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                         V3Colors.heroBottom
                       ],
                     ),
-              image: coverAsset != null
+              image: coverUrl != null
                   ? DecorationImage(
-                      image: AssetImage(coverAsset),
+                      image: NetworkImage(coverUrl),
                       fit: BoxFit.cover,
                     )
-                  : null,
+                  : coverAsset != null
+                      ? DecorationImage(
+                          image: AssetImage(coverAsset),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
               borderRadius: BorderRadius.circular(V3Radius.xl),
               border: Border.all(color: V3Colors.border),
             ),
@@ -359,6 +372,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 Container(
                   width: 64,
                   height: 64,
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: V3Colors.primary,
                     borderRadius: BorderRadius.circular(V3Radius.lg),
@@ -370,18 +384,22 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                       ),
                     ],
                   ),
-                  child: Icon(
-                    (() {
-                      final k = group['icon']?.toString();
-                      if (k != null &&
-                          k != 'auto' &&
-                          kGroupIconChoices.containsKey(k)) {
-                        return kGroupIconChoices[k]!;
-                      }
-                      return Icons.folder_special_outlined;
-                    })(),
-                    size: 32,
-                    color: V3Colors.night,
+                  child: Center(
+                    // A custom uploaded icon (V41) replaces the glyph.
+                    child: SheIconOrImage(
+                      value: group['icon']?.toString(),
+                      fallbackIcon: (() {
+                        final k = group['icon']?.toString();
+                        if (k != null &&
+                            k != 'auto' &&
+                            kGroupIconChoices.containsKey(k)) {
+                          return kGroupIconChoices[k]!;
+                        }
+                        return Icons.folder_special_outlined;
+                      })(),
+                      size: 32,
+                      color: V3Colors.night,
+                    ),
                   ),
                 ),
                 const SizedBox(height: V3Spacing.sm),

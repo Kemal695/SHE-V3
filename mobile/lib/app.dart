@@ -9,9 +9,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'core/media/media_service.dart';
 import 'core/theme/v3_design_tokens.dart';
 import 'core/theme/she_colors.dart';
 import 'core/widgets/offline_banner.dart';
+import 'core/network/base_url_provider.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
 
@@ -23,6 +25,10 @@ class SheApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
     final locale = ref.watch(localeProvider);
     final themeMode = ref.watch(themeModeProvider);
+
+    // Uploaded scene/group images are stored as server-relative paths; keep the
+    // resolver's base in sync with the active API URL (it changes from Settings).
+    MediaUrls.base = ref.watch(apiBaseUrlProvider);
 
     // ADR-009 is dark-first, but the palette is now switchable. `V3Colors.*`
     // (referenced across ~40 screens) reads [SheColors.current], so point it at

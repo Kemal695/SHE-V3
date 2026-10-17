@@ -182,6 +182,9 @@ class Scene {
   final String homeId;
   final String name;
   final String? icon;
+
+  /// Cover image: an uploaded `/api/v3/media/<uuid>` path, or a bundled key.
+  final String? image;
   final int sortOrder;
   final List<SceneAction> actions;
 
@@ -190,6 +193,7 @@ class Scene {
     required this.homeId,
     required this.name,
     this.icon,
+    this.image,
     required this.sortOrder,
     required this.actions,
   });
@@ -199,6 +203,7 @@ class Scene {
         homeId: json['homeId'] as String,
         name: json['name'] as String? ?? 'Scene',
         icon: json['icon'] as String?,
+        image: json['image'] as String?,
         sortOrder: json['sortOrder'] as int? ?? 0,
         actions: (json['actions'] as List<dynamic>? ?? [])
             .map((a) => SceneAction.fromJson(a as Map<String, dynamic>))
@@ -297,6 +302,7 @@ class SceneService {
     String homeId, {
     required String name,
     String? icon,
+    String? image,
     List<SceneActionDraft> actions = const [],
   }) async {
     final response = await _dio.post(
@@ -304,6 +310,7 @@ class SceneService {
       data: {
         'name': name,
         if (icon != null) 'icon': icon,
+        if (image != null) 'image': image,
         'actions': actions.map((a) => a.toJson()).toList(),
       },
     );
@@ -316,6 +323,7 @@ class SceneService {
     String id, {
     String? name,
     String? icon,
+    String? image,
     List<SceneActionDraft>? actions,
   }) async {
     final response = await _dio.patch(
@@ -323,6 +331,7 @@ class SceneService {
       data: {
         if (name != null) 'name': name,
         if (icon != null) 'icon': icon,
+        if (image != null) 'image': image,
         if (actions != null) 'actions': actions.map((a) => a.toJson()).toList(),
       },
     );

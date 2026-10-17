@@ -62,6 +62,11 @@ dependencies:
   google_sign_in: ^6.2.1
   sign_in_with_apple: ^6.1.2
 
+  # ---- Custom images (scene / group covers + icons) ----
+  # System photo picker: no storage permission needed on Android 13+, and it
+  # keeps the app out of the gallery permission conversation entirely.
+  image_picker: ^1.1.2
+
   # ---- Voice control (phone-side) ----
   # On-device wake word / speech recognition. Deliberately NOT the firmware
   # Picovoice path (Phase 4C, R16-only): this runs on the phone, so it works

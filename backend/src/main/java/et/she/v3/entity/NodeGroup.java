@@ -62,7 +62,7 @@ public class NodeGroup {
      * shows only the icon, no photo. Same fallback story as icon: pre-V37
      * groups have no image and just render the gradient + icon.
      */
-    @Column(name = "image", length = 64)
+    @Column(name = "image", length = 300)
     private String image;
 
     @PrePersist

@@ -12,8 +12,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/media/media_service.dart';
 import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
+import '../../core/widgets/she_icon_or_image.dart';
 import '../../core/widgets/she_kit.dart';
 import '../device_detail/node_service.dart' show nodeServiceProvider;
 import 'scene_icons.dart';
@@ -296,23 +298,49 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
         ),
         child: Stack(
           children: [
-            // Soft radial accent in the corner — the design's glow.
-            Positioned(
-              right: -24,
-              top: -32,
-              child: Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [
-                    V3Colors.primary
-                        .withValues(alpha: active ? 0.34 : 0.16),
-                    Colors.transparent,
-                  ]),
+            // The user's own cover photo, behind everything, with a scrim so
+            // the name stays readable whatever the picture looks like.
+            if (MediaUrls.isUploaded(scene.image)) ...[
+              Positioned.fill(
+                child: Image.network(
+                  MediaUrls.resolve(scene.image!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
               ),
-            ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.20),
+                        Colors.black.withValues(alpha: 0.72),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            // Soft radial accent in the corner — the design's glow.
+            if (!MediaUrls.isUploaded(scene.image))
+              Positioned(
+                right: -24,
+                top: -32,
+                child: Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(colors: [
+                      V3Colors.primary
+                          .withValues(alpha: active ? 0.34 : 0.16),
+                      Colors.transparent,
+                    ]),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.all(V3Spacing.md),
               child: Column(
@@ -321,16 +349,21 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                   Container(
                     width: 44,
                     height: 44,
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
                       color: active
                           ? V3Colors.primary
                           : V3Colors.primary.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(V3Radius.md),
                     ),
-                    child: Icon(
-                      _sceneIcon(scene.icon),
-                      size: 22,
-                      color: active ? V3Colors.night : V3Colors.primary,
+                    child: Center(
+                      // A custom uploaded icon replaces the glyph.
+                      child: SheIconOrImage(
+                        value: scene.icon,
+                        fallbackIcon: _sceneIcon(scene.icon),
+                        size: 22,
+                        color: active ? V3Colors.night : V3Colors.primary,
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -480,6 +513,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               _homeId,
               name: result.name,
               icon: result.icon,
+              image: result.image,
               actions: result.actions,
             );
       } else {
@@ -487,6 +521,9 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
               existing.id,
               name: result.name,
               icon: result.icon,
+              // Always sent ('' clears it) — updateScene skips null, so a
+              // removed cover would otherwise never be cleared.
+              image: result.image ?? '',
               actions: result.actions,
             );
       }
@@ -497,11 +534,13 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
 class _EditorResult {
   final String name;
   final String? icon;
+  final String? image;
   final List<SceneActionDraft> actions;
 
   _EditorResult({
     required this.name,
     this.icon,
+    this.image,
     required this.actions,
   });
 }
@@ -525,7 +564,17 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
 
   /// The icon key being edited. Previously there was no picker and Save echoed
   /// `widget.existing?.icon`, so a scene's icon could never change.
+  ///
+  /// May also be an uploaded `/api/v3/media/<uuid>` path — the user's own image
+  /// used in place of a glyph.
   late String _icon;
+
+  /// Cover image: an uploaded media path (or, for older rows, a bundled key).
+  String? _image;
+
+  /// True while a picker/upload is in flight — disables the photo controls so a
+  /// double-tap cannot upload twice.
+  bool _uploading = false;
 
   /// The existing actions are seeded once the device list arrives: the map key
   /// is `nodeId|deviceName`, which only a [SceneDeviceOption] knows.
@@ -536,9 +585,40 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.existing?.name ?? '');
     final stored = widget.existing?.icon;
-    _icon = (stored != null && kSceneIconChoices.containsKey(stored))
+    _icon = (stored != null &&
+            (kSceneIconChoices.containsKey(stored) || MediaUrls.isUploaded(stored)))
         ? stored
         : 'scene';
+    _image = widget.existing?.image;
+  }
+
+  /// Pick a photo from the gallery and upload it.
+  ///
+  /// [asIcon] puts the result in the icon slot (a 44 px picture instead of a
+  /// glyph); otherwise it becomes the card's cover image.
+  Future<void> _pickImage({bool asIcon = false}) async {
+    if (_uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final url = await ref.read(mediaServiceProvider).pickAndUpload(
+            maxWidth: asIcon ? 512 : 1600,
+          );
+      if (!mounted || url == null) return;
+      setState(() {
+        if (asIcon) {
+          _icon = url;
+        } else {
+          _image = url;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not upload that image: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   /// Seed the checkbox map from the scene being edited.
@@ -623,8 +703,63 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                       selected: _icon == entry.key,
                       onTap: () => setState(() => _icon = entry.key),
                     ),
+                  // The user's own picture, in place of a glyph.
+                  _CustomIconChoice(
+                    value: _icon,
+                    busy: _uploading,
+                    onTap: () => _pickImage(asIcon: true),
+                  ),
                 ],
               ),
+              const SizedBox(height: V3Spacing.md),
+
+              // ---- Cover image (uploaded from the gallery) ----
+               Text(
+                'Cover image',
+                style: TextStyle(
+                    color: V3Colors.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: V3Spacing.xs),
+              Row(
+                children: [
+                  if (MediaUrls.isUploaded(_image)) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(V3Radius.md),
+                      child: Image.network(
+                        MediaUrls.resolve(_image!),
+                        width: 92,
+                        height: 56,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox(
+                          width: 92,
+                          height: 56,
+                          child: Icon(Icons.broken_image_outlined),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove image',
+                      onPressed: _uploading
+                          ? null
+                          : () => setState(() => _image = null),
+                      icon:  Icon(Icons.close,
+                          size: 18, color: V3Colors.textSecondary),
+                    ),
+                  ] else
+                    OutlinedButton.icon(
+                      onPressed: _uploading ? null : () => _pickImage(),
+                      icon: _uploading
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.photo_library_outlined, size: 18),
+                      label: Text(_uploading ? 'Uploading…' : 'Choose photo'),
+                    ),
+                ],
+              ),
+
               const SizedBox(height: V3Spacing.md),
                Text(
                 'Devices',
@@ -756,6 +891,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
         _EditorResult(
           name: name,
           icon: _icon,
+          image: _image,
           actions: actions,
         ),
       );
@@ -765,7 +901,57 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
   }
 }
 
-/// One tappable icon swatch in the scene editor's icon picker.
+/// The "use my own picture" swatch at the end of the icon row.
+class _CustomIconChoice extends StatelessWidget {
+  final String? value;
+  final bool busy;
+  final VoidCallback onTap;
+
+  const _CustomIconChoice({
+    required this.value,
+    required this.busy,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final uploaded = MediaUrls.isUploaded(value);
+    return GestureDetector(
+      onTap: busy ? null : onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: uploaded
+              ? V3Colors.primary
+              : V3Colors.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(V3Radius.md),
+          border: Border.all(
+            color: uploaded
+                ? V3Colors.primary
+                : V3Colors.primary.withValues(alpha: 0.22),
+          ),
+        ),
+        child: busy
+            ? const Center(
+                child: SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : uploaded
+                ? Image.network(MediaUrls.resolve(value!), fit: BoxFit.cover)
+                : Icon(
+                    Icons.add_photo_alternate_outlined,
+                    size: 20,
+                    color: V3Colors.primary,
+                  ),
+      ),
+    );
+  }
+}
 class _IconChoice extends StatelessWidget {
   final IconData icon;
   final bool selected;

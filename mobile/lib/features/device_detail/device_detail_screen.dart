@@ -19,6 +19,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/media/media_service.dart';
+import '../../core/widgets/she_icon_or_image.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_error.dart';
@@ -774,17 +776,17 @@ const Map<String, String> kGroupImageChoices = {
   'skyline': 'assets/img/skyline.png',
 };
 
-class GroupEditorDialog extends StatefulWidget {
+class GroupEditorDialog extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> devices;
   final Map<String, dynamic>? existing;
 
   const GroupEditorDialog({required this.devices, this.existing});
 
   @override
-  State<GroupEditorDialog> createState() => GroupEditorDialogState();
+  ConsumerState<GroupEditorDialog> createState() => GroupEditorDialogState();
 }
 
-class GroupEditorDialogState extends State<GroupEditorDialog> {
+class GroupEditorDialogState extends ConsumerState<GroupEditorDialog> {
   late final TextEditingController _name;
   late final Set<String> _selected;
 
@@ -810,8 +812,44 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
     _image = widget.existing?['image']?.toString() ?? 'none';
     // An unknown key (say a future upload URL) must not crash the picker —
     // fall back to the permissive default instead of an unselected state.
-    if (!kGroupIconChoices.containsKey(_icon)) _icon = 'auto';
-    if (!kGroupImageChoices.containsKey(_image)) _image = 'none';
+    // An UPLOADED value (V41) is a valid choice and must survive the reset.
+    if (!kGroupIconChoices.containsKey(_icon) && !MediaUrls.isUploaded(_icon)) {
+      _icon = 'auto';
+    }
+    if (!kGroupImageChoices.containsKey(_image) &&
+        !MediaUrls.isUploaded(_image)) {
+      _image = 'none';
+    }
+  }
+
+  /// True while a picker/upload is running.
+  bool _uploading = false;
+
+  /// Pick a photo from the gallery and upload it — either as the group's icon
+  /// (a 44 px picture instead of a glyph) or as its cover image.
+  Future<void> _pickImage({bool asIcon = false}) async {
+    if (_uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final url = await ref.read(mediaServiceProvider).pickAndUpload(
+            maxWidth: asIcon ? 512 : 1600,
+          );
+      if (!mounted || url == null) return;
+      setState(() {
+        if (asIcon) {
+          _icon = url;
+        } else {
+          _image = url;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not upload that image: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   @override
@@ -835,7 +873,9 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
         name,
         _selected.toList(),
         icon: _icon == 'auto' ? null : _icon,
-        image: _image == 'none' ? null : _image,
+        // '' (not null) so choosing "None" actually CLEARS a saved image —
+        // the API treats null as "leave unchanged".
+        image: _image == 'none' ? '' : _image,
       ),
     );
   }
@@ -952,6 +992,23 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
                       child: Icon(e.value, size: 18),
                       onTap: () => setState(() => _icon = e.key),
                     ),
+                  // The user's own picture, in place of a glyph (V41 upload).
+                  _Pill(
+                    selected: MediaUrls.isUploaded(_icon),
+                    label: null,
+                    child: MediaUrls.isUploaded(_icon)
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(5),
+                            child: Image.network(
+                              MediaUrls.resolve(_icon),
+                              width: 22,
+                              height: 22,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : Icon(Icons.add_photo_alternate_outlined, size: 18),
+                    onTap: () => _pickImage(asIcon: true),
+                  ),
                 ],
               ),
 
@@ -991,6 +1048,26 @@ class GroupEditorDialogState extends State<GroupEditorDialog> {
                             ),
                       onTap: () => setState(() => _image = e.key),
                     ),
+                  // Upload your own cover (V41).
+                  _Pill(
+                    selected: MediaUrls.isUploaded(_image),
+                    label: null,
+                    child: MediaUrls.isUploaded(_image)
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(
+                              MediaUrls.resolve(_image),
+                              width: 34,
+                              height: 34,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 18),
+                            ),
+                          )
+                        : Icon(Icons.add_photo_alternate_outlined, size: 18),
+                    onTap: () => _pickImage(),
+                  ),
                 ],
               ),
 

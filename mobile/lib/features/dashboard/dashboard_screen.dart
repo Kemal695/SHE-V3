@@ -48,6 +48,7 @@ import '../voice/voice_hold_button.dart';
 import 'widgets/energy_summary_card.dart';
 import '../scenes/scene_icons.dart';
 import '../scenes/scene_service.dart';
+import '../../core/widgets/she_icon_or_image.dart';
 
 final homeNodesProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
@@ -583,9 +584,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           : V3Colors.primary.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(V3Radius.md),
                     ),
-                    child: Icon(icon,
+                    child: Center(
+                      child: SheIconOrImage(
+                        value: chosenIconKey,
+                        fallbackIcon: icon,
                         size: 22,
-                        color: allOn ? V3Colors.night : V3Colors.primary),
+                        color: allOn ? V3Colors.night : V3Colors.primary,
+                      ),
+                    ),
                   ),
                   const Spacer(),
                   Text(name,
@@ -1386,8 +1392,14 @@ class _SceneTile extends StatelessWidget {
                 color: V3Colors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(V3Radius.md),
               ),
-              child: Icon(_iconFor(icon),
-                  size: 18, color: V3Colors.primary),
+              child: Center(
+                child: SheIconOrImage(
+                  value: icon,
+                  fallbackIcon: _iconFor(icon),
+                  size: 18,
+                  color: V3Colors.primary,
+                ),
+              ),
             ),
             const SizedBox(height: V3Spacing.sm),
             Text(

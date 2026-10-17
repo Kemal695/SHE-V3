@@ -6,6 +6,7 @@ import et.she.v3.security.JwtAuthenticationFilter;
 import et.she.v3.security.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -53,6 +54,10 @@ public class SecurityConfig {
                         "/api/v3/auth/oauth/**").permitAll()
                 .requestMatchers("/api/v3/auth/refresh").permitAll()
                 .requestMatchers("/api/v3/tenant/branding").permitAll()
+                // Uploaded images are read by unguessable id (see V41): a plain
+                // Image.network cannot reliably carry the JWT. Uploads (POST)
+                // stay authenticated.
+                .requestMatchers(HttpMethod.GET, "/api/v3/media/*").permitAll()
                 // Chapa payment webhook — no session/JWT; authenticated by HMAC-SHA256 inside
                 // PaymentService.verifySignature() (V3-PAYMENTS §3.2), not by Spring Security.
                 .requestMatchers("/api/v3/payments/webhook").permitAll()
