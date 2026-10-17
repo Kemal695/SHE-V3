@@ -15,9 +15,11 @@
 //     server URL (Settings sits behind the auth redirect).
 //   * Keyboard safety: resizeToAvoidBottomInset + a scrollable min-height body.
 //
-// This screen deliberately uses the DARK SHE palette (SheColors.dark) whatever
-// the app's light/dark setting is: it is the branded entry point and must match
-// the approved mockup (Deep Navy + white text).
+// The screen follows the app's light/dark setting:
+//   * DARK  -> exactly the approved mockup (Deep Navy #0B1D37, glowing logo with
+//             white window panes, white heading, sky-blue Sign In with a glow).
+//   * LIGHT -> the light palette with the navy-window logo variant
+//             (she_logo_light.png), because white panes vanish on white.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -146,9 +148,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Light branded entry screen (per the approved light look): the login is
-    // always light so the logo sits on a light background.
-    const p = SheColors.light;
+    // Follow the app's light/dark setting so dark mode matches the approved
+    // mockup and light mode uses the light palette.
+    final p = context.sheColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return PopScope(
       canPop: false,
@@ -156,8 +159,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         // Prevent navigating back — stay on login.
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
-        // Light status-bar icons on the navy background.
-        value: SystemUiOverlayStyle.dark, // dark icons on the light background
+        // Light status-bar icons on navy, dark icons on the light palette.
+        value: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
         child: Scaffold(
           resizeToAvoidBottomInset: true,
           backgroundColor: p.background,
@@ -283,12 +286,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   // ---- Primary button ----
                                   SizedBox(
-                                    height: 52,
+                                    height: 54,
                                     child: DecoratedBox(
                                       decoration: BoxDecoration(
                                         color: p.primary,
                                         borderRadius:
                                             BorderRadius.circular(14),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: p.primary.withValues(
+                                                alpha: isDark ? 0.45 : 0.25),
+                                            blurRadius: 26,
+                                            spreadRadius: -4,
+                                            offset: const Offset(0, 6),
+                                          ),
+                                        ],
                                       ),
                                       child: Material(
                                         color: Colors.transparent,
@@ -462,22 +474,26 @@ class _LoginLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      width: 104,
-      height: 104,
-      decoration: const BoxDecoration(
+      width: 108,
+      height: 108,
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: Color(0x6656B4FA), // primary @ 40%
-            blurRadius: 52,
-            spreadRadius: -10,
+            color: const Color(0xFF56B4FA)
+                .withValues(alpha: isDark ? 0.45 : 0.22),
+            blurRadius: 54,
+            spreadRadius: -8,
           ),
         ],
       ),
       child: Image.asset(
-        // Navy window panes so the mark reads on the light background.
-        'assets/branding/she_logo_light.png',
+        // White panes read on navy; navy panes on the light palette.
+        isDark
+            ? 'assets/branding/she_logo.png'
+            : 'assets/branding/she_logo_light.png',
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
       ),
@@ -513,7 +529,8 @@ class _LoginField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const p = SheColors.light;
+    final p = context.sheColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return FormField<String>(
       validator: validator,
       autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -531,7 +548,11 @@ class _LoginField extends StatelessWidget {
                 border: Border.all(
                   color: hasError
                       ? p.errorAlt.withValues(alpha: 0.6)
-                      : p.borderStrong,
+                      : isDark
+                          // The mockup's field outline is a faint blue, not a
+                          // white hairline — keeps the fields readable on navy.
+                          ? p.primary.withValues(alpha: 0.30)
+                          : p.borderStrong,
                 ),
               ),
               child: Row(
@@ -600,7 +621,7 @@ class _SocialButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const p = SheColors.light;
+    final p = context.sheColors;
     return SizedBox(
       height: 52,
       child: OutlinedButton(
