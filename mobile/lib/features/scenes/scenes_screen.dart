@@ -254,19 +254,23 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
   }
 
   Widget _sceneCard(Scene scene, bool active) {
+    // Same contrast treatment as the dashboard's group tiles: a raised surface +
+    // brand-tinted border + soft shadow when idle (a 6% hairline was invisible),
+    // and a solid primary-tinted state when active.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: _busy ? null : () => _activate(scene),
       onLongPress: _busy ? null : () => _showSceneMenu(scene),
       child: Container(
         decoration: BoxDecoration(
           color: active
-              ? V3Colors.primary.withValues(alpha: 0.15)
-              : V3Colors.surface,
+              ? V3Colors.primary.withValues(alpha: isDark ? 0.22 : 0.13)
+              : (isDark ? V3Colors.surface2 : V3Colors.surface),
           borderRadius: BorderRadius.circular(V3Radius.xl),
           border: Border.all(
             color: active
-                ? V3Colors.primary.withValues(alpha: 0.6)
-                : V3Colors.border,
+                ? V3Colors.primary.withValues(alpha: 0.75)
+                : V3Colors.primary.withValues(alpha: isDark ? 0.18 : 0.22),
           ),
           boxShadow: active
               ? [
@@ -276,7 +280,14 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                     spreadRadius: -6,
                   ),
                 ]
-              : null,
+              : [
+                  BoxShadow(
+                    color:
+                        Colors.black.withValues(alpha: isDark ? 0.30 : 0.06),
+                    blurRadius: isDark ? 20 : 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
         ),
         child: Stack(
           children: [
@@ -290,7 +301,8 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(colors: [
-                    V3Colors.primary.withValues(alpha: 0.4),
+                    V3Colors.primary
+                        .withValues(alpha: active ? 0.34 : 0.16),
                     Colors.transparent,
                   ]),
                 ),
@@ -307,7 +319,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                     decoration: BoxDecoration(
                       color: active
                           ? V3Colors.primary
-                          : V3Colors.primary.withValues(alpha: 0.12),
+                          : V3Colors.primary.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(V3Radius.md),
                     ),
                     child: Icon(
@@ -331,7 +343,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
                   Text(
                     '${scene.actionCount} action(s)',
                     style:  TextStyle(
-                        color: V3Colors.dim, fontSize: 11),
+                        color: V3Colors.text2, fontSize: 11),
                   ),
                 ],
               ),

@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../theme/she_colors.dart';
 import '../theme/v3_design_tokens.dart';
 
 class SHEToggle extends StatefulWidget {
@@ -75,39 +76,78 @@ class _SHEToggleState extends State<SHEToggle>
     const thumbSize = 28.0;
     const padding = (trackHeight - thumbSize) / 2;
 
+    final p = context.sheColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // OFF track: a mid-tone neutral, NOT the old textSecondary@30% — over navy
+    // (dark) or white (light) that landed at almost the same value as the white
+    // thumb, so the two states were hard to tell apart.
+    final offTrack = isDark
+        ? p.textSecondary.withValues(alpha: 0.42)
+        : const Color(0xFFC3CEDC);
+
     return GestureDetector(
       onTap: _toggle,
-      child: AnimatedBuilder(
-        animation: _animation,
-        builder: (context, _) {
-          return Container(
-            width: trackWidth,
-            height: trackHeight,
-            decoration: BoxDecoration(
-              color: _animation.value > 0.5
-                  ? V3Colors.primary.withValues(alpha: 0.8)
-                  : V3Colors.textSecondary.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(V3Radius.full),
-              boxShadow: widget.value ? V3Colors.activeGlow(isOn: true) : [],
-            ),
-            child: Stack(
-              children: [
-                Positioned(
-                  left: padding + _animation.value * (trackWidth - thumbSize - padding * 2),
-                  top: padding,
-                  child: Container(
-                    width: thumbSize,
-                    height: thumbSize,
-                    decoration:  BoxDecoration(
-                      color: V3Colors.textPrimary,
-                      shape: BoxShape.circle,
+      behavior: HitTestBehavior.opaque,
+      child: Opacity(
+        opacity: widget.enabled ? 1 : 0.45,
+        child: AnimatedBuilder(
+          animation: _animation,
+          builder: (context, _) {
+            final t = _animation.value;
+            final on = t > 0.5;
+            return Container(
+              width: trackWidth,
+              height: trackHeight,
+              decoration: BoxDecoration(
+                // Solid primary when on (was @80%, which read as washed out).
+                color: Color.lerp(offTrack, p.primary, t),
+                borderRadius: BorderRadius.circular(V3Radius.full),
+                border: Border.all(
+                  color: on
+                      ? p.primary
+                      : (isDark
+                          ? p.borderStrong
+                          : const Color(0xFFAFBDCE)),
+                  width: 1,
+                ),
+                boxShadow: on ? V3Colors.activeGlow(isOn: true) : null,
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: padding +
+                        t * (trackWidth - thumbSize - padding * 2),
+                    top: padding,
+                    child: Container(
+                      width: thumbSize,
+                      height: thumbSize,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        // A hairline + drop shadow so the white thumb keeps a
+                        // visible edge on both the blue (on) and grey (off)
+                        // tracks.
+                        border: Border.all(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          width: 0.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                                alpha: isDark ? 0.38 : 0.20),
+                            blurRadius: 3,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }

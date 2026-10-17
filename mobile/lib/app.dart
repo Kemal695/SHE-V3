@@ -203,11 +203,19 @@ class SheApp extends ConsumerWidget {
       ),
 
       // ---- Switch (fallback — we use SHEToggle) ----
+      // Mirrors SHEToggle: white thumb, solid primary when on, a mid-tone
+      // neutral when off. The old pair (textPrimary thumb on primary@30%) was
+      // nearly the same value in both states.
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? V3Colors.textPrimary : V3Colors.textSecondary),
+        thumbColor: WidgetStateProperty.resolveWith((s) => Colors.white),
         trackColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? V3Colors.primary.withValues(alpha: 0.3) : V3Colors.textSecondary.withValues(alpha: 0.2)),
+            s.contains(WidgetState.selected)
+                ? V3Colors.primary
+                : V3Colors.textSecondary.withValues(alpha: 0.42)),
+        trackOutlineColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
+                ? V3Colors.primary
+                : V3Colors.borderStrong),
       ),
 
       // ---- Snackbar ----

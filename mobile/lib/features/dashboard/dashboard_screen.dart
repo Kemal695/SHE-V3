@@ -31,8 +31,8 @@ import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_toggle.dart';
 import '../../core/network/api_error.dart';
+import '../../core/network/active_home.dart' show resolveActiveHomeId;
 import '../../core/network/ws_client.dart';
-import '../../core/network/dio_client.dart';
 import '../../l10n/app_localizations.dart';
 import '../device_detail/device_detail_screen.dart'
     show
@@ -170,16 +170,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _loadHomes() async {
     try {
-      final dio = ref.read(dioProvider);
-      final response = await dio.get('/api/v3/homes');
-      final homes = response.data['data'] as List<dynamic>;
-      if (homes.isNotEmpty && mounted) {
-        final resolved = (homes.first['id'] ?? homes.first['home_id']) as String;
+      // Use the shared active-home resolver (same as Devices/Automations tabs):
+      // it prefers the home that actually has nodes and remembers the choice.
+      // homes.first is NOT safe — GET /homes is sorted newest-first, so a member
+      // who owns their own (empty) home AND was added to a shared home would
+      // pin the dashboard AND the WebSocket subscription to the empty home,
+      // receiving no node.state / energy.update / node.presence events at all.
+      final resolved = await resolveActiveHomeId(ref);
+      if (resolved != null && resolved.isNotEmpty && mounted) {
         setState(() {
           _homeId = resolved;
         });
         // The socket is likely already connected (to the placeholder home id),
-        // so re-point its subscription at the home we actually loaded —
+        // so re-point its subscription at the home we actually resolved —
         // otherwise the grid shows the right devices but never updates live.
         ref.read(wsClientProvider).subscribeToHome(resolved);
       }
@@ -504,6 +507,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // vertical tile, 44px icon, name, count, radial bloom in the corner, and a
     // primary border + glow when everything in the group is on. Tapping opens the
     // group's own page, exactly as a scene card opens the scene detail.
+    //
+    // CONTRAST: the old card was `surface` + a 6%/8% hairline, which on navy
+    // (dark) and on the near-white page (light) was almost the same value as the
+    // background — the tile read as a flat rectangle. It now sits on a raised
+    // surface with a brand-tinted border and a soft drop shadow in both modes.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => context.push(
         '/groups/$id?homeId=$_homeId&nodeId=$nodeId'
@@ -512,13 +521,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: allOn
-              ? V3Colors.primary.withValues(alpha: 0.15)
-              : V3Colors.surface,
+              ? V3Colors.primary.withValues(alpha: isDark ? 0.22 : 0.13)
+              : (isDark ? V3Colors.surface2 : V3Colors.surface),
           borderRadius: BorderRadius.circular(V3Radius.xl),
           border: Border.all(
             color: allOn
-                ? V3Colors.primary.withValues(alpha: 0.6)
-                : V3Colors.border,
+                ? V3Colors.primary.withValues(alpha: 0.75)
+                : V3Colors.primary.withValues(alpha: isDark ? 0.18 : 0.22),
           ),
           boxShadow: allOn
               ? [
@@ -528,7 +537,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     spreadRadius: -6,
                   ),
                 ]
-              : null,
+              : [
+                  BoxShadow(
+                    color: Colors.black
+                        .withValues(alpha: isDark ? 0.30 : 0.06),
+                    blurRadius: isDark ? 20 : 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
         ),
         child: Stack(
           children: [
@@ -541,7 +557,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(colors: [
-                    V3Colors.primary.withValues(alpha: 0.4),
+                    V3Colors.primary
+                        .withValues(alpha: allOn ? 0.34 : 0.16),
                     Colors.transparent,
                   ]),
                 ),
@@ -558,7 +575,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     decoration: BoxDecoration(
                       color: allOn
                           ? V3Colors.primary
-                          : V3Colors.primary.withValues(alpha: 0.12),
+                          : V3Colors.primary.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(V3Radius.md),
                     ),
                     child: Icon(icon,
@@ -576,8 +593,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(height: 2),
                   Text(
                     '${members.length} device(s) · $onCount on',
+                    // `dim` was ~2.4:1 on the card — too faint at 11px.
                     style:
-                         TextStyle(color: V3Colors.dim, fontSize: 11),
+                         TextStyle(color: V3Colors.text2, fontSize: 11),
                   ),
                 ],
               ),
