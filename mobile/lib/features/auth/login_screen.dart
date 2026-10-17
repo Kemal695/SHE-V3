@@ -113,9 +113,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Follow the app's light/dark setting. In light mode the screen is light and
-    // the logo uses the navy-window variant (see _LoginLogo).
-    final p = context.sheColors;
+    // Light branded entry screen (per the approved light look): the login is
+    // always light so the logo sits on a light background.
+    const p = SheColors.light;
 
     return PopScope(
       canPop: false,
@@ -124,9 +124,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         // Light status-bar icons on the navy background.
-        value: Theme.of(context).brightness == Brightness.dark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
+        value: SystemUiOverlayStyle.dark, // dark icons on the light background
         child: Scaffold(
           resizeToAvoidBottomInset: true,
           backgroundColor: p.background,
@@ -417,10 +415,8 @@ class _LoginLogo extends StatelessWidget {
         ],
       ),
       child: Image.asset(
-        // White window panes read on dark surfaces; navy panes on light ones.
-        Theme.of(context).brightness == Brightness.dark
-            ? 'assets/branding/she_logo.png'
-            : 'assets/branding/she_logo_light.png',
+        // Navy window panes so the mark reads on the light background.
+        'assets/branding/she_logo_light.png',
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
       ),
@@ -456,7 +452,7 @@ class _LoginField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.sheColors;
+    const p = SheColors.light;
     return FormField<String>(
       validator: validator,
       autovalidateMode: AutovalidateMode.onUserInteraction,
