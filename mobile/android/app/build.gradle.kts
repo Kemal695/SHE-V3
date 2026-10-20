@@ -62,4 +62,11 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
+    // Robi wake word (Phase 4). Stage 1 is plumbing only, so the detector
+    // dependency is deliberately NOT here yet — Stage 2 adds:
+    //   implementation("com.alphacephei:vosk-android:0.3.47")
+    //   implementation("net.java.dev.jna:jna:5.13.0@aar")
+    // plus `packaging { jniLibs { useLegacyPackaging = true } }`.
+    // See docs/robi-phase4-wake-word.md §4.
 }

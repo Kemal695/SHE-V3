@@ -1,5 +1,76 @@
 package et.she.v3.she_mobile
 
+import android.content.Intent
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity()
+/**
+ * Flutter <-> Robi wake-word bridge (Phase 4).
+ *
+ * `she/robi`        - start / stop / isRunning / modelInstalled
+ * `she/robi/events` - "ready" | "model_missing" | "error" | "stopped" | "hey_robi"
+ *
+ * The detector reports only that the phrase was said; command interpretation
+ * stays in the Dart engine (see docs/robi-phase4-wake-word.md section 3).
+ */
+class MainActivity : FlutterActivity() {
+
+    private val methodChannel = "she/robi"
+    private val eventChannel = "she/robi/events"
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methodChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        if (!RobiWakeService.modelDir(this).isDirectory) {
+                            // Nothing to listen with yet. Report rather than
+                            // starting a service that cannot do its job.
+                            result.success("model_missing")
+                            return@setMethodCallHandler
+                        }
+                        val intent = Intent(this, RobiWakeService::class.java)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success("started")
+                    }
+
+                    "stop" -> {
+                        stopService(Intent(this, RobiWakeService::class.java))
+                        result.success("stopped")
+                    }
+
+                    "isRunning" -> result.success(RobiWakeService.running)
+
+                    "modelInstalled" ->
+                        result.success(RobiWakeService.modelDir(this).isDirectory)
+
+                    else -> result.notImplemented()
+                }
+            }
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, eventChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
+                    RobiWakeService.sink = { event, detail ->
+                        // Always deliver on the platform thread.
+                        runOnUiThread {
+                            sink?.success(mapOf("event" to event, "detail" to detail))
+                        }
+                    }
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    RobiWakeService.sink = null
+                }
+            })
+    }
+}

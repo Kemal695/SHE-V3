@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
+import 'robi_wake_tile.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/storage/settings_store.dart';
 import '../../core/network/base_url_provider.dart';
@@ -141,6 +142,10 @@ class SettingsScreen extends ConsumerWidget {
                 enabled: false,
                 onTap: null,
               ),
+              const Divider(indent: 16, endIndent: 16),
+
+              // ---- Robi voice assistant (Phase 4) ----
+              const RobiWakeTile(),
               const Divider(indent: 16, endIndent: 16),
 
               // ---- About section ----
