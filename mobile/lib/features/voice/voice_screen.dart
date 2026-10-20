@@ -313,10 +313,12 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                       child: _panel(
                         icon: Icons.translate,
                         iconColor: V3Colors.warning,
-                        title: 'Listening in English',
+                        title: 'Amharic may not be supported',
                         body: a.reason ??
-                            'This phone has no Amharic recognizer, so speak '
-                                'English commands.',
+                            'This phone does not list an Amharic recognizer. '
+                                'Robi will still try; if nothing is understood, '
+                                'install an Amharic speech pack or switch the '
+                                'app to English.',
                       ),
                     )
                   : const SizedBox.shrink(),

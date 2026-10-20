@@ -23,9 +23,11 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/network/ws_client.dart' show wsConnectedProvider;
 import '../../core/offline/command_queue.dart';
 import '../../core/offline/device_snapshot.dart';
+import '../../core/storage/secure_storage.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';
+import 'nlu/amharic_normalizer.dart';
 import 'nlu/command_nlu.dart';
 import 'nlu/control_intents.dart';
 import 'nlu/safety_policy.dart';
@@ -90,7 +92,12 @@ final voiceServiceProvider = Provider<VoiceService>((ref) => VoiceService(ref));
 
 /// Whether the phone's recognizer can be used at all. Resolved once per screen
 /// open so the UI can show a truthful message instead of a dead mic.
-final voiceAvailabilityProvider = FutureProvider<VoiceAvailability>((ref) async {
+///
+/// autoDispose: the answer depends on the app's language (Amharic requests
+/// `am-ET` even when it is not listed), so switching language in Settings must
+/// re-probe instead of reusing the previous result for the whole app lifetime.
+final voiceAvailabilityProvider =
+    FutureProvider.autoDispose<VoiceAvailability>((ref) async {
   final service = ref.read(voiceServiceProvider);
   return service.probe();
 });
@@ -138,6 +145,11 @@ class VoiceService {
   String _localeId = 'en-US';
   bool _amharic = false;
 
+  /// True when the app asked for Amharic but the phone did not list it, so we
+  /// requested `am-ET` speculatively. If the recognizer rejects it, the session
+  /// falls back to English instead of leaving the mic dead.
+  bool _forcedAmharic = false;
+
   SpeechToText get recognizer => _speech;
 
   // ---- Capability probe --------------------------------------------------
@@ -174,6 +186,9 @@ class VoiceService {
       }
 
       final locales = await _speech.locales();
+      debugPrint('Voice: recognizer locales = '
+          '${locales.map((l) => l.localeId).toList()}');
+
       final hasAmharic = locales.any(
         (l) => l.localeId.toLowerCase().startsWith('am'),
       );
@@ -191,6 +206,34 @@ class VoiceService {
           onDevice: false,
           localeId: _localeId,
           amharic: true,
+        );
+      }
+
+      // The phone does not LIST an Amharic locale. That list reflects installed
+      // language packs, not what the recognizer can accept — Google's cloud
+      // recognizer frequently handles am-ET without advertising it. So when the
+      // app is in Amharic, ASK FOR am-ET ANYWAY instead of quietly switching to
+      // English: falling back to English guarantees the user's Amharic is heard
+      // as Latin gibberish, which is the "English works but Amharic doesn't"
+      // symptom. We report it as unsupported so the UI stays honest.
+      // Same rule as `localeProvider`: no saved choice means Amharic (the app
+      // ships Amharic-first). Read from storage rather than the provider so this
+      // service does not import the router and create an import cycle.
+      final savedLocale = await SecureStorage.getLocale();
+      final wantsAmharic = savedLocale == null || savedLocale == 'am';
+      if (wantsAmharic) {
+        _localeId = 'am-ET';
+        _amharic = true;
+        _forcedAmharic = true;
+        return VoiceAvailability(
+          available: true,
+          onDevice: false,
+          localeId: _localeId,
+          amharic: true,
+          amharicUnsupported: true,
+          reason: 'This phone does not list Amharic, so Robi is asking for '
+              'am-ET anyway. If nothing is understood, install an Amharic '
+              'speech pack or switch the app to English.',
         );
       }
 
@@ -237,31 +280,45 @@ class VoiceService {
     required void Function() onDone,
     bool pushToTalk = false,
   }) async {
-    await _speech.listen(
-      onResult: (SpeechRecognitionResult r) {
-        final best = r.alternates.isNotEmpty
-            ? r.alternates.first.recognizedWords
-            : r.recognizedWords;
-        onResult(best, r.finalResult);
-      },
-      onSoundLevelChange: null,
-      // localeId / listenFor / pauseFor / partialResults / cancelOnError all
-      // live on SpeechListenOptions in speech_to_text 7.x — passing them as
-      // top-level args is deprecated and warns on every build.
-      listenOptions: SpeechListenOptions(
-        localeId: _localeId,
-        listenFor: Duration(seconds: pushToTalk ? 30 : 12),
-        // Stop after 3 s of silence so a finished sentence does not hold the
-        // mic open until listenFor expires — but NOT while a push-to-talk
-        // button is still held (see the doc comment above).
-        pauseFor: Duration(seconds: pushToTalk ? 30 : 3),
-        // Partial results let the user watch the words land as they speak,
-        // which is what makes a misheard command obvious immediately.
-        partialResults: true,
-        cancelOnError: true,
-        listenMode: ListenMode.dictation,
-      ),
-    );
+    Future<void> listenIn(String locale) => _speech.listen(
+          onResult: (SpeechRecognitionResult r) {
+            final best = r.alternates.isNotEmpty
+                ? r.alternates.first.recognizedWords
+                : r.recognizedWords;
+            onResult(best, r.finalResult);
+          },
+          onSoundLevelChange: null,
+          // localeId / listenFor / pauseFor / partialResults / cancelOnError all
+          // live on SpeechListenOptions in speech_to_text 7.x — passing them as
+          // top-level args is deprecated and warns on every build.
+          listenOptions: SpeechListenOptions(
+            localeId: locale,
+            listenFor: Duration(seconds: pushToTalk ? 30 : 12),
+            // Stop after 3 s of silence so a finished sentence does not hold the
+            // mic open until listenFor expires — but NOT while a push-to-talk
+            // button is still held (see the doc comment above).
+            pauseFor: Duration(seconds: pushToTalk ? 30 : 3),
+            // Partial results let the user watch the words land as they speak,
+            // which is what makes a misheard command obvious immediately.
+            partialResults: true,
+            cancelOnError: true,
+            listenMode: ListenMode.dictation,
+          ),
+        );
+
+    try {
+      await listenIn(_localeId);
+    } catch (e) {
+      // We asked for am-ET speculatively (the phone never listed it). If the
+      // recognizer refuses it, fall back to English rather than leaving the
+      // microphone dead — and say so in the log so this is diagnosable.
+      if (!_forcedAmharic) rethrow;
+      debugPrint('Voice: am-ET rejected ($e) — falling back to English');
+      _localeId = 'en-US';
+      _amharic = false;
+      _forcedAmharic = false;
+      await listenIn(_localeId);
+    }
   }
 
   Future<void> stopListening() => _speech.stop();
@@ -544,6 +601,19 @@ class VoiceService {
     required bool latinDeviceTokens,
   }) async {
     _expireIfStale();
+
+    // We asked for Amharic but the recognizer returned Latin — it did not hear
+    // Amharic. Do not guess at a device from transliterated text (see the header
+    // of voice_intent.dart); say what actually happened.
+    if (_amharic &&
+        transcript.trim().isNotEmpty &&
+        !amharicNormalizer.containsEthiopic(transcript)) {
+      return (
+        intent: const VoiceIntent.unknown(),
+        message: "I didn't catch that in Amharic — try again, or switch the "
+            'app to English.',
+      );
+    }
 
     // ---- 1. Is this a reply to an open question? -------------------------
     final session = _session;
