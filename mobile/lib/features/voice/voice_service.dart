@@ -603,6 +603,13 @@ class VoiceService {
   }) async {
     _expireIfStale();
 
+    // Diagnostic: the transcript is the one thing we cannot infer from the
+    // platform logs (they redact both the locale and the text). Without it,
+    // "Amharic doesn't work" is indistinguishable from "the recognizer returned
+    // Latin" and from "the parser did not match the words".
+    debugPrint('Voice: heard "${transcript.replaceAll("\n", " ")}" '
+        '(locale=$_localeId, amharic=$_amharic, forced=$_forcedAmharic)');
+
     // We asked for Amharic but the recognizer returned Latin — it did not hear
     // Amharic. Do not guess at a device from transliterated text (see the header
     // of voice_intent.dart); say what actually happened.

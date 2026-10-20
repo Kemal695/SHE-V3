@@ -198,4 +198,59 @@ void main() {
       expect(const VoiceIntent.unknown().describe(), "Didn't understand");
     });
   });
+
+  // Amharic nouns take a suffix when spoken ("ክፍል" -> "ክፍልን"), which exact token
+  // matching rejected. These are the natural phrasings, not invented ones.
+  group('Amharic noun suffixes', () {
+    final amharicDevices = [
+      const VoiceDevice(
+        nodeId: 'n1',
+        deviceId: 'd1',
+        deviceName: 'Light 10',
+        displayName: 'የልጆች ክፍል',
+      ),
+      const VoiceDevice(
+        nodeId: 'n1',
+        deviceId: 'd2',
+        deviceName: 'Light 11',
+        displayName: 'መኝታ ቤት',
+      ),
+    ];
+
+    test('object marker -ን still matches the stored name', () {
+      final i = parseVoiceIntent(
+        'የልጆች ክፍልን አብር',
+        devices: amharicDevices,
+        latinDeviceTokens: false,
+      );
+      expect(i.action, VoiceAction.turnOn);
+      expect(i.device?.displayName, 'የልጆች ክፍል');
+    });
+
+    test('the bare name still matches', () {
+      final i = parseVoiceIntent(
+        'የልጆች ክፍል አብር',
+        devices: amharicDevices,
+        latinDeviceTokens: false,
+      );
+      expect(i.action, VoiceAction.turnOn);
+      expect(i.device?.displayName, 'የልጆች ክፍል');
+    });
+
+    test('the same suffix rule applies to the OFF verb', () {
+      final i = parseVoiceIntent(
+        'የልጆች ክፍልን አጥፋ',
+        devices: amharicDevices,
+        latinDeviceTokens: false,
+      );
+      expect(i.device?.displayName, 'የልጆች ክፍል');
+      expect(i.action, VoiceAction.turnOff);
+    });
+
+    test('a Latin name is unaffected by the Amharic suffix rule', () {
+      final i = parseVoiceIntent('turn off light 1', devices: r24Devices());
+      expect(i.device?.deviceName, 'Light 1');
+      expect(i.action, VoiceAction.turnOff);
+    });
+  });
 }

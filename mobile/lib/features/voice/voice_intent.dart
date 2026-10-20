@@ -260,6 +260,33 @@ bool _containsAny(String haystack, List<String> needles) {
 ///   - sub:    one contains the other ("living room" said for "Living Room
 ///             Lamp"). Weakest, and only trusted when nothing better scored,
 ///             because short names are substrings of long ones.
+/// Amharic suffixes that attach to a noun when it is spoken but are absent from
+/// a stored device name.
+///
+/// A device named "ክፍል" (room) is said as "ክፍልን" when it is the object of the
+/// verb, and "ክፍሉ" when it is definite. Exact token matching therefore rejected
+/// perfectly natural commands — the most common way an Amharic speaker would
+/// phrase "turn on the children's room".
+///
+/// Deliberately a SHORT, closed list: only the object marker (-ን) and the
+/// masculine/feminine definite endings (-ው / -ዋ), plus -ም ("also"). Anything
+/// longer risks turning one Amharic word into another, which the spec forbids.
+const List<String> _amharicSuffixes = ['ን', 'ው', 'ዋ', 'ም'];
+
+/// Does the spoken [transcriptToken] refer to the stored [nameToken]?
+///
+/// Exact first, then name + one known Amharic suffix. Never the reverse: a
+/// stored name is never allowed to be a truncation of the spoken word, so
+/// "ክፍል" cannot match "ክፍልት" or some other unrelated word that merely starts
+/// the same way.
+bool _tokenMatches(String nameToken, String transcriptToken) {
+  if (nameToken == transcriptToken) return true;
+  if (transcriptToken.length <= nameToken.length) return false;
+  if (!transcriptToken.startsWith(nameToken)) return false;
+  final suffix = transcriptToken.substring(nameToken.length);
+  return _amharicSuffixes.contains(suffix);
+}
+
 /// Match [name] against the transcript's tokens at word boundaries.
 ///
 /// Returns true if every token of [name] appears contiguously in [tTokens].
@@ -270,7 +297,7 @@ bool _hasTokenRun(List<String> tTokens, List<String> nameTokens) {
   for (var i = 0; i + nameTokens.length <= tTokens.length; i++) {
     var all = true;
     for (var j = 0; j < nameTokens.length; j++) {
-      if (tTokens[i + j] != nameTokens[j]) {
+      if (!_tokenMatches(nameTokens[j], tTokens[i + j])) {
         all = false;
         break;
       }
