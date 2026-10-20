@@ -169,7 +169,7 @@ class _VoiceHoldButtonState extends ConsumerState<VoiceHoldButton> {
     final homeId = await _resolveHomeId();
     final service = ref.read(voiceServiceProvider);
     try {
-      final result = await service.handle(
+      final result = await service.handleUtterance(
         transcript,
         homeId: homeId,
         // Only trust Latin device tokens when the recognizer really is Latin.

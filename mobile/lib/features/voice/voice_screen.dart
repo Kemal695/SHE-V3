@@ -169,7 +169,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
     final service = ref.read(voiceServiceProvider);
     try {
-      final result = await service.handle(
+      final result = await service.handleUtterance(
         transcript,
         homeId: _homeId,
         // Only trust Latin device tokens when the recognizer is actually Latin;
@@ -334,7 +334,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                       children: [
                         Icon(Icons.lightbulb_outline,
                             color: V3Colors.warning, size: 20),
-                        SizedBox(width: V3Spacing.sm),
+                        const SizedBox(width: V3Spacing.sm),
                         Text('Example Commands',
                             style: TextStyle(
                               color: V3Colors.textPrimary,

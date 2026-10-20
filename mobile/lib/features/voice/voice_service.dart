@@ -26,6 +26,10 @@ import '../../core/offline/device_snapshot.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';
+import 'nlu/command_nlu.dart';
+import 'nlu/control_intents.dart';
+import 'nlu/safety_policy.dart';
+import 'nlu/voice_session.dart';
 import 'voice_intent.dart';
 
 /// Where the voice interaction currently is. Drives the UI honestly: the mic
@@ -484,6 +488,177 @@ class VoiceService {
           intent: intent,
           message: "I heard \"$transcript\" but didn't understand it.",
         );
+    }
+  }
+
+  // =========================================================================
+  // Phase 1 orchestration — NLU + safety policy + dialogue session
+  // =========================================================================
+  // `handle()` above stays exactly as it was: it parses and executes. This
+  // layer decides WHETHER to execute, and keeps one clarification/confirmation
+  // open across utterances.
+  //
+  // Both entry points (the FAB and the voice screen) call this method, so they
+  // share one brain and one pending dialogue — which is the spec's "shared
+  // command brain" requirement.
+
+  VoiceSession? _session;
+
+  /// The utterance a pending confirmation refers to. Re-executing the stored
+  /// TEXT (not a cached parse) means the device list is re-read at execution
+  /// time, so a rename in between cannot send a command to the wrong channel.
+  String? _pendingTranscript;
+
+  /// Expire a dialogue that is no longer waiting for a reply.
+  ///
+  /// There is no background timer: a session is checked when the next utterance
+  /// arrives. That is enough because a stale prompt can only do harm if it is
+  /// still open when the user speaks again.
+  void _expireIfStale() {
+    final s = _session;
+    if (s == null) return;
+    s.tick();
+    if (!s.isOpen) _clearDialogue();
+  }
+
+  void _clearDialogue() {
+    _session = null;
+    _pendingTranscript = null;
+  }
+
+  VoiceIntent _toIntent(NluResult r) => VoiceIntent(
+        action: r.action,
+        device: r.device,
+        group: r.group,
+        sceneId: r.sceneId,
+        confidence: r.confidence,
+      );
+
+  /// Interpret [transcript], decide whether it is safe to run, and either run it
+  /// or ask a question.
+  ///
+  /// Returns the same shape as [handle] so the two call sites did not change.
+  Future<({VoiceIntent intent, String message})> handleUtterance(
+    String transcript, {
+    required String homeId,
+    required bool latinDeviceTokens,
+  }) async {
+    _expireIfStale();
+
+    // ---- 1. Is this a reply to an open question? -------------------------
+    final session = _session;
+    final pending = _pendingTranscript;
+    if (session != null && pending != null && session.isOpen) {
+      final match = controlIntentClassifier.classify(
+        transcript,
+        expecting: session.expectation,
+      );
+      final step = session.onControl(
+        match,
+        transactionId: session.transactionId,
+      );
+
+      switch (step) {
+        case SessionStep.cancelled:
+          _clearDialogue();
+          return (
+            intent: const VoiceIntent.unknown(),
+            message: 'Cancelled — nothing was changed.',
+          );
+
+        case SessionStep.execute:
+          // The user said yes to the pending command.
+          _clearDialogue();
+          return handle(
+            pending,
+            homeId: homeId,
+            latinDeviceTokens: latinDeviceTokens,
+          );
+
+        case SessionStep.notUnderstood:
+          // Not an answer to the question that was asked. Keep it open so the
+          // user can try again (the session enforces its own retry limit).
+          return (
+            intent: const VoiceIntent.unknown(),
+            message: session.currentQuestion ?? 'Sorry, can you say that again?',
+          );
+
+        case SessionStep.interpret:
+          // Either a correction ("no, the living room") or a direct answer to a
+          // clarification ("the living room"). Re-interpret that text.
+          final text = match.correctionText ?? transcript;
+          return _decideAndAct(
+            text,
+            homeId: homeId,
+            latinDeviceTokens: latinDeviceTokens,
+          );
+
+        default:
+          break;
+      }
+    }
+
+    // ---- 2. A fresh command ----------------------------------------------
+    return _decideAndAct(
+      transcript,
+      homeId: homeId,
+      latinDeviceTokens: latinDeviceTokens,
+    );
+  }
+
+  Future<({VoiceIntent intent, String message})> _decideAndAct(
+    String transcript, {
+    required String homeId,
+    required bool latinDeviceTokens,
+  }) async {
+    final ctx = await _loadContext(homeId);
+    final result = commandNlu.interpret(
+      transcript,
+      devices: ctx.devices,
+      scenes: ctx.scenes,
+      latinDeviceTokens: latinDeviceTokens,
+      amharic: _amharic,
+    );
+    final decision = commandSafetyPolicy.decide(result);
+
+    switch (decision.decision) {
+      case Decision.execute:
+        _clearDialogue();
+        // Delegate to the existing, tested execution path.
+        return handle(
+          transcript,
+          homeId: homeId,
+          latinDeviceTokens: latinDeviceTokens,
+        );
+
+      case Decision.clarify:
+        // Two different questions, deliberately:
+        //   ambiguous -> "which one?" (a yes/no cannot resolve it)
+        //   uncertain -> "did you mean X?" (yes/no can)
+        final session = VoiceSession(
+          transactionId: 'tx-${DateTime.now().microsecondsSinceEpoch}',
+        );
+        session.begin();
+        if (result.isAmbiguous) {
+          session.askClarification(
+            ClarifyField.device,
+            decision.question ?? 'Which one?',
+          );
+        } else {
+          session.askConfirmation(
+            decision.question ?? 'Did you mean that?',
+          );
+        }
+        _session = session;
+        _pendingTranscript = transcript;
+        return (
+          intent: _toIntent(result),
+          message: decision.question ?? 'Did you mean that?',
+        );
+
+      case Decision.reject:
+        _clearDialogue();
+        return (intent: _toIntent(result), message: decision.reason);
     }
   }
 
