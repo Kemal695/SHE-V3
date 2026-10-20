@@ -94,26 +94,41 @@ class RobiWakeService : Service() {
                 // thread; progress goes to the UI through the event channel.
                 emit("downloading", "0")
                 Thread {
-                    val error = RobiModel.install(this) { pct ->
-                        emit("downloading", pct.toString())
-                        if (pct % 20 == 0) updateNotification("Downloading speech model… $pct%")
-                    }
-                    if (error == null) {
-                        main.post {
-                            updateNotification("Listening for \"Hey Robi\"")
-                            startDetector()
+                    try {
+                        val error = RobiModel.install(this) { pct ->
+                            emit("downloading", pct.toString())
+                            if (pct % 20 == 0) {
+                                updateNotification("Downloading speech model… $pct%")
+                            }
                         }
-                    } else {
-                        emit("error", "model_download_failed: $error")
+                        if (error == null) {
+                            main.post {
+                                updateNotification("Listening for \"Hey Robi\"")
+                                startDetector()
+                            }
+                        } else {
+                            emit("error", "model_download_failed: $error")
+                            main.post { stopSelf() }
+                        }
+                    } catch (e: Throwable) {
+                        // Unzip can OOM on a low-memory phone; an Error here
+                        // would otherwise kill the process from a worker thread.
+                        Log.e(TAG, "model install failed", e)
+                        emit("error", "${e::class.java.simpleName}: ${e.message}")
                         main.post { stopSelf() }
                     }
                 }.start()
             }
 
             START_NOT_STICKY
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not Exception: the failure modes here are ERRORS —
+            // UnsatisfiedLinkError (libvosk not loadable), NoClassDefFoundError
+            // (JNA stripped by R8), OutOfMemoryError (model too big for the
+            // device). `catch (Exception)` let all three escape onStartCommand
+            // and killed the whole app instead of showing an error.
             Log.e(TAG, "could not start foreground service", e)
-            emit("error", e.message)
+            emit("error", "${e::class.java.simpleName}: ${e.message}")
             stopSelf()
             START_NOT_STICKY
         }
@@ -191,15 +206,17 @@ class RobiWakeService : Service() {
                             }
                         }
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e(TAG, "audio loop stopped", e)
                 }
             }.also { it.start() }
 
             emit("ready", null)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // See onStartCommand: these are Errors, not Exceptions. Report the
+            // class name so the UI can say WHICH failure it is.
             Log.e(TAG, "detector failed", e)
-            emit("error", e.message)
+            emit("error", "${e::class.java.simpleName}: ${e.message}")
         }
     }
 

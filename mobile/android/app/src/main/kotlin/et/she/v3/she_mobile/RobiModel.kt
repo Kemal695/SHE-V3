@@ -70,9 +70,11 @@ object RobiModel {
             zip.delete()
             onProgress(100)
             return null
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable: unzipping 40 MB can throw OutOfMemoryError, which is an
+            // Error — `catch (Exception)` would let it kill the process.
             Log.e(TAG, "install failed", e)
-            return e.message ?: e.toString()
+            return "${e::class.java.simpleName}: ${e.message}"
         }
     }
 
