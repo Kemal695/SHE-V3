@@ -24,7 +24,12 @@ enum RobiWakePhase {
   /// Fetching the ~39 MB speech model for the first time.
   downloading,
 
-  /// Model present, microphone open, waiting for the phrase.
+  /// Notification is up and tapping it opens the mic. **The microphone is NOT
+  /// held**, so normal in-app voice commands keep working.
+  armed,
+
+  /// Continuous detection: microphone open, waiting for the phrase. This BLOCKS
+  /// the normal in-app voice commands, because the mic is exclusive.
   listening,
 
   /// Something failed — [RobiWakeState.detail] says what.
@@ -48,20 +53,27 @@ class RobiWake {
   static const _method = MethodChannel('she/robi');
   static const _events = EventChannel('she/robi/events');
 
-  /// Ask for the permissions the service needs, then start it.
+  /// Start Robi.
   ///
-  /// Returns false only when a permission was refused — a missing model is not
-  /// a failure any more: the service downloads it and reports progress.
-  Future<bool> start() async {
-    final mic = await Permission.microphone.request();
-    if (!mic.isGranted) return false;
+  /// [continuous] = false (default) shows the notification and takes NO
+  /// microphone, so the normal in-app voice commands keep working.
+  /// [continuous] = true opens the microphone and runs the detector — it makes
+  /// the mic exclusive, which stops normal voice commands from working.
+  Future<bool> start({bool continuous = false}) async {
+    // The microphone is only needed for continuous detection. Arming the
+    // notification does not require it, so do not ask for it then.
+    if (continuous) {
+      final mic = await Permission.microphone.request();
+      if (!mic.isGranted) return false;
+    }
 
-    // `Permission.notification` is a no-op below API 33.
+    // `Permission.notification` is a no-op below API 33. Required either way:
+    // Android will not let the service run without showing a notification.
     final notifications = await Permission.notification.request();
     if (notifications.isPermanentlyDenied) return false;
 
     try {
-      await _method.invokeMethod<String>('start');
+      await _method.invokeMethod<String>('start', {'continuous': continuous});
       return true;
     } on PlatformException {
       return false;

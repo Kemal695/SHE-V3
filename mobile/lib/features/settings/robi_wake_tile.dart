@@ -28,6 +28,12 @@ class RobiWakeTile extends StatefulWidget {
 class _RobiWakeTileState extends State<RobiWakeTile> {
   RobiWakeState _state = RobiWakeState.off;
   bool _busy = false;
+
+  /// Whether the detector should hold the microphone and run continuously.
+  ///
+  /// Off by default: holding the mic makes it exclusive, which stops the normal
+  /// in-app voice commands from working at all.
+  bool _continuous = false;
   StreamSubscription<({String event, String? detail})>? _sub;
 
   @override
@@ -49,11 +55,13 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
       setState(() => _state = RobiWakeState.off);
       return;
     }
-    final hasModel = await robiWake.modelInstalled();
-    if (!mounted) return;
-    setState(() => _state = hasModel
-        ? const RobiWakeState(RobiWakePhase.listening)
-        : const RobiWakeState(RobiWakePhase.starting));
+    // `armed` (notification only) unless the user explicitly turned continuous
+    // detection on — see RobiWakePhase.armed.
+    setState(() {
+      _state = _continuous
+          ? const RobiWakeState(RobiWakePhase.listening)
+          : const RobiWakeState(RobiWakePhase.armed);
+    });
   }
 
   @override
@@ -71,6 +79,8 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
             RobiWakePhase.downloading,
             detail: e.detail,
           );
+        case 'armed':
+          _state = const RobiWakeState(RobiWakePhase.armed);
         case 'ready':
           _state = const RobiWakeState(RobiWakePhase.listening);
         case 'hey_robi':
@@ -103,14 +113,18 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
     final agreed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Enable "Hey Robi"?'),
-        content: const Text(
-          'Robi listens for the phrase on this phone. Audio is analysed in '
-          'memory and is never uploaded or saved.\n\n'
-          'The first time, it downloads a 39 MB speech model over the internet.\n\n'
-          'A microphone indicator and a Robi notification stay visible while '
-          'this is on. It stops when you turn it off, and it cannot keep '
-          'listening after the app is force-stopped.',
+        title: const Text('Enable Robi?'),
+        content: Text(
+          _continuous
+              ? 'Robi will listen continuously for "Hey Robi". Audio is analysed '
+                  'in memory and never uploaded.\n\n'
+                  'WARNING: this takes the microphone, so the normal in-app voice '
+                  'commands will STOP working while it is on.\n\n'
+                  'The first time, it downloads a 39 MB speech model.'
+              : 'Robi will show a notification you can tap to open the microphone '
+                  'instantly, from any app.\n\n'
+                  'It does NOT listen continuously and does NOT hold the '
+                  'microphone, so your normal voice commands keep working.',
         ),
         actions: [
           TextButton(
@@ -130,11 +144,17 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
       _busy = true;
       _state = const RobiWakeState(RobiWakePhase.starting);
     });
-    final started = await robiWake.start();
+    final started = await robiWake.start(continuous: _continuous);
     if (!mounted) return;
     setState(() {
       _busy = false;
-      if (!started) _state = RobiWakeState.off;
+      if (started) {
+        _state = _continuous
+            ? const RobiWakeState(RobiWakePhase.starting)
+            : const RobiWakeState(RobiWakePhase.armed);
+      } else {
+        _state = RobiWakeState.off;
+      }
     });
     if (!started) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -149,12 +169,13 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
   }
 
   String get _subtitle => switch (_state.phase) {
-        RobiWakePhase.off =>
-          'Say "Hey Robi" — downloads a 39 MB model on first use',
+        RobiWakePhase.off => 'Add a notification you can tap to speak',
         RobiWakePhase.starting => 'Starting…',
         RobiWakePhase.downloading =>
           'Downloading speech model… ${_state.detail ?? '0'}%',
-        RobiWakePhase.listening => 'Listening for "Hey Robi"',
+        RobiWakePhase.armed => 'Tap the Robi notification to speak',
+        RobiWakePhase.listening =>
+          'Listening for "Hey Robi" — in-app voice is blocked while this is on',
         RobiWakePhase.error =>
           'Not listening: ${_state.detail ?? 'unknown error'}',
       };
@@ -162,8 +183,51 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
   @override
   Widget build(BuildContext context) {
     final downloading = _state.phase == RobiWakePhase.downloading;
-    final listening = _state.phase == RobiWakePhase.listening;
+    // "On" means Robi is armed — with or without holding the microphone.
+    final active = _state.phase == RobiWakePhase.armed ||
+        _state.phase == RobiWakePhase.listening;
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _mainTile(active: active, downloading: downloading),
+        // Continuous detection is a separate, explicit choice: it is the one
+        // option that takes the microphone and breaks normal voice commands.
+        if (active) _continuousTile(),
+      ],
+    );
+  }
+
+  Widget _continuousTile() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 72),
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Continuous "Hey Robi"'),
+        subtitle: Text(
+          _continuous
+              ? 'Holding the microphone — in-app voice is blocked'
+              : 'Experimental: takes the mic and breaks voice commands',
+          style: TextStyle(
+            color: _continuous ? V3Colors.warning : V3Colors.textSecondary,
+          ),
+        ),
+        trailing: Switch(
+          value: _continuous,
+          onChanged: (v) async {
+            setState(() => _continuous = v);
+            // The mode is a start-time argument, so restart to change it.
+            await robiWake.stop();
+            await robiWake.start(continuous: v);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _mainTile({required bool active, required bool downloading}) {
     return ListTile(
       leading: Container(
         width: 40,
@@ -174,7 +238,7 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
         ),
         child:  Icon(Icons.graphic_eq, color: V3Colors.primary, size: 20),
       ),
-      title: const Text('Robi wake word'),
+      title: const Text('Robi'),
       subtitle: Text(
         _subtitle,
         style: TextStyle(
@@ -195,8 +259,8 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
                     : null,
               ),
             )
-          : Switch(value: listening, onChanged: _toggle),
-      onTap: () => _toggle(!listening),
+          : Switch(value: active, onChanged: _toggle),
+      onTap: () => _toggle(!active),
     );
   }
 }

@@ -74,8 +74,14 @@ class RobiWakeService : Service() {
 
         fun modelDir(context: android.content.Context) = RobiModel.dir(context)
 
+        /** Intent extra: actually open the microphone and run the detector. */
+        const val EXTRA_CONTINUOUS = "continuous"
+
         /** Event name emitted when the user taps the Robi notification. */
         const val EVENT_OPEN_VOICE = "open_voice"
+
+        /** Event when Robi is armed but NOT holding the microphone. */
+        const val EVENT_ARMED = "armed"
 
         /** Deliver an event that did not originate in this service (e.g. a tap). */
         fun postEvent(event: String, detail: String?) {
@@ -111,6 +117,21 @@ class RobiWakeService : Service() {
         return try {
             startInForeground("Starting…")
             running = true
+
+            // Continuous detection is now OPT-IN, and off by default.
+            //
+            // Holding AudioRecord makes the microphone exclusive: with the
+            // detector running, the normal in-app voice commands STOP WORKING,
+            // because SpeechRecognizer cannot get the mic. Paying that for a
+            // detector that provably cannot hear the phrase on this device
+            // ("huh", "yeah catfish", never "hey robi") is indefensible, so by
+            // default Robi arms its notification and takes no microphone at all.
+            val continuous = intent?.getBooleanExtra(EXTRA_CONTINUOUS, false) == true
+            if (!continuous) {
+                updateNotification("Tap to speak a command")
+                emit(EVENT_ARMED, null)
+                return START_NOT_STICKY
+            }
 
             if (RobiModel.isInstalled(this)) {
                 startDetector()

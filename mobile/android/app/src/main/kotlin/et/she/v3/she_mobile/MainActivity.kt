@@ -59,9 +59,12 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> {
-                        // The service installs the model on first run, so it is
-                        // always safe to start; it reports progress via events.
+                        // `continuous` decides whether the service opens the
+                        // microphone. Default false: holding the mic blocks the
+                        // normal in-app voice commands.
+                        val continuous = call.argument<Boolean>("continuous") == true
                         val intent = Intent(this, RobiWakeService::class.java)
+                            .putExtra(RobiWakeService.EXTRA_CONTINUOUS, continuous)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)
                         } else {
