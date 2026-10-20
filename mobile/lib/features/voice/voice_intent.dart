@@ -143,6 +143,28 @@ class VoiceScene {
   const VoiceScene({required this.id, required this.name});
 }
 
+/// A device and how well the transcript matched it.
+class DeviceMatch {
+  final VoiceDevice device;
+  final double score;
+  const DeviceMatch(this.device, this.score);
+}
+
+/// Score every device against [transcript], best first.
+///
+/// Exposed for the NLU layer, which needs the *runner-up* to detect ambiguity
+/// ("I found two bedrooms"). [parseVoiceIntent] keeps its own single-best loop
+/// so its behaviour — and its tests — are unchanged.
+List<DeviceMatch> scoreDevices(String transcript, List<VoiceDevice> devices) {
+  final matches = <DeviceMatch>[];
+  for (final d in devices) {
+    final score = _matchDevice(transcript, d);
+    if (score > 0) matches.add(DeviceMatch(d, score));
+  }
+  matches.sort((a, b) => b.score.compareTo(a.score));
+  return matches;
+}
+
 // ---------------------------------------------------------------------------
 // Grammar tables
 // ---------------------------------------------------------------------------
