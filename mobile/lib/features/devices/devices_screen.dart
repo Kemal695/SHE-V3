@@ -721,11 +721,11 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
     try {
       await ref.read(nodeServiceProvider).renameDevice(
-            nodeId: row.nodeId,
-            deviceId: row.deviceId,
+            row.nodeId,
+            row.deviceId,
             // Empty clears the custom name and the UI falls back to the
             // technical one.
-            displayName: name.isEmpty ? null : name,
+            name.isEmpty ? null : name,
           );
       ref.invalidate(_homeDevicesFlatProvider(_homeId));
       ref.invalidate(homeNodesProvider(_homeId));
