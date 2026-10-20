@@ -105,8 +105,8 @@ void main() {
       await tester.pumpAndSettle(); // let the future complete
 
       expect(find.text('SHE Premium'), findsOneWidget);
-      expect(find.text('150 ETB/mo'), findsOneWidget);
-      expect(find.text('Pay 150 ETB/mo via Telebirr'), findsOneWidget);
+      expect(find.text('150 ETB'), findsOneWidget);
+      expect(find.text('Pay 150 ETB via Telebirr'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
@@ -124,9 +124,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('SHE Family'), findsOneWidget);
-      expect(find.text('300 ETB/mo'), findsOneWidget);
+      expect(find.text('300 ETB'), findsOneWidget);
       // Family adds the shared-homes bullet.
-      expect(find.text('5 home members + shared homes'), findsOneWidget);
+      expect(find.text('5 members + shared homes'), findsOneWidget);
     });
 
     testWidgets('shows an error and no pay button when initiation fails',
@@ -149,7 +149,7 @@ void main() {
       // Plan summary still renders...
       expect(find.text('SHE Premium'), findsOneWidget);
       // ...but there is no checkout URL, so no pay button.
-      expect(find.text('Pay 150 ETB/mo via Telebirr'), findsNothing);
+      expect(find.text('Pay 150 ETB via Telebirr'), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
   });
