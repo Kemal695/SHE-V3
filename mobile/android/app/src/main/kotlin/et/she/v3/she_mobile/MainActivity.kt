@@ -2,6 +2,7 @@ package et.she.v3.she_mobile
 
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -47,6 +48,15 @@ class MainActivity : FlutterActivity() {
                     "isRunning" -> result.success(RobiWakeService.running)
 
                     "modelInstalled" -> result.success(RobiModel.isInstalled(this))
+
+                    // Voice diagnostics. Log.e because Log.d/i/v are removed
+                    // from release builds by this project's R8 config, and
+                    // Dart's debugPrint does not reliably reach logcat.
+                    "log" -> {
+                        val msg = call.argument<String>("msg") ?: ""
+                        Log.e("RobiVoice", msg)
+                        result.success(null)
+                    }
 
                     else -> result.notImplemented()
                 }

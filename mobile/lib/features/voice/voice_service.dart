@@ -25,6 +25,7 @@ import '../../core/network/ws_client.dart' show wsConnectedProvider;
 import '../../core/offline/command_queue.dart';
 import '../../core/offline/device_snapshot.dart';
 import '../../core/storage/secure_storage.dart';
+import '../../core/voice/voice_log.dart';
 import '../device_detail/device_detail_screen.dart' show nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 import '../scenes/scene_service.dart';
@@ -609,6 +610,8 @@ class VoiceService {
     // Latin" and from "the parser did not match the words".
     debugPrint('Voice: heard "${transcript.replaceAll("\n", " ")}" '
         '(locale=$_localeId, amharic=$_amharic, forced=$_forcedAmharic)');
+    VoiceLog.log('heard="$transcript" locale=$_localeId amharic=$_amharic '
+        'forced=$_forcedAmharic latinTokens=$latinDeviceTokens');
 
     // We asked for Amharic but the recognizer returned Latin — it did not hear
     // Amharic. Do not guess at a device from transliterated text (see the header
@@ -698,6 +701,16 @@ class VoiceService {
       amharic: _amharic,
     );
     final decision = commandSafetyPolicy.decide(result);
+
+    // Full trace, because "Amharic doesn't work" is indistinguishable from
+    // "the recognizer returned Latin" and from "the words didn't match" when all
+    // you have is a UI message. Read with: adb logcat -s RobiVoice:E
+    VoiceLog.log('heard="$transcript" lang=${result.language} '
+        'action=${result.action} device=${result.device?.label} '
+        'group=${result.group} scene=${result.sceneId != null} '
+        'confidence=${result.confidence.toStringAsFixed(2)} '
+        'ambiguous=${result.isAmbiguous} '
+        'decision=${decision.decision} reason="${decision.reason}"');
 
     switch (decision.decision) {
       case Decision.execute:
