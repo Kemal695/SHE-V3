@@ -2,6 +2,9 @@ package et.she.v3.she_mobile
 
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -19,8 +22,35 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
 
+    companion object {
+        /** Intent extra set by Robi's notification to open the mic directly. */
+        const val EXTRA_ROBI_ACTION = "robi_action"
+    }
+
     private val methodChannel = "she/robi"
     private val eventChannel = "she/robi/events"
+
+    private val eventListeners =
+        mutableMapOf<EventChannel.EventSink?, (String, String?) -> Unit>()
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Cold start from a notification tap: Flutter has not subscribed yet, so
+        // post the event once the engine is up rather than dropping it.
+        if (intent?.getStringExtra(EXTRA_ROBI_ACTION) == "voice") {
+            Handler(Looper.getMainLooper()).postDelayed(
+                { RobiWakeService.postEvent(RobiWakeService.EVENT_OPEN_VOICE, null) },
+                1500,
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getStringExtra(EXTRA_ROBI_ACTION) == "voice") {
+            RobiWakeService.postEvent(RobiWakeService.EVENT_OPEN_VOICE, null)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -65,16 +95,23 @@ class MainActivity : FlutterActivity() {
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, eventChannel)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
-                    RobiWakeService.sink = { event, detail ->
+                    val cb: (String, String?) -> Unit = { event, detail ->
                         // Always deliver on the platform thread.
                         runOnUiThread {
                             sink?.success(mapOf("event" to event, "detail" to detail))
                         }
                     }
+                    eventListeners[sink] = cb
+                    RobiWakeService.addListener(cb)
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    RobiWakeService.sink = null
+                    // Drop whichever listeners we still hold; the channel is going
+                    // away, so none of them can be delivered to any more.
+                    for ((_, cb) in eventListeners) {
+                        RobiWakeService.removeListener(cb)
+                    }
+                    eventListeners.clear()
                 }
             })
     }

@@ -34,14 +34,26 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
   void initState() {
     super.initState();
     _sub = robiWake.events().listen(_onEvent);
-    robiWake.isRunning().then((running) {
-      if (!mounted) return;
-      setState(() {
-        _state = running
-            ? const RobiWakeState(RobiWakePhase.starting)
-            : RobiWakeState.off;
-      });
-    });
+    _refresh();
+  }
+
+  /// Read the SERVICE's state rather than waiting for an event.
+  ///
+  /// If Robi was already running before this screen opened, no new event is ever
+  /// emitted — the tile would sit on "Starting…" forever while the detector was
+  /// in fact listening. Ask, don't wait.
+  Future<void> _refresh() async {
+    final running = await robiWake.isRunning();
+    if (!mounted) return;
+    if (!running) {
+      setState(() => _state = RobiWakeState.off);
+      return;
+    }
+    final hasModel = await robiWake.modelInstalled();
+    if (!mounted) return;
+    setState(() => _state = hasModel
+        ? const RobiWakeState(RobiWakePhase.listening)
+        : const RobiWakeState(RobiWakePhase.starting));
   }
 
   @override

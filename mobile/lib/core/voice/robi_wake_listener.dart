@@ -35,22 +35,32 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
   void initState() {
     super.initState();
     _sub = robiWake.events().listen((e) {
-      if (e.event != 'hey_robi') return;
-      if (!mounted) return;
-
-      // Only while the app is actually in front of the user.
-      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      if (e.event == 'hey_robi' || e.event == 'open_voice') {
+        _openVoice();
         return;
       }
-
-      // Ignore a second activation while the voice screen is already open —
-      // pushing twice would stack two screens and two microphone clients.
-      final router = ref.read(appRouterProvider);
-      final location = router.routerDelegate.currentConfiguration.uri.path;
-      if (location == '/voice') return;
-
-      router.push('/voice?auto=1');
     });
+  }
+
+  /// Open the voice screen and start listening immediately.
+  ///
+  /// Two triggers: the wake word (`hey_robi`) and a tap on Robi's notification
+  /// (`open_voice`). Both end up here, so there is one handoff to maintain.
+  void _openVoice() {
+    if (!mounted) return;
+
+    // Only while the app is actually in front of the user.
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+
+    // Ignore a second activation while the voice screen is already open —
+    // pushing twice would stack two screens and two microphone clients.
+    final router = ref.read(appRouterProvider);
+    final location = router.routerDelegate.currentConfiguration.uri.path;
+    if (location == '/voice') return;
+
+    router.push('/voice?auto=1');
   }
 
   @override

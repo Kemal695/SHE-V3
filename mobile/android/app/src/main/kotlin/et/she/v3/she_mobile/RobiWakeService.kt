@@ -51,14 +51,42 @@ class RobiWakeService : Service() {
         /** How long the detector stays off after a wake, so the command can use the mic. */
         private const val RESUME_AFTER_MS = 15_000L
 
-        @Volatile
-        var sink: ((String, String?) -> Unit)? = null
+        /**
+         * Registered listeners. A LIST, not a single field: the Settings tile and
+         * the app-level RobiWakeListener both subscribe to the same EventChannel,
+         * and a single field meant whichever subscribed last silently stole every
+         * event from the other — which is why the tile sat on "Starting…" while
+         * the service was running and logging normally.
+         */
+        private val listeners = mutableListOf<(String, String?) -> Unit>()
 
         @Volatile
         var running: Boolean = false
             private set
 
+        fun addListener(l: (String, String?) -> Unit) {
+            listeners.add(l)
+        }
+
+        fun removeListener(l: (String, String?) -> Unit) {
+            listeners.remove(l)
+        }
+
         fun modelDir(context: android.content.Context) = RobiModel.dir(context)
+
+        /** Event name emitted when the user taps the Robi notification. */
+        const val EVENT_OPEN_VOICE = "open_voice"
+
+        /** Deliver an event that did not originate in this service (e.g. a tap). */
+        fun postEvent(event: String, detail: String?) {
+            for (l in listeners.toList()) {
+                try {
+                    l(event, detail)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "listener failed", t)
+                }
+            }
+        }
     }
 
     private var model: Model? = null
@@ -336,8 +364,15 @@ class RobiWakeService : Service() {
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                // Tapping Robi's notification opens the mic directly. This is the
+                // reliable alternative to the wake word: it works from any app,
+                // with the screen locked, and does not depend on the model ever
+                // transcribing "Hey Robi" correctly.
+                putExtra(MainActivity.EXTRA_ROBI_ACTION, "voice")
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -357,6 +392,13 @@ class RobiWakeService : Service() {
     }
 
     private fun emit(event: String, detail: String?) {
-        sink?.invoke(event, detail)
+        // Copy before iterating: a listener may unsubscribe while we dispatch.
+        for (l in listeners.toList()) {
+            try {
+                l(event, detail)
+            } catch (t: Throwable) {
+                Log.e(TAG, "listener failed", t)
+            }
+        }
     }
 }

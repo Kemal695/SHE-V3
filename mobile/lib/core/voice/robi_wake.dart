@@ -84,6 +84,15 @@ class RobiWake {
     }
   }
 
+  /// True once the speech model is unpacked on the device.
+  Future<bool> modelInstalled() async {
+    try {
+      return await _method.invokeMethod<bool>('modelInstalled') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Raw (event, detail) pairs from the service.
   Stream<({String event, String? detail})> events() =>
       _events.receiveBroadcastStream().map((e) {
