@@ -558,6 +558,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                         // the switch reflects the tap immediately.
                         isOn: _effectiveOn(row, liveOn, queuedOn, wsOn),
                         queued: queuedOn.containsKey(row.deviceId),
+                        onRename: () => _renameDevice(row),
                         onToggle: () =>
                             _toggle(row, _effectiveOn(row, liveOn, queuedOn, wsOn)),
                       );
@@ -671,10 +672,83 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     }
   }
 
+  /// Rename a channel.
+  ///
+  /// Only `display_name` is written — the technical `device_name` is how the
+  /// firmware addresses the relay and how local control finds it, so it must
+  /// never change. The dialog accepts any text, including Ethiopic, because the
+  /// column is a plain VARCHAR(100).
+  Future<void> _renameDevice(_DeviceRow row) async {
+    final controller = TextEditingController(
+      text: row.raw['display_name']?.toString() ?? '',
+    );
+    final technical = row.raw['device_name']?.toString() ?? row.name;
+
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename device'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 100,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            labelText: 'Name',
+            // Show what the board calls it, so it is obvious which channel is
+            // being renamed when the custom name is already in use.
+            helperText: 'Technical name: $technical',
+            helperMaxLines: 2,
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    // The dialog's field is still animating out when this returns; disposing the
+    // controller immediately would trip "used after being disposed".
+    WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+    if (name == null) return;
+
+    try {
+      await ref.read(nodeServiceProvider).renameDevice(
+            nodeId: row.nodeId,
+            deviceId: row.deviceId,
+            // Empty clears the custom name and the UI falls back to the
+            // technical one.
+            displayName: name.isEmpty ? null : name,
+          );
+      ref.invalidate(_homeDevicesFlatProvider(_homeId));
+      ref.invalidate(homeNodesProvider(_homeId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(name.isEmpty ? 'Name cleared' : 'Renamed to "$name"'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not rename: $e'),
+          backgroundColor: V3Colors.errorAlt,
+        ),
+      );
+    }
+  }
+
   /// What the switch displays.
   ///
-  /// Priority: a still-fresh optimistic tap, then the board's **reported** Power,
-  /// then the cached value from the flat list.
+  /// Priority: a still-fresh optimistic tap, then the board's **reported** Power,  /// then the cached value from the flat list.
   ///
   /// [liveOn] comes from `nodeDeviceParamsProvider` — the same provider the R24
   /// detail page and the group panel read, and the one `ws_client` invalidates on
@@ -752,10 +826,14 @@ class _DeviceTile extends StatelessWidget {
     required this.device,
     required this.isOn,
     required this.onToggle,
+    this.onRename,
     this.queued = false,
   });
 
   final _DeviceRow device;
+
+  /// Opens the rename sheet. Null for rows that cannot be renamed.
+  final VoidCallback? onRename;
 
   /// Effective power state — the optimistic value while a write is in flight,
   /// otherwise the server's. Never read `device.isOn` directly here.
@@ -823,6 +901,19 @@ class _DeviceTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: V3Spacing.sm),
+          // Rename lives here rather than on the card tap: the card is
+          // deliberately not tappable so the switch owns the gesture.
+          if (onRename != null)
+            IconButton(
+              tooltip: 'Rename device',
+              onPressed: onRename,
+              iconSize: 18,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              icon:  Icon(Icons.edit_outlined,
+                  color: V3Colors.textSecondary),
+            ),
           SHEToggle(
             value: isOn,
             enabled: device.isOnline,

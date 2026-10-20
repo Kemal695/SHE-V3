@@ -51,6 +51,26 @@ class NodeService {
     return List<Map<String, dynamic>>.from(response.data['data']);
   }
 
+  /// PATCH /nodes/{nodeId}/devices/{deviceId} — rename a channel.
+  ///
+  /// Only `display_name` changes; the technical `device_name` (which is how the
+  /// firmware addresses the relay, and how local control finds it) is never
+  /// touched. Passing null/'' clears the custom name and the UI falls back to
+  /// the technical one.
+  ///
+  /// Accepts any Unicode — the backend stores it as a plain VARCHAR(100), so
+  /// Amharic names work.
+  Future<void> renameDevice({
+    required String nodeId,
+    required String deviceId,
+    required String? displayName,
+  }) async {
+    await _dio.patch(
+      '/api/v3/nodes/$nodeId/devices/$deviceId',
+      data: {'display_name': displayName},
+    );
+  }
+
   Future<List<Map<String, dynamic>>> listParams(String nodeId, String deviceId) async {
     final response = await _dio.get(ApiConstants.nodeParams(nodeId, deviceId));
     return List<Map<String, dynamic>>.from(response.data['data']);
