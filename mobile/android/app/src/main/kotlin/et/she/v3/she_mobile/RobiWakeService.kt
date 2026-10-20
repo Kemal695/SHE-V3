@@ -48,9 +48,6 @@ class RobiWakeService : Service() {
         private const val CHANNEL_ID = "robi_wake"
         private const val NOTIFICATION_ID = 4201
 
-        /** Grammar: the phrase, plus [unk] so non-phrase speech is discarded. */
-        private const val GRAMMAR = "[\"hey robi\", \"[unk]\"]"
-
         /** How long the detector stays off after a wake, so the command can use the mic. */
         private const val RESUME_AFTER_MS = 15_000L
 
@@ -163,7 +160,15 @@ class RobiWakeService : Service() {
 
         try {
             val m = model ?: Model(RobiModel.dir(this).absolutePath).also { model = it }
-            val r = Recognizer(m, 16000.0f, GRAMMAR)
+            // NO GRAMMAR. An earlier version restricted recognition to
+            // ["hey robi", "[unk]"], which was wrong: that phrase is not in the
+            // model's vocabulary, so with a two-choice grammar the recogniser
+            // answered "[unk]" to almost everything — measured on the LE6 it
+            // returned '[unk]' ~95% of the time and a bare 'hey' once, so the
+            // phrase never made it into a result at all. Free transcription
+            // costs a little more CPU but produces "hey roby" / "hey robby" /
+            // "hey robie", which the fuzzy match in isWakePhrase() accepts.
+            val r = Recognizer(m, 16000.0f)
             recognizer = r
 
             val minBuf = AudioRecord.getMinBufferSize(
@@ -242,7 +247,7 @@ class RobiWakeService : Service() {
     private fun isWakePhrase(text: String): Boolean {
         val lower = text.lowercase()
         if (!lower.contains("hey")) return false
-        return lower.split(' ', '\t', ',', '.').any { it.startsWith("rob") }
+        return lower.split(' ', '\t', ',', '.', '!', '?').any { it.startsWith("rob") }
     }
 
     private fun onWake() {
