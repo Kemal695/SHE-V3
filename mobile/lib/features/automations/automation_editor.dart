@@ -483,7 +483,8 @@ class _AutomationEditorDialogState
                             const SizedBox(width: V3Spacing.sm),
                             Switch(
                               value: _triggerValue,
-                              activeColor: V3Colors.primary,
+                              // `activeColor` is deprecated since Flutter 3.31.
+                              activeThumbColor: V3Colors.primary,
                               onChanged: (v) =>
                                   setState(() => _triggerValue = v),
                             ),
@@ -533,7 +534,7 @@ class _AutomationEditorDialogState
                         children: [
                           Switch(
                             value: _actionPower,
-                            activeColor: V3Colors.primary,
+                            activeThumbColor: V3Colors.primary,
                             onChanged: (v) => setState(() => _actionPower = v),
                           ),
                           Text(_actionPower ? 'On' : 'Off',

@@ -485,7 +485,7 @@ class _ScenesScreenState extends ConsumerState<ScenesScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add, size: 24, color: V3Colors.dim),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text('Create Scene',
                 style: TextStyle(
                     color: V3Colors.dim,
@@ -769,7 +769,7 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
               const SizedBox(height: V3Spacing.xs),
               devicesAsync.when(
                 loading: () =>  Padding(
-                  padding: EdgeInsets.all(V3Spacing.md),
+                  padding: const EdgeInsets.all(V3Spacing.md),
                   child:
                       CircularProgressIndicator(color: V3Colors.primary),
                 ),
@@ -812,7 +812,9 @@ class _SceneEditorDialogState extends ConsumerState<_SceneEditorDialog> {
                                           fontSize: 11)),
                                   Switch(
                                     value: _selected[k] ?? true,
-                                    activeColor: V3Colors.primary,
+                                    // `activeColor` was deprecated in Flutter
+                                    // 3.31; activeThumbColor is the replacement.
+                                    activeThumbColor: V3Colors.primary,
                                     onChanged: (v) => setState(
                                         () => _selected[k] = v),
                                   ),
