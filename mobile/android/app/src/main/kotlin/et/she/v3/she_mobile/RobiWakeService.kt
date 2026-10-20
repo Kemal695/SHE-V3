@@ -201,7 +201,14 @@ class RobiWakeService : Service() {
                         val n = rec.read(buf, 0, buf.size)
                         if (n > 0 && r.acceptWaveForm(buf, n)) {
                             val text = JSONObject(r.result).optString("text")
-                            if (text.contains("hey robi", ignoreCase = true)) {
+                            if (text.isNotBlank()) {
+                                // Log.e, not Log.d: this project's R8 config
+                                // deletes Log.v/d/i from release builds, so a
+                                // debug line here would be invisible exactly
+                                // where we need it.
+                                Log.e(TAG, "vosk heard: '$text'")
+                            }
+                            if (isWakePhrase(text)) {
                                 onWake()
                             }
                         }
@@ -218,6 +225,24 @@ class RobiWakeService : Service() {
             Log.e(TAG, "detector failed", e)
             emit("error", "${e::class.java.simpleName}: ${e.message}")
         }
+    }
+
+    /**
+     * Does [text] contain the wake phrase?
+     *
+     * NOT an exact "hey robi" comparison. "Robi" is a coined name that is not in
+     * the model's vocabulary, so the recogniser renders it however the nearest
+     * English words fall — "hey roby", "hey robby", "hey robie", "hey robe" are
+     * all normal outcomes for a non-native pronunciation. Requiring the exact
+     * spelling meant the phrase never matched and Robi listened forever.
+     *
+     * The rule stays narrow on purpose: an explicit "hey" AND a token starting
+     * with "rob". "hey" alone would fire on ordinary conversation.
+     */
+    private fun isWakePhrase(text: String): Boolean {
+        val lower = text.lowercase()
+        if (!lower.contains("hey")) return false
+        return lower.split(' ', '\t', ',', '.').any { it.startsWith("rob") }
     }
 
     private fun onWake() {
