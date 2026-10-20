@@ -613,18 +613,18 @@ class VoiceService {
     VoiceLog.log('heard="$transcript" locale=$_localeId amharic=$_amharic '
         'forced=$_forcedAmharic latinTokens=$latinDeviceTokens');
 
-    // We asked for Amharic but the recognizer returned Latin — it did not hear
-    // Amharic. Do not guess at a device from transliterated text (see the header
-    // of voice_intent.dart); say what actually happened.
-    if (_amharic &&
-        transcript.trim().isNotEmpty &&
-        !amharicNormalizer.containsEthiopic(transcript)) {
-      return (
-        intent: const VoiceIntent.unknown(),
-        message: "I didn't catch that in Amharic — try again, or switch the "
-            'app to English.',
-      );
-    }
+    // The recognizer returned Latin even though we asked for Amharic (this phone
+    // has no Amharic recognizer, so every transcript is Latin).
+    //
+    // A previous version REFUSED to act here on the theory that transliterated
+    // Amharic could false-match a Latin device name. It was wrong in practice:
+    // it also refused every English command, so with the app in Amharic nothing
+    // at all could be controlled by voice. Trust Latin device tokens when the
+    // transcript is genuinely Latin; the confidence bands and the ambiguity
+    // check are the guards that matter.
+    final speaksEthiopic = transcript.trim().isNotEmpty &&
+        amharicNormalizer.containsEthiopic(transcript);
+    final effectiveLatin = latinDeviceTokens || !speaksEthiopic;
 
     // ---- 1. Is this a reply to an open question? -------------------------
     final session = _session;
@@ -653,7 +653,7 @@ class VoiceService {
           return handle(
             pending,
             homeId: homeId,
-            latinDeviceTokens: latinDeviceTokens,
+            latinDeviceTokens: effectiveLatin,
           );
 
         case SessionStep.notUnderstood:
@@ -671,7 +671,7 @@ class VoiceService {
           return _decideAndAct(
             text,
             homeId: homeId,
-            latinDeviceTokens: latinDeviceTokens,
+            latinDeviceTokens: effectiveLatin,
           );
 
         default:
@@ -683,7 +683,7 @@ class VoiceService {
     return _decideAndAct(
       transcript,
       homeId: homeId,
-      latinDeviceTokens: latinDeviceTokens,
+      latinDeviceTokens: effectiveLatin,
     );
   }
 
