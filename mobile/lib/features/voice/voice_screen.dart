@@ -23,7 +23,13 @@ import 'voice_intent.dart';
 import 'voice_service.dart';
 
 class VoiceScreen extends ConsumerStatefulWidget {
-  const VoiceScreen({super.key});
+  const VoiceScreen({super.key, this.autoStart = false});
+
+  /// Start capturing as soon as the screen opens.
+  ///
+  /// Set when the screen is opened by the wake word ("Hey Robi"): the user has
+  /// already spoken, so making them hold a button would waste the activation.
+  final bool autoStart;
 
   @override
   ConsumerState<VoiceScreen> createState() => _VoiceScreenState();
@@ -89,12 +95,19 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
       _phase = availability.available ? VoicePhase.idle : VoicePhase.unavailable;
       _message = availability.reason;
     });
+
+    // Opened by the wake word: start listening immediately, in sentence mode
+    // (not push-to-talk — there is no finger to hold).
+    if (widget.autoStart && availability.available) {
+      await _startListening(pushToTalk: false);
+    }
   }
 
   bool get _listening => _phase == VoicePhase.listening;
 
-  /// Push-to-talk: called on pointer-down. Records until the finger lifts.
-  Future<void> _startListening() async {
+  /// Records until the finger lifts (push-to-talk), or until the sentence
+  /// finishes when [pushToTalk] is false (wake-word activation).
+  Future<void> _startListening({bool pushToTalk = true}) async {
     if (_phase == VoicePhase.unavailable ||
         _phase == VoicePhase.executing ||
         _listening ||
@@ -117,7 +130,8 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     try {
       await service.startListening(
         // Push-to-talk: the finger lifting ends the recording, not silence.
-        pushToTalk: true,
+        // Wake-word mode passes false so the sentence decides.
+        pushToTalk: pushToTalk,
         onResult: (text, isFinal) {
           if (!mounted) return;
           setState(() => _transcript = text);

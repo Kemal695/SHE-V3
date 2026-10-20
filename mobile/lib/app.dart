@@ -11,6 +11,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/location/geofence_watcher.dart';
 import 'core/media/media_service.dart';
+import 'core/voice/robi_wake_listener.dart';
 import 'core/theme/v3_design_tokens.dart';
 import 'core/theme/she_colors.dart';
 import 'core/widgets/offline_banner.dart';
@@ -72,7 +73,9 @@ class SheApp extends ConsumerWidget {
             // Screen 22 (Offline state): floats the amber "You're offline"
             // banner above every route — tabs and full-screen detail pages
             // alike.
+            child: RobiWakeListener(
             child: OfflineBannerHost(child: GeofenceWatcher(child: child!)),
+          ),
           ),
         );
       },

@@ -48,6 +48,15 @@ android {
             )
         }
     }
+
+    // Vosk ships native .so files. AGP 8 compresses jniLibs by default, and the
+    // loader then cannot mmap them at runtime — the classic
+    // "UnsatisfiedLinkError: couldn't find libvosk.so" failure.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
@@ -63,10 +72,9 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-    // Robi wake word (Phase 4). Stage 1 is plumbing only, so the detector
-    // dependency is deliberately NOT here yet — Stage 2 adds:
-    //   implementation("com.alphacephei:vosk-android:0.3.47")
-    //   implementation("net.java.dev.jna:jna:5.13.0@aar")
-    // plus `packaging { jniLibs { useLegacyPackaging = true } }`.
-    // See docs/robi-phase4-wake-word.md §4.
+    // Robi wake word (Phase 4). On-device keyword detection, Apache-2.0, no
+    // account or API key. Model is downloaded at runtime — see RobiModel.kt.
+    implementation("com.alphacephei:vosk-android:0.3.47")
+    // vosk-android reaches its native lib through JNA; the @aar is required.
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }

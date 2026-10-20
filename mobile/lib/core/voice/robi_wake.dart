@@ -1,34 +1,45 @@
 // =============================================================================
-// SHE V3 — Robi wake word bridge (Phase 4, Stage 1)
+// SHE V3 — Robi wake word bridge (Phase 4, Stage 2)
 // =============================================================================
 // Talks to RobiWakeService.kt. See docs/robi-phase4-wake-word.md.
 //
-// Stage 1 scope: the service lifecycle, the persistent notification and the
-// permission flow. Detection is Stage 2 — the on-device model is not bundled
-// yet, so `start()` returns 'model_missing' and nothing pretends to listen.
+// The detector is grammar-restricted to "hey robi", runs entirely on the phone,
+// and reports only that the phrase was heard. Command interpretation stays in
+// the Dart engine — this file never decides what a command means.
+//
+// Events: downloading (percent) | ready | hey_robi | error | stopped
 // =============================================================================
 
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Outcome of a start attempt. Deliberately explicit: the UI must be able to say
-/// why the wake word is not active instead of showing a dead switch.
-enum RobiWakeStatus {
-  /// Service is running and the model is present.
+/// What the wake-word service is doing, as far as the UI can honestly tell.
+enum RobiWakePhase {
+  /// Not enabled.
+  off,
+
+  /// Service starting; no event yet.
+  starting,
+
+  /// Fetching the ~39 MB speech model for the first time.
+  downloading,
+
+  /// Model present, microphone open, waiting for the phrase.
   listening,
 
-  /// Service is running but there is no speech model — it is NOT listening.
-  modelMissing,
+  /// Something failed — [RobiWakeState.detail] says what.
+  error,
+}
 
-  /// Microphone permission was refused.
-  permissionDenied,
+class RobiWakeState {
+  final RobiWakePhase phase;
 
-  /// Notification permission refused on Android 13+ — the service cannot show
-  /// its required notification, so it cannot legally run.
-  notificationDenied,
+  /// 0-100 while downloading; an error message while in [RobiWakePhase.error].
+  final String? detail;
 
-  /// Anything else (platform error, service refused to start).
-  failed,
+  const RobiWakeState(this.phase, {this.detail});
+
+  static const off = RobiWakeState(RobiWakePhase.off);
 }
 
 class RobiWake {
@@ -39,28 +50,21 @@ class RobiWake {
 
   /// Ask for the permissions the service needs, then start it.
   ///
-  /// Order matters: Android requires RECORD_AUDIO for a microphone-type
-  /// foreground service, and API 33+ requires POST_NOTIFICATIONS for the
-  /// persistent notification that the service must display.
-  Future<RobiWakeStatus> start() async {
+  /// Returns false only when a permission was refused — a missing model is not
+  /// a failure any more: the service downloads it and reports progress.
+  Future<bool> start() async {
     final mic = await Permission.microphone.request();
-    if (!mic.isGranted) return RobiWakeStatus.permissionDenied;
+    if (!mic.isGranted) return false;
 
     // `Permission.notification` is a no-op below API 33.
     final notifications = await Permission.notification.request();
-    if (notifications.isPermanentlyDenied) {
-      return RobiWakeStatus.notificationDenied;
-    }
+    if (notifications.isPermanentlyDenied) return false;
 
     try {
-      final result = await _method.invokeMethod<String>('start');
-      return switch (result) {
-        'started' => RobiWakeStatus.listening,
-        'model_missing' => RobiWakeStatus.modelMissing,
-        _ => RobiWakeStatus.failed,
-      };
+      await _method.invokeMethod<String>('start');
+      return true;
     } on PlatformException {
-      return RobiWakeStatus.failed;
+      return false;
     }
   }
 
@@ -68,7 +72,7 @@ class RobiWake {
     try {
       await _method.invokeMethod<String>('stop');
     } on PlatformException {
-      // Nothing to do — the switch is about to show the real state anyway.
+      // The UI re-reads the real state anyway.
     }
   }
 
@@ -80,19 +84,15 @@ class RobiWake {
     }
   }
 
-  Future<bool> modelInstalled() async {
-    try {
-      return await _method.invokeMethod<bool>('modelInstalled') ?? false;
-    } on PlatformException {
-      return false;
-    }
-  }
-
-  /// Detection events. Stage 2 emits 'hey_robi'; Stage 1 emits 'model_missing',
-  /// 'ready', 'error' and 'stopped'.
-  Stream<String> events() => _events.receiveBroadcastStream().map(
-        (e) => (e as Map)['event']?.toString() ?? '',
-      );
+  /// Raw (event, detail) pairs from the service.
+  Stream<({String event, String? detail})> events() =>
+      _events.receiveBroadcastStream().map((e) {
+        final map = (e as Map).cast<Object?, Object?>();
+        return (
+          event: map['event']?.toString() ?? '',
+          detail: map['detail']?.toString(),
+        );
+      });
 }
 
 const robiWake = RobiWake();

@@ -186,7 +186,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/voice',
-        builder: (context, state) => const VoiceScreen(),
+        // ?auto=1 starts capturing immediately — used when the wake word opened
+        // this screen, so the user does not have to hold a button after saying
+        // "Hey Robi".
+        builder: (context, state) => VoiceScreen(
+          autoStart: state.uri.queryParameters['auto'] == '1',
+        ),
       ),
       // Design sheet screen 15. Detail-style route (no bottom bar) so it reads
       // as a drill-down from the dashboard bell.

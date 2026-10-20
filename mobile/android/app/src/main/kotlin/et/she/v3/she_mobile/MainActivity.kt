@@ -28,12 +28,8 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> {
-                        if (!RobiWakeService.modelDir(this).isDirectory) {
-                            // Nothing to listen with yet. Report rather than
-                            // starting a service that cannot do its job.
-                            result.success("model_missing")
-                            return@setMethodCallHandler
-                        }
+                        // The service installs the model on first run, so it is
+                        // always safe to start; it reports progress via events.
                         val intent = Intent(this, RobiWakeService::class.java)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)
@@ -50,8 +46,7 @@ class MainActivity : FlutterActivity() {
 
                     "isRunning" -> result.success(RobiWakeService.running)
 
-                    "modelInstalled" ->
-                        result.success(RobiWakeService.modelDir(this).isDirectory)
+                    "modelInstalled" -> result.success(RobiModel.isInstalled(this))
 
                     else -> result.notImplemented()
                 }
