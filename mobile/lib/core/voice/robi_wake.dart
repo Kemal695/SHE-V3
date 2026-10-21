@@ -101,6 +101,18 @@ class RobiWake {
     }
   }
 
+  /// Show [text] in Robi's notification.
+  ///
+  /// This is the only feedback possible when no window can be shown — on the
+  /// lock screen, or with another app in front.
+  Future<void> notify(String text) async {
+    try {
+      await _method.invokeMethod<void>('notify', {'text': text});
+    } on PlatformException {
+      // No service to notify; nothing to do.
+    }
+  }
+
   /// Give the microphone back to the detector after the session closes.
   Future<void> resume() async {
     try {

@@ -101,6 +101,23 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
 
+                    // Live feedback in the notification while a headless command
+                    // runs (lock screen / another app in front).
+                    "notify" -> {
+                        startService(
+                            Intent(this, RobiWakeService::class.java)
+                                .putExtra(
+                                    RobiWakeService.EXTRA_ACTION,
+                                    RobiWakeService.ACTION_NOTIFY,
+                                )
+                                .putExtra(
+                                    RobiWakeService.EXTRA_TEXT,
+                                    call.argument<String>("text") ?: "",
+                                ),
+                        )
+                        result.success(null)
+                    }
+
                     "isRunning" -> result.success(RobiWakeService.running)
 
                     "modelInstalled" -> result.success(RobiKws.isInstalled(this))

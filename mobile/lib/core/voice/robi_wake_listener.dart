@@ -95,35 +95,46 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
   Future<void> _runHeadless() async {
     if (_headlessBusy) return;
     _headlessBusy = true;
+    // Set once a final transcript has been handled, so onDone knows whether to
+    // report "didn't hear anything" or stay quiet.
+    var handled = false;
 
     final service = ref.read(voiceServiceProvider);
     try {
       final homeId = await resolveActiveHomeId(ref) ??
           '00000000-0000-0000-0000-000000000001';
       VoiceLog.log('headless: listening');
+      // The only feedback possible with no window: the notification. This is the
+      // lock-screen / in-game banner from the design sheet.
+      unawaited(robiWake.notify('Listening… say your command'));
 
       await service.startListening(
         pushToTalk: false,
         fromWake: true,
         onResult: (text, isFinal) async {
           if (!isFinal || text.trim().isEmpty) return;
+          handled = true;
           VoiceLog.log('headless: heard "$text"');
           final result = await service.handleUtterance(
             text,
             homeId: homeId,
             latinDeviceTokens: true,
           );
-          // No screen to show this on; the light changing is the feedback, and
-          // the log is how we verify it.
           VoiceLog.log('headless: ${result.message}');
-          // The command is done — give the microphone back to the detector.
-          // Without this the notification stayed on "listening for your
-          // command" forever, because only the VISIBLE card ever called resume().
+          // Show what happened — the user cannot see the card. Held for a few
+          // seconds so it is readable, then the notification returns to its
+          // armed text when the detector resumes.
+          await robiWake.notify(result.message);
+          await Future<void>.delayed(const Duration(seconds: 4));
           await robiWake.resume();
         },
         onDone: () async {
-          VoiceLog.log('headless: capture ended');
-          // Also covers "the user said nothing": the session is over either way.
+          VoiceLog.log('headless: capture ended (handled=$handled)');
+          // Covers "the user said nothing": nothing else will resume the
+          // detector, and without this the notification stayed on "listening
+          // for your command" forever.
+          if (handled) return;
+          await robiWake.notify('I didn\'t hear anything');
           await robiWake.resume();
         },
       );

@@ -94,6 +94,16 @@ class RobiWakeService : Service() {
         const val ACTION_RESUME = "resume"
 
         /**
+         * Show a line of text in Robi's notification.
+         *
+         * This is how the user gets feedback when no window is possible — on the
+         * lock screen or with another app in front. A notification can be shown
+         * there; an activity cannot.
+         */
+        const val ACTION_NOTIFY = "notify"
+        const val EXTRA_TEXT = "text"
+
+        /**
          * Remembers whether the user chose continuous detection, so a resume
          * after a session knows whether to re-open the microphone.
          */
@@ -154,6 +164,13 @@ class RobiWakeService : Service() {
                 } else {
                     updateNotification("Tap to speak a command")
                 }
+                return START_NOT_STICKY
+            }
+
+            ACTION_NOTIFY -> {
+                // Live feedback while a headless command runs (lock screen /
+                // another app). Text comes from Dart, which owns the session.
+                updateNotification(intent.getStringExtra(EXTRA_TEXT) ?: "")
                 return START_NOT_STICKY
             }
         }
