@@ -3,7 +3,6 @@ package et.she.v3.controller;
 import et.she.v3.dto.AuthResponse;
 import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
-import et.she.v3.dto.MfaEnrollResponse;
 import et.she.v3.dto.MfaStatusResponse;
 import et.she.v3.dto.OAuthRequest;
 import et.she.v3.dto.RefreshRequest;

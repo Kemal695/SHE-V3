@@ -3,6 +3,8 @@ package et.she.v3.service;
 import et.she.v3.dto.AuthResponse;
 import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
+import et.she.v3.dto.MfaEnrollResponse;
+import et.she.v3.dto.MfaStatusResponse;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
 import et.she.v3.dto.UpdateProfileRequest;
