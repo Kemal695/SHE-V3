@@ -21,8 +21,16 @@ import java.io.File
  *
  * sherpa-onnx KWS never transcribes. It matches the audio against a small
  * acoustic model of the keyword, which is specified as BPE tokens
- * (`▁HE Y ▁RO B I`), so an invented name works exactly like a real one. Model is
- * ~5 MB of int8 weights, bundled in assets — no 39 MB download.
+ * (`▁HE Y ▁RO B I`), so an invented name works exactly like a real one. The model
+ * is ~5 MB of int8 weights, bundled in assets — no 39 MB download.
+ *
+ * API NOTE: the AAR ships the **Kotlin** API, which uses constructors with
+ * named/default arguments — NOT the `builder()` style that appears in the
+ * project's `master` branch on GitHub. Coding against master produced
+ * "Unresolved reference 'builder'". If the AAR is upgraded, verify the
+ * signatures again before editing:
+ *
+ *   javap -classpath classes.jar com.k2fsa.sherpa.onnx.KeywordSpotterConfig
  *
  * Apache-2.0, on-device, no account or API key.
  */
@@ -48,8 +56,11 @@ object RobiKws {
         File(dir(context), "encoder.int8.onnx").isFile
 
     /**
-     * Copy the model out of assets. sherpa-onnx takes filesystem paths, not
-     * AssetManager handles. Idempotent — returns null when already installed.
+     * Copy the model out of assets into app storage.
+     *
+     * Idempotent — returns null when already installed, or a message describing
+     * the failure. Kept even though KeywordSpotter also takes an AssetManager:
+     * absolute file paths remove one whole class of "model not found" failure.
      */
     fun ensureInstalled(context: Context): String? {
         if (isInstalled(context)) return null
@@ -73,35 +84,30 @@ object RobiKws {
 
     fun create(context: Context): KeywordSpotter {
         val d = dir(context).absolutePath
-        val config = KeywordSpotterConfig.builder()
-            .setFeatureConfig(
-                FeatureConfig.builder()
-                    .setSampleRate(16000)
-                    .setFeatureDim(80)
-                    .build(),
-            )
-            .setOnlineModelConfig(
-                OnlineModelConfig.builder()
-                    .setTransducer(
-                        OnlineTransducerModelConfig.builder()
-                            .setEncoder("$d/encoder.int8.onnx")
-                            .setDecoder("$d/decoder.int8.onnx")
-                            .setJoiner("$d/joiner.int8.onnx")
-                            .build(),
-                    )
-                    .setTokens("$d/tokens.txt")
-                    .setNumThreads(1)
-                    // The KWS model is a zipformer2 transducer.
-                    .setModelType("zipformer2")
-                    .setDebug(false)
-                    .build(),
-            )
-            .setKeywordsFile("$d/keywords.txt")
-            // Defaults from the upstream KWS examples; raising the score makes
+
+        val config = KeywordSpotterConfig(
+            featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
+            modelConfig = OnlineModelConfig(
+                transducer = OnlineTransducerModelConfig(
+                    encoder = "$d/encoder.int8.onnx",
+                    decoder = "$d/decoder.int8.onnx",
+                    joiner = "$d/joiner.int8.onnx",
+                ),
+                tokens = "$d/tokens.txt",
+                numThreads = 1,
+                debug = false,
+                // The KWS model is a zipformer2 transducer.
+                modelType = "zipformer2",
+            ),
+            keywordsFile = "$d/keywords.txt",
+            // Defaults from the upstream KWS examples: raising the score makes
             // detection stricter, lowering the threshold makes it more eager.
-            .setKeywordsScore(1.5f)
-            .setKeywordsThreshold(0.25f)
-            .build()
-        return KeywordSpotter(config)
+            keywordsScore = 1.5f,
+            keywordsThreshold = 0.25f,
+        )
+
+        // The AssetManager argument is required by this constructor even when the
+        // paths are absolute files — sherpa-onnx uses it for relative ones.
+        return KeywordSpotter(context.assets, config)
     }
 }
