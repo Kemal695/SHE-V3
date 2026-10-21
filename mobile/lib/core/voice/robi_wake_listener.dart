@@ -113,16 +113,22 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
         pushToTalk: false,
         fromWake: true,
         onResult: (text, isFinal) async {
-          if (!isFinal || text.trim().isEmpty) return;
-          // Barge-in: "Hey Robi" said during the command window means the user
-          // wants to abort and start over. Do not execute anything.
+          if (text.trim().isEmpty) return;
+
+          // Barge-in on a PARTIAL result — the user is still speaking, so this
+          // aborts mid-utterance rather than after they finish. Partials repeat
+          // for the same utterance, hence the `handled` guard.
           if (isWakePhrase(text)) {
+            if (handled) return;
             handled = true;
             VoiceLog.log('headless: barge-in — aborting the command');
+            await service.cancel();
             await robiWake.notify('Okay — say "Hey Robi" again');
             await robiWake.resume();
             return;
           }
+
+          if (!isFinal) return;
           handled = true;
           VoiceLog.log('headless: heard "$text"');
           final result = await service.handleUtterance(

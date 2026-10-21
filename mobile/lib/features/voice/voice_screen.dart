@@ -68,6 +68,10 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// True when the wake word opened this session (no button to release).
   bool _wakeSession = false;
 
+  /// Guards the partial-result barge-in against restarting twice for the same
+  /// utterance (partials arrive repeatedly).
+  bool _bargingIn = false;
+
   /// Hard stop for a wake session.
   ///
   /// `listenFor` should end the session on its own, but when the microphone is
@@ -200,6 +204,16 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         onResult: (text, isFinal) {
           if (!mounted) return;
           setState(() => _transcript = text);
+
+          // Barge-in on a PARTIAL result. The recognizer streams partials while
+          // the user is still speaking (partialResults: true), so checking here
+          // aborts mid-utterance instead of waiting for them to finish — which
+          // is what "some times i miss command" actually needs. Partials repeat,
+          // hence the guard.
+          if (!isFinal && isWakePhrase(text)) {
+            _bargeIn();
+            return;
+          }
           if (isFinal) _finish(text);
         },
         onDone: () {
@@ -242,6 +256,28 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
     _pulseController.stop();
     await ref.read(voiceServiceProvider).stopListening();
+  }
+
+  /// Abort the current capture because the user said the wake phrase again.
+  ///
+  /// Called from a PARTIAL result, i.e. while they are still speaking. Partials
+  /// arrive repeatedly for the same utterance, so [_bargingIn] stops a second
+  /// restart before the first one has taken effect.
+  void _bargeIn() {
+    if (_bargingIn || !_listening) return;
+    _bargingIn = true;
+    _stage('barge-in: restarting');
+    ref.read(voiceServiceProvider).cancel();
+    _sessionWatchdog?.cancel();
+    setState(() {
+      _phase = VoicePhase.idle;
+      _message = 'Restarted — say your command';
+      _transcript = null;
+      _intent = null;
+    });
+    unawaited(
+      _startListening(pushToTalk: false).whenComplete(() => _bargingIn = false),
+    );
   }
 
   Future<void> _finish(String transcript) async {
