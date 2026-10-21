@@ -23,6 +23,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/voice/robi_wake.dart';
 import '../../core/voice/voice_log.dart';
+import '../../core/voice/wake_phrase.dart';
 import '../device_detail/node_service.dart';
 import 'voice_intent.dart';
 import 'voice_service.dart';
@@ -246,6 +247,25 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   Future<void> _finish(String transcript) async {
     _sessionWatchdog?.cancel();
     _pulseController.stop();
+
+    // Barge-in: the user said "Hey Robi" again because they want to abort and
+    // start over (they missed their command, or said the wrong thing). During a
+    // session the detector is paused — the session owns the mic — so the phrase
+    // arrives inside the transcript and is caught here.
+    if (isWakePhrase(transcript)) {
+      VoiceLog.log('barge-in: wake phrase during a session — restarting');
+      ref.read(voiceServiceProvider).cancel();
+      if (mounted) {
+        setState(() {
+          _phase = VoicePhase.idle;
+          _message = 'Restarted — say your command';
+          _transcript = null;
+          _intent = null;
+        });
+      }
+      await _startListening(pushToTalk: false);
+      return;
+    }
     if (!mounted) return;
     setState(() => _phase = VoicePhase.executing);
 

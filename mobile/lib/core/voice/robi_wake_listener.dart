@@ -21,6 +21,7 @@ import '../network/active_home.dart';
 import '../../features/voice/voice_service.dart';
 import 'robi_wake.dart';
 import 'voice_log.dart';
+import 'wake_phrase.dart';
 
 class RobiWakeListener extends ConsumerStatefulWidget {
   const RobiWakeListener({super.key, required this.child});
@@ -113,6 +114,15 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
         fromWake: true,
         onResult: (text, isFinal) async {
           if (!isFinal || text.trim().isEmpty) return;
+          // Barge-in: "Hey Robi" said during the command window means the user
+          // wants to abort and start over. Do not execute anything.
+          if (isWakePhrase(text)) {
+            handled = true;
+            VoiceLog.log('headless: barge-in — aborting the command');
+            await robiWake.notify('Okay — say "Hey Robi" again');
+            await robiWake.resume();
+            return;
+          }
           handled = true;
           VoiceLog.log('headless: heard "$text"');
           final result = await service.handleUtterance(
