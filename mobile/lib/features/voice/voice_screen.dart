@@ -13,11 +13,15 @@
 // approach was chosen instead.
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemSound, SystemSoundType;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
+import '../../core/voice/voice_log.dart';
 import '../device_detail/node_service.dart';
 import 'voice_intent.dart';
 import 'voice_service.dart';
@@ -55,6 +59,9 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
   /// Set when the user lets go before the recognizer came up.
   bool _releasePending = false;
+
+  /// True when the wake word opened this session (no button to release).
+  bool _wakeSession = false;
 
   @override
   void initState() {
@@ -123,8 +130,15 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
       _intent = null;
       _message = null;
       _releasePending = false;
+      _wakeSession = !pushToTalk;
     });
     _pulseController.repeat(reverse: true);
+
+    // Audible cue that the microphone is open. Without it there is no way to
+    // know when to start speaking — the screen appearing is not a cue, and the
+    // silence timeout then expires with nothing said.
+    unawaited(SystemSound.play(SystemSoundType.click));
+    VoiceLog.log('capture: started (${pushToTalk ? 'push-to-talk' : 'wake'})');
 
     _starting = true;
     try {
@@ -140,6 +154,9 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
           if (isFinal) _finish(text);
         },
         onDone: () {
+          // Distinguishes "the session ended with no transcript" from "the
+          // session never ended" — the two look identical in the UI.
+          VoiceLog.log('capture: ended (final=${_transcript ?? '<none>'})');
           if (!mounted) return;
           // Nothing finalized (silence, or released before speaking): do not
           // leave the button pulsing forever.
@@ -403,7 +420,11 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     return switch (_phase) {
       VoicePhase.initializing => 'Checking microphone...',
       VoicePhase.idle => 'Hold the mic to speak',
-      VoicePhase.listening => 'Listening — release to send',
+      // Two different modes, two different instructions. In wake mode there is
+      // no button to release, so "release to send" was actively misleading.
+      VoicePhase.listening => _wakeSession
+          ? 'Listening — speak your command, then pause'
+          : 'Listening — release to send',
       VoicePhase.executing => 'Sending the command...',
       VoicePhase.done => 'Done — hold the mic to speak again',
       VoicePhase.error => 'Hold the mic to try again',
