@@ -21,6 +21,12 @@ class ApiConstants {
   // Auth
   static const String authRegister = '$apiPrefix/auth/register';
   static const String authLogin = '$apiPrefix/auth/login';
+
+  // Two-factor authentication (TOTP).
+  static const String authMfaEnroll = '$apiPrefix/auth/mfa/enroll';
+  static const String authMfaConfirm = '$apiPrefix/auth/mfa/confirm';
+  static const String authMfaDisable = '$apiPrefix/auth/mfa/disable';
+  static const String authMfaStatus = '$apiPrefix/auth/mfa/status';
   static const String authRefresh = '$apiPrefix/auth/refresh';
   static const String authLogout = '$apiPrefix/auth/logout';
 

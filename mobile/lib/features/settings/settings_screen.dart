@@ -137,10 +137,9 @@ class SettingsScreen extends ConsumerWidget {
                   child:  Icon(Icons.security, color: V3Colors.success, size: 20),
                 ),
                 title: const Text('Two-Factor Authentication'),
-                subtitle: const Text('Enable MFA (coming in Phase 5B)'),
+                subtitle: const Text('Add a 6-digit code when you sign in'),
                 trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
-                enabled: false,
-                onTap: null,
+                onTap: () => context.push('/settings/mfa'),
               ),
               const Divider(indent: 16, endIndent: 16),
 

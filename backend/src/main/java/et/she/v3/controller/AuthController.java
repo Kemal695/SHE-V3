@@ -109,8 +109,8 @@ public class AuthController {
      * POST /api/v3/auth/mfa/enroll — start enrolment (QR + manual secret).
      */
     @PostMapping("/mfa/enroll")
-    public ResponseEntity<MfaEnrollResponse> mfaEnroll() {
-        return ResponseEntity.ok(authService.enrollMfa());
+    public ResponseEntity<Map<String, Object>> mfaEnroll() {
+        return ResponseEntity.ok(Map.of("data", authService.enrollMfa()));
     }
 
     /**
@@ -118,10 +118,10 @@ public class AuthController {
      * Body: {"code":"123456"} — returns the recovery codes, shown ONCE.
      */
     @PostMapping("/mfa/confirm")
-    public ResponseEntity<MfaStatusResponse> mfaConfirm(
+    public ResponseEntity<Map<String, Object>> mfaConfirm(
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(
-                authService.confirmMfa(body == null ? null : body.get("code")));
+        return ResponseEntity.ok(Map.of(
+                "data", authService.confirmMfa(body == null ? null : body.get("code"))));
     }
 
     /**
@@ -129,19 +129,20 @@ public class AuthController {
      * Body: {"password":"..."}
      */
     @PostMapping("/mfa/disable")
-    public ResponseEntity<MfaStatusResponse> mfaDisable(
+    public ResponseEntity<Map<String, Object>> mfaDisable(
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(
-                authService.disableMfa(body == null ? null : body.get("password")));
+        return ResponseEntity.ok(Map.of(
+                "data",
+                authService.disableMfa(body == null ? null : body.get("password"))));
     }
 
     /**
      * GET /api/v3/auth/mfa/status — is MFA enabled for the current user?
      */
     @GetMapping("/mfa/status")
-    public ResponseEntity<MfaStatusResponse> mfaStatus() {
-        return ResponseEntity.ok(
-                new MfaStatusResponse(authService.mfaEnabled(), List.of()));
+    public ResponseEntity<Map<String, Object>> mfaStatus() {
+        return ResponseEntity.ok(Map.of(
+                "data", new MfaStatusResponse(authService.mfaEnabled(), List.of())));
     }
 
     /**

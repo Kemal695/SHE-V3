@@ -55,6 +55,44 @@ class AuthService {
     return data;
   }
 
+  // ---------------------------------------------------------------------------
+  // Two-factor authentication (TOTP)
+  // ---------------------------------------------------------------------------
+
+  /// Start enrolment. Returns the Base32 secret and the `otpauth://` URI for the
+  /// QR code. Call [mfaConfirm] with a code from the authenticator app to finish.
+  Future<Map<String, dynamic>> mfaEnroll() async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.post(ApiConstants.authMfaEnroll);
+    return _responseData(response);
+  }
+
+  /// Verify a code from the authenticator app and switch MFA on.
+  ///
+  /// Returns the recovery codes — shown to the user ONCE and never again.
+  Future<List<String>> mfaConfirm(String code) async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.post(
+      ApiConstants.authMfaConfirm,
+      data: {'code': code},
+    );
+    final data = _responseData(response);
+    return (data['recovery_codes'] as List?)?.cast<String>() ?? const [];
+  }
+
+  /// Switch MFA off. Requires the account password.
+  Future<void> mfaDisable(String password) async {
+    final dio = ref.read(dioProvider);
+    await dio.post(ApiConstants.authMfaDisable, data: {'password': password});
+  }
+
+  /// Whether MFA is currently enabled for this account.
+  Future<bool> mfaStatus() async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.get(ApiConstants.authMfaStatus);
+    return _responseData(response)['enabled'] == true;
+  }
+
   /// Sign in with Google. The native SDK returns an ID token which the backend
   /// verifies against Google's JWKS before issuing our JWT pair. Creates the
   /// account (and a default home) on first sign-in.
