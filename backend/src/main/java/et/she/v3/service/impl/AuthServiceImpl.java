@@ -70,7 +70,8 @@ public class AuthServiceImpl implements AuthService {
                            StringRedisTemplate redis,
                            TenantContextInterceptor tenantContextInterceptor,
                            AuditService auditService,
-                           OAuthTokenVerifier oauthTokenVerifier) {
+                           OAuthTokenVerifier oauthTokenVerifier,
+                           TotpService totpService) {
         this.userRepository = userRepository;
         this.tenantRepository = tenantRepository;
         this.homeRepository = homeRepository;
@@ -82,6 +83,7 @@ public class AuthServiceImpl implements AuthService {
         this.tenantContextInterceptor = tenantContextInterceptor;
         this.auditService = auditService;
         this.oauthTokenVerifier = oauthTokenVerifier;
+        this.totpService = totpService;
     }
 
     // =========================================================================
