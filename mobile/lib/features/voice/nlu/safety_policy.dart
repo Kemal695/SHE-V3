@@ -53,11 +53,21 @@ class PolicyDecision {
 
 class CommandSafetyPolicy {
   const CommandSafetyPolicy({
-    this.autoExecute = 0.85,
+    this.autoExecute = 0.80,
     this.clarifyFloor = 0.55,
   });
 
   /// At or above this, an unambiguous command is executed.
+  ///
+  /// 0.80, not 0.85: measured on the device, a device-targeted command
+  /// ("turn on bedroom light") scores **0.82** from the parser — a full
+  /// device-name match with a known verb. At 0.85 that meant EVERY device
+  /// command was answered with a clarification question instead of being
+  /// carried out, which reads as "the command does nothing". A group command
+  /// scores 0.85, so only group commands ever executed.
+  ///
+  /// This is safe because a wrong target is caught by the ambiguity check
+  /// above, independently of confidence.
   final double autoExecute;
 
   /// At or above this (but below [autoExecute]) Robi asks for confirmation

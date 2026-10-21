@@ -117,6 +117,17 @@ void main() {
       expect(d.risk, RiskLevel.low);
     });
 
+    test('a device command at the parser\'s real confidence executes', () {
+      // Measured on the device: "turn on bedroom light" scores 0.82 — a full
+      // device-name match with a known verb. At the old 0.85 threshold EVERY
+      // device command was answered with a clarification question instead of
+      // being carried out, which is why "the command did nothing".
+      final d = policy.decide(
+        result(device: dev('Bedroom Light'), confidence: 0.82),
+      );
+      expect(d.decision, Decision.execute);
+    });
+
     test('mid confidence → clarify with a question', () {
       final d = policy.decide(result(device: dev('Light 1'), confidence: 0.7));
       expect(d.decision, Decision.clarify);
