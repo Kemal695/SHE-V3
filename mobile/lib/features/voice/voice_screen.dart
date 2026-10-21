@@ -283,9 +283,8 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     final full = _buildFull(context);
     if (!widget.compact) return full;
 
-    // Compact mode (wake word): a small glowing card instead of a whole page —
-    // closer to a voice assistant bubble than a settings screen. The full page
-    // still exists for the mic button.
+    // Compact mode (wake word): the assistant card from the design sheet —
+    // Listening → Responding → Done — instead of a whole settings-style page.
     return Scaffold(
       backgroundColor: Colors.black.withValues(alpha: 0.6),
       body: Center(
@@ -294,7 +293,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
           height: 430,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: V3Colors.surface,
+            color: V3Colors.background,
             borderRadius: BorderRadius.circular(28),
             border: Border.all(
               color: V3Colors.primary.withValues(alpha: 0.35),
@@ -307,8 +306,167 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
               ),
             ],
           ),
-          child: full,
+          child: _compactBody(context),
         ),
+      ),
+    );
+  }
+
+  /// The three states of the assistant card (design sheet, page 2).
+  Widget _compactBody(BuildContext context) {
+    final listening = _phase == VoicePhase.listening;
+    final done = _phase == VoicePhase.done;
+    final working = _phase == VoicePhase.executing;
+    final failed = _phase == VoicePhase.error;
+
+    final device = _intent?.device?.label;
+
+    return Padding(
+      padding: const EdgeInsets.all(V3Spacing.lg),
+      child: Column(
+        children: [
+          // ---- Close -------------------------------------------------------
+          Align(
+            alignment: Alignment.topRight,
+            child: IconButton(
+              icon:  Icon(Icons.close, color: V3Colors.textSecondary),
+              onPressed: () => context.pop(),
+            ),
+          ),
+
+          const Spacer(),
+
+          // ---- Pulsing ring ------------------------------------------------
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, _) {
+              final t = listening ? _pulseController.value : 0.0;
+              return Container(
+                width: 132,
+                height: 132,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: V3Colors.primary.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: V3Colors.primary.withValues(alpha: 0.35 + 0.4 * t),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: V3Colors.primary.withValues(alpha: 0.18 + 0.22 * t),
+                      blurRadius: 28 + 14 * t,
+                      spreadRadius: 2 + 6 * t,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  done
+                      ? Icons.check
+                      : failed
+                          ? Icons.error_outline
+                          : Icons.mic,
+                  size: 52,
+                  color: failed
+                      ? V3Colors.error
+                      : done
+                          ? V3Colors.success
+                          : V3Colors.primary,
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: V3Spacing.lg),
+
+          // ---- Title -------------------------------------------------------
+          Text(
+            listening
+                ? 'Listening…'
+                : working
+                    ? 'Working…'
+                    : done
+                        ? 'Done!'
+                        : failed
+                            ? 'Sorry'
+                            : 'Robi',
+            style: TextStyle(
+              color: V3Colors.ink,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          // ---- Subtitle / what it heard or did ------------------------------
+          Text(
+            listening
+                ? (_wakeSession ? 'Say your command' : 'Speak now')
+                : (_message ?? (done ? 'Done' : '')),
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: V3Colors.textSecondary,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+
+          // ---- Device chip (design sheet: "Living Room Lights · ON · 70%") --
+          if (done && device != null) ...[
+            const SizedBox(height: V3Spacing.md),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: V3Colors.surface,
+                borderRadius: BorderRadius.circular(V3Radius.md),
+                border: Border.all(
+                  color: V3Colors.primary.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lightbulb, size: 18, color: V3Colors.warning),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      device,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: V3Colors.ink,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const Spacer(),
+
+          // ---- Footer: another command, or the wake-word hint --------------
+          if (done)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                // Start listening again rather than returning to an idle screen
+                // with no mic button — the card has no button to press.
+                onPressed: () => _startListening(pushToTalk: false),
+                icon:  Icon(Icons.mic_none, size: 18),
+                label: const Text('Say another command'),
+              ),
+            )
+          else
+            Text(
+              'Listening for your wake word…',
+              style: TextStyle(color: V3Colors.dim, fontSize: 11),
+            ),
+        ],
       ),
     );
   }
