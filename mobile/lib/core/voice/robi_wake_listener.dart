@@ -16,9 +16,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../routing/app_router.dart';
+import '../network/active_home.dart';
+import '../../features/voice/voice_service.dart';
 import 'robi_wake.dart';
 import 'voice_log.dart';
-import '../../routing/app_router.dart';
 
 class RobiWakeListener extends ConsumerStatefulWidget {
   const RobiWakeListener({super.key, required this.child});
@@ -31,6 +33,9 @@ class RobiWakeListener extends ConsumerStatefulWidget {
 
 class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
   StreamSubscription<({String event, String? detail})>? _sub;
+
+  /// Guards against a second wake starting a second headless session.
+  bool _headlessBusy = false;
 
   @override
   void initState() {
@@ -57,9 +62,17 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
     // Only a genuinely backgrounded app (paused/hidden/detached) cannot start an
     // activity, and Android forbids that anyway.
     final state = WidgetsBinding.instance.lifecycleState;
-    if (state != AppLifecycleState.resumed &&
-        state != AppLifecycleState.inactive) {
-      VoiceLog.log('wake: app is $state — cannot open the screen');
+    final visible = state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+
+    if (!visible) {
+      // Screen off, locked, or another app in front. Android will not let us
+      // show a window, but it does not stop our code from running: the
+      // foreground service keeps this process alive, so the whole command runs
+      // headless — listen, parse, execute — with no UI at all. That is what
+      // makes "turn on the light" work with the phone in your pocket.
+      VoiceLog.log('wake: app is $state — running headless');
+      unawaited(_runHeadless());
       return;
     }
 
@@ -71,6 +84,46 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
 
     VoiceLog.log('wake: opening the voice screen');
     router.push('/voice?auto=1&compact=1');
+  }
+
+  /// Run the whole command with no UI.
+  ///
+  /// Used when the app is not visible — screen off, locked, or another app in
+  /// front. There is no screen to draw on, but the process is alive (the
+  /// foreground service keeps it that way), so the recognizer and the command
+  /// engine work exactly as they do on screen.
+  Future<void> _runHeadless() async {
+    if (_headlessBusy) return;
+    _headlessBusy = true;
+
+    final service = ref.read(voiceServiceProvider);
+    try {
+      final homeId = await resolveActiveHomeId(ref) ??
+          '00000000-0000-0000-0000-000000000001';
+      VoiceLog.log('headless: listening');
+
+      await service.startListening(
+        pushToTalk: false,
+        fromWake: true,
+        onResult: (text, isFinal) async {
+          if (!isFinal || text.trim().isEmpty) return;
+          VoiceLog.log('headless: heard "$text"');
+          final result = await service.handleUtterance(
+            text,
+            homeId: homeId,
+            latinDeviceTokens: true,
+          );
+          // No screen to show this on; the light changing is the feedback, and
+          // the log is how we verify it.
+          VoiceLog.log('headless: ${result.message}');
+        },
+        onDone: () => VoiceLog.log('headless: capture ended'),
+      );
+    } catch (e) {
+      VoiceLog.log('headless: failed — $e');
+    } finally {
+      _headlessBusy = false;
+    }
   }
 
   @override
