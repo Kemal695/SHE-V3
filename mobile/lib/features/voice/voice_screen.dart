@@ -21,6 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
+import '../../core/voice/robi_wake.dart';
 import '../../core/voice/voice_log.dart';
 import '../device_detail/node_service.dart';
 import 'voice_intent.dart';
@@ -71,6 +72,19 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// forever. This guarantees the UI returns to a usable state.
   Timer? _sessionWatchdog;
 
+  /// Last few pipeline events, shown on screen (see the diagnostics block).
+  final List<String> _diag = [];
+
+  /// Record a stage for both logcat and the on-screen diagnostics.
+  void _stage(String message) {
+    VoiceLog.log(message);
+    if (!mounted) return;
+    setState(() {
+      _diag.add(message);
+      if (_diag.length > 4) _diag.removeAt(0);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -84,6 +98,8 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   @override
   void dispose() {
     _sessionWatchdog?.cancel();
+    // Hand the mic back so the wake word works again after this screen closes.
+    unawaited(robiWake.resume());
     _pulseController.dispose();
     // Leaving the screen must release the mic — a recognizer left running keeps
     // the Android mic indicator on and burns battery.
@@ -147,15 +163,16 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     // know when to start speaking — the screen appearing is not a cue, and the
     // silence timeout then expires with nothing said.
     unawaited(SystemSound.play(SystemSoundType.click));
-    VoiceLog.log('capture: started (${pushToTalk ? 'push-to-talk' : 'wake'})');
+    _stage('capture: started (${pushToTalk ? 'push-to-talk' : 'wake'})');
 
     // Watchdog: never leave the screen stuck on "Listening…".
     _sessionWatchdog?.cancel();
     if (!pushToTalk) {
       _sessionWatchdog = Timer(const Duration(seconds: 18), () {
         if (!mounted || !_listening) return;
-        VoiceLog.log('capture: watchdog fired — no result, closing the session');
+        _stage('capture: watchdog fired — no result');
         ref.read(voiceServiceProvider).cancel();
+        unawaited(robiWake.resume());
         _pulseController.stop();
         setState(() {
           _phase = VoicePhase.idle;
@@ -166,6 +183,10 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
     _starting = true;
     try {
+      // Take the microphone from the wake detector BEFORE opening the
+      // recognizer. Awaiting matters: the detector releases AudioRecord
+      // asynchronously, and starting the recognizer first lost the mic.
+      await robiWake.pause();
       await service.startListening(
         // Push-to-talk: the finger lifting ends the recording, not silence.
         // Wake-word mode passes false so the sentence decides.
@@ -180,7 +201,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         onDone: () {
           // Distinguishes "the session ended with no transcript" from "the
           // session never ended" — the two look identical in the UI.
-          VoiceLog.log('capture: ended (final=${_transcript ?? '<none>'})');
+          _stage('capture: ended (final=${_transcript ?? '<none>'})');
           if (!mounted) return;
           // Nothing finalized (silence, or released before speaking): do not
           // leave the button pulsing forever.
@@ -326,6 +347,24 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                 textAlign: TextAlign.center,
               ),
             ),
+
+            // ---- On-screen diagnostics ----
+            // The pipeline has several stages (wake → session → mic → transcript →
+            // parse → execute) and a failure looks identical from the outside. These
+            // are the last few events, so the phone itself says where it stopped —
+            // no adb, no guessing, no "it didn't work".
+            if (_diag.isNotEmpty) ...[
+              const SizedBox(height: V3Spacing.sm),
+              Text(
+                _diag.join('\n'),
+                style: TextStyle(
+                  color: V3Colors.dim,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
 
             // ---- Live transcript ----
             if (_transcript != null && _transcript!.trim().isNotEmpty) ...[

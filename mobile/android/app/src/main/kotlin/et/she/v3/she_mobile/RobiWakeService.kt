@@ -49,14 +49,11 @@ class RobiWakeService : Service() {
         private const val NOTIFICATION_ID = 4201
 
         /**
-         * How long the detector stays off after a wake, so the command can use
-         * the mic. 90 s, not 15: the detector re-arming used to steal the
-         * microphone from a still-open recognizer, which left the voice screen
-         * stuck on "Listening…" forever while the notification went back to
-         * "Listening for Hey Robi". The user can always re-arm sooner by
-         * toggling Robi.
+         * Safety net only. The voice session resumes the detector itself when it
+         * closes; this exists so a crashed or abandoned session cannot leave the
+         * wake word dead for the rest of the app's life.
          */
-        private const val RESUME_AFTER_MS = 90_000L
+        private const val PAUSE_SAFETY_MS = 120_000L
 
         private const val SAMPLE_RATE = 16000
 
@@ -91,6 +88,18 @@ class RobiWakeService : Service() {
         /** Event when Robi is armed but NOT holding the microphone. */
         const val EVENT_ARMED = "armed"
 
+        /** Intent extra: "pause" / "resume" the detector around a voice session. */
+        const val EXTRA_ACTION = "action"
+        const val ACTION_PAUSE = "pause"
+        const val ACTION_RESUME = "resume"
+
+        /**
+         * Remembers whether the user chose continuous detection, so a resume
+         * after a session knows whether to re-open the microphone.
+         */
+        @Volatile
+        private var continuousMode = false
+
         /** Deliver an event that did not originate in this service (e.g. a tap). */
         fun postEvent(event: String, detail: String?) {
             for (l in listeners.toList()) {
@@ -116,7 +125,41 @@ class RobiWakeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ---- Session control -------------------------------------------------
+        // The voice session OWNS the microphone from start to finish. It pauses
+        // the detector when it opens and resumes it when it closes. This replaces
+        // the old timer-based re-arm, which is what made the two fight: the
+        // detector grabbed the mic back mid-command and left the recognizer
+        // hanging on "Listening…" forever.
+        when (intent?.getStringExtra(EXTRA_ACTION)) {
+            ACTION_PAUSE -> {
+                stopDetector()
+                updateNotification("In a conversation…")
+                // Safety net: if the session never reports back (crash, force
+                // close), re-arm eventually rather than staying dead forever.
+                main.removeCallbacksAndMessages(null)
+                main.postDelayed(
+                    {
+                        if (running && continuousMode && !listening) startDetector()
+                    },
+                    PAUSE_SAFETY_MS,
+                )
+                return START_NOT_STICKY
+            }
+
+            ACTION_RESUME -> {
+                main.removeCallbacksAndMessages(null)
+                if (continuousMode && running) {
+                    startDetector()
+                } else {
+                    updateNotification("Tap to speak a command")
+                }
+                return START_NOT_STICKY
+            }
+        }
+
         val continuous = intent?.getBooleanExtra(EXTRA_CONTINUOUS, false) == true
+        continuousMode = continuous
 
         // The microphone is only needed for continuous detection. Arming the
         // notification does not touch it, so do not demand the permission then.
@@ -258,14 +301,9 @@ class RobiWakeService : Service() {
             stopDetector()
             emit("hey_robi", null)
             updateNotification("Heard \"Hey Robi\" — listening for your command")
-            main.postDelayed(
-                {
-                    if (running) {
-                        startDetector()
-                    }
-                },
-                RESUME_AFTER_MS,
-            )
+            // NO timer here. The session resumes the detector when it closes
+            // (ACTION_RESUME). Re-arming on a timer is what stole the mic back
+            // mid-command and left the screen stuck on "Listening…".
         }
     }
 

@@ -88,6 +88,28 @@ class RobiWake {
     }
   }
 
+  /// Hand the microphone to the voice session.
+  ///
+  /// Called when a session opens. The detector releases the mic and stays off
+  /// until [resume] — a timer-based re-arm is what used to steal the mic back
+  /// mid-command and leave the screen stuck on "Listening…".
+  Future<void> pause() async {
+    try {
+      await _method.invokeMethod<void>('pause');
+    } on PlatformException {
+      // The service may not be running; nothing to pause.
+    }
+  }
+
+  /// Give the microphone back to the detector after the session closes.
+  Future<void> resume() async {
+    try {
+      await _method.invokeMethod<void>('resume');
+    } on PlatformException {
+      // The service may not be running; nothing to resume.
+    }
+  }
+
   Future<bool> isRunning() async {
     try {
       return await _method.invokeMethod<bool>('isRunning') ?? false;

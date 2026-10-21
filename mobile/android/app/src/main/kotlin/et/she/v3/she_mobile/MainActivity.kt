@@ -78,6 +78,29 @@ class MainActivity : FlutterActivity() {
                         result.success("stopped")
                     }
 
+                    // The voice session owns the microphone while it is open.
+                    "pause" -> {
+                        startService(
+                            Intent(this, RobiWakeService::class.java)
+                                .putExtra(
+                                    RobiWakeService.EXTRA_ACTION,
+                                    RobiWakeService.ACTION_PAUSE,
+                                ),
+                        )
+                        result.success(null)
+                    }
+
+                    "resume" -> {
+                        startService(
+                            Intent(this, RobiWakeService::class.java)
+                                .putExtra(
+                                    RobiWakeService.EXTRA_ACTION,
+                                    RobiWakeService.ACTION_RESUME,
+                                ),
+                        )
+                        result.success(null)
+                    }
+
                     "isRunning" -> result.success(RobiWakeService.running)
 
                     "modelInstalled" -> result.success(RobiKws.isInstalled(this))
