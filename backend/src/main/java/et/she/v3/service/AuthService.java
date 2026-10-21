@@ -20,6 +20,26 @@ public interface AuthService {
      * POST /api/v3/auth/register
      * Creates a new B2C user in the default tenant (or the tenant resolved from email domain).
      */
+    /**
+     * POST /api/v3/auth/mfa/enroll — start enrolment: generate a secret and
+     * return the otpauth:// URI for the QR code. Idempotent until confirmed.
+     */
+    MfaEnrollResponse enrollMfa();
+
+    /**
+     * POST /api/v3/auth/mfa/confirm — verify a code from the authenticator app
+     * and switch MFA on. Returns the recovery codes, which are shown once.
+     */
+    MfaStatusResponse confirmMfa(String code);
+
+    /**
+     * POST /api/v3/auth/mfa/disable — switch MFA off. Requires the password.
+     */
+    MfaStatusResponse disableMfa(String password);
+
+    /** True when the authenticated user has MFA enabled. */
+    boolean mfaEnabled();
+
     AuthResponse register(RegisterRequest req);
 
     /**

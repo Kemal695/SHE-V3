@@ -3,6 +3,8 @@ package et.she.v3.controller;
 import et.she.v3.dto.AuthResponse;
 import et.she.v3.dto.LoginRequest;
 import et.she.v3.dto.MeResponse;
+import et.she.v3.dto.MfaEnrollResponse;
+import et.she.v3.dto.MfaStatusResponse;
 import et.she.v3.dto.OAuthRequest;
 import et.she.v3.dto.RefreshRequest;
 import et.she.v3.dto.RegisterRequest;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -102,6 +105,48 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("data", me));
     }
 
+    /**
+     * POST /api/v3/auth/mfa/enroll — start enrolment (QR + manual secret).
+     */
+    @PostMapping("/mfa/enroll")
+    public ResponseEntity<MfaEnrollResponse> mfaEnroll() {
+        return ResponseEntity.ok(authService.enrollMfa());
+    }
+
+    /**
+     * POST /api/v3/auth/mfa/confirm — verify a code and switch MFA on.
+     * Body: {"code":"123456"} — returns the recovery codes, shown ONCE.
+     */
+    @PostMapping("/mfa/confirm")
+    public ResponseEntity<MfaStatusResponse> mfaConfirm(
+            @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(
+                authService.confirmMfa(body == null ? null : body.get("code")));
+    }
+
+    /**
+     * POST /api/v3/auth/mfa/disable — switch MFA off. Requires the password.
+     * Body: {"password":"..."}
+     */
+    @PostMapping("/mfa/disable")
+    public ResponseEntity<MfaStatusResponse> mfaDisable(
+            @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(
+                authService.disableMfa(body == null ? null : body.get("password")));
+    }
+
+    /**
+     * GET /api/v3/auth/mfa/status — is MFA enabled for the current user?
+     */
+    @GetMapping("/mfa/status")
+    public ResponseEntity<MfaStatusResponse> mfaStatus() {
+        return ResponseEntity.ok(
+                new MfaStatusResponse(authService.mfaEnabled(), List.of()));
+    }
+
+    /**
+     * POST /api/v3/auth/claim-token — issue 10-min claim JWT for BLE provisioning
+     */
     @PostMapping("/claim-token")
     public ResponseEntity<Map<String, Object>> claimToken() {
         return ResponseEntity.ok(Map.of("data", authService.claimToken()));

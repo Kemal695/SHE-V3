@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -53,6 +54,7 @@ public class AuthServiceImpl implements AuthService {
     private final StringRedisTemplate redis;
     private final TenantContextInterceptor tenantContextInterceptor;
     private final AuditService auditService;
+    private final TotpService totpService;
     private final OAuthTokenVerifier oauthTokenVerifier;
 
     public AuthServiceImpl(UserRepository userRepository,
@@ -217,12 +219,13 @@ public class AuthServiceImpl implements AuthService {
                 throw new SheException("AUTH_MFA_REQUIRED",
                         "MFA code required", 401);
             }
-            // TOTP verification stub — full implementation in Phase 5B
-            // For Phase 0: accept any 6-digit code (test mode)
-            if (!req.mfa_code().matches("^\\d{6}$")) {
+            if (!totpService.verifyCode(secretOf(user), req.mfa_code())) {
                 // A wrong code is a failed authentication attempt — count it, but a
                 // missing code (AUTH_MFA_REQUIRED above) is not.
                 recordFailedLogin(rateKey);
+                auditService.record(tenant.getId(), "USER", user.getId(),
+                        "auth.login.mfa_failed", "user", user.getId(),
+                        Map.of("email", req.email()), null, null, null);
                 throw new SheException("AUTH_MFA_INVALID",
                         "Invalid MFA code", 401);
             }
@@ -239,6 +242,117 @@ public class AuthServiceImpl implements AuthService {
                 "user", user.getId(), Map.of("email", req.email()), null, null, null);
 
         return issueTokens(user, tenant);
+    }
+
+    // =========================================================================
+    // MFA / TOTP (V3-SECURITY-MODEL §6)
+    // =========================================================================
+
+    @Override
+    public MfaEnrollResponse enrollMfa() {
+        User user = currentUser();
+        if (user.isMfaEnabled()) {
+            throw new SheException("MFA_ALREADY_ENABLED",
+                    "Two-factor authentication is already enabled", 409);
+        }
+
+        String secret = totpService.generateSecret();
+        user.setTotpSecretEncrypted(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        userRepository.save(user);
+
+        String issuer = props.security().mfaIssuer() == null
+                ? "Smart Home Ethiopia"
+                : props.security().mfaIssuer();
+
+        auditService.record(user.getTenantId(), "USER", user.getId(),
+                "auth.mfa.enrolled", "user", user.getId(), Map.of(), null, null, null);
+
+        return new MfaEnrollResponse(
+                secret,
+                totpService.otpAuthUri(secret, user.getEmail(), issuer),
+                issuer);
+    }
+
+    @Override
+    public MfaStatusResponse confirmMfa(String code) {
+        User user = currentUser();
+        if (user.isMfaEnabled()) {
+            throw new SheException("MFA_ALREADY_ENABLED",
+                    "Two-factor authentication is already enabled", 409);
+        }
+        String secret = secretOf(user);
+        if (secret == null) {
+            throw new SheException("MFA_NOT_ENROLLED",
+                    "Start enrolment first", 409);
+        }
+        if (!totpService.verifyCode(secret, code)) {
+            throw new SheException("AUTH_MFA_INVALID",
+                    "That code did not match — check your authenticator app", 401);
+        }
+
+        List<String> recovery = totpService.generateRecoveryCodes(8);
+        user.setMfaEnabled(true);
+        // The column is a single String: store the hashes newline-separated.
+        // The plain-text codes are returned to the caller once and never again.
+        user.setTotpRecoveryCodes(recovery.stream()
+                .map(totpService::hashRecoveryCode)
+                .collect(java.util.stream.Collectors.joining("\n")));
+        userRepository.save(user);
+
+        auditService.record(user.getTenantId(), "USER", user.getId(),
+                "auth.mfa.enabled", "user", user.getId(), Map.of(), null, null, null);
+
+        // Recovery codes are shown ONCE, here, and never again — they are stored
+        // hashed, so a lost list means support must reset MFA.
+        return new MfaStatusResponse(true, recovery);
+    }
+
+    @Override
+    public MfaStatusResponse disableMfa(String password) {
+        User user = currentUser();
+        if (!user.isMfaEnabled()) {
+            throw new SheException("MFA_NOT_ENABLED",
+                    "Two-factor authentication is not enabled", 409);
+        }
+        // Requiring the password stops a stolen unlocked phone from quietly
+        // removing the second factor.
+        if (password == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new SheException("AUTH_INVALID_CREDENTIALS",
+                    "Password is incorrect", 401);
+        }
+
+        user.setMfaEnabled(false);
+        user.setTotpSecretEncrypted(null);
+        user.setTotpRecoveryCodes(null);
+        userRepository.save(user);
+
+        auditService.record(user.getTenantId(), "USER", user.getId(),
+                "auth.mfa.disabled", "user", user.getId(), Map.of(), null, null, null);
+
+        return new MfaStatusResponse(false, List.of());
+    }
+
+    /** True when the authenticated user has MFA enabled. */
+    @Override
+    public boolean mfaEnabled() {
+        return currentUser().isMfaEnabled();
+    }
+
+    /** Base32 secret as a String, or null when the user has not enrolled. */
+    private String secretOf(User user) {
+        byte[] raw = user.getTotpSecretEncrypted();
+        if (raw == null || raw.length == 0) return null;
+        return new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private User currentUser() {
+        var principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(principal instanceof AuthenticatedUser auth)) {
+            throw new SheException("AUTH_TOKEN_INVALID", "Not authenticated", 401);
+        }
+        return userRepository.findActiveById(auth.userId())
+                .orElseThrow(() -> new SheException("USER_NOT_FOUND",
+                        "Authenticated user not found", 404));
     }
 
     // =========================================================================
