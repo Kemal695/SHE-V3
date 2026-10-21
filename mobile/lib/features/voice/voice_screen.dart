@@ -270,6 +270,11 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         _phase = VoicePhase.error;
         _message = 'Command failed: $e';
       });
+    } finally {
+      // The command is finished, so the microphone is free again. Resuming here
+      // (not only on dispose) keeps the notification honest — it used to sit on
+      // "In a conversation…" for as long as the card stayed open.
+      unawaited(robiWake.resume());
     }
   }
 

@@ -116,8 +116,16 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
           // No screen to show this on; the light changing is the feedback, and
           // the log is how we verify it.
           VoiceLog.log('headless: ${result.message}');
+          // The command is done — give the microphone back to the detector.
+          // Without this the notification stayed on "listening for your
+          // command" forever, because only the VISIBLE card ever called resume().
+          await robiWake.resume();
         },
-        onDone: () => VoiceLog.log('headless: capture ended'),
+        onDone: () async {
+          VoiceLog.log('headless: capture ended');
+          // Also covers "the user said nothing": the session is over either way.
+          await robiWake.resume();
+        },
       );
     } catch (e) {
       VoiceLog.log('headless: failed — $e');
