@@ -63,6 +63,14 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// True when the wake word opened this session (no button to release).
   bool _wakeSession = false;
 
+  /// Hard stop for a wake session.
+  ///
+  /// `listenFor` should end the session on its own, but when the microphone is
+  /// taken away mid-session (another client, or the wake detector re-arming)
+  /// the recognizer never calls back and the screen sits on "Listening…"
+  /// forever. This guarantees the UI returns to a usable state.
+  Timer? _sessionWatchdog;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +83,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
   @override
   void dispose() {
+    _sessionWatchdog?.cancel();
     _pulseController.dispose();
     // Leaving the screen must release the mic — a recognizer left running keeps
     // the Android mic indicator on and burns battery.
@@ -140,6 +149,21 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     unawaited(SystemSound.play(SystemSoundType.click));
     VoiceLog.log('capture: started (${pushToTalk ? 'push-to-talk' : 'wake'})');
 
+    // Watchdog: never leave the screen stuck on "Listening…".
+    _sessionWatchdog?.cancel();
+    if (!pushToTalk) {
+      _sessionWatchdog = Timer(const Duration(seconds: 18), () {
+        if (!mounted || !_listening) return;
+        VoiceLog.log('capture: watchdog fired — no result, closing the session');
+        ref.read(voiceServiceProvider).cancel();
+        _pulseController.stop();
+        setState(() {
+          _phase = VoicePhase.idle;
+          _message = "I didn't hear anything — tap the mic and try again.";
+        });
+      });
+    }
+
     _starting = true;
     try {
       await service.startListening(
@@ -196,6 +220,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   }
 
   Future<void> _finish(String transcript) async {
+    _sessionWatchdog?.cancel();
     _pulseController.stop();
     if (!mounted) return;
     setState(() => _phase = VoicePhase.executing);

@@ -50,10 +50,16 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
   void _openVoice() {
     if (!mounted) return;
 
-    // Only while the app is actually in front of the user.
-    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-      VoiceLog.log('wake: app not resumed ('
-          '${WidgetsBinding.instance.lifecycleState}) — cannot open the screen');
+    // `inactive` is NOT a reason to refuse. It means the app is visible but not
+    // focused — the notification shade pulled down, a dialog, a system overlay.
+    // Requiring `resumed` blocked exactly that case, and the log showed wake
+    // after wake dying here: "wake: app not resumed (AppLifecycleState.inactive)".
+    // Only a genuinely backgrounded app (paused/hidden/detached) cannot start an
+    // activity, and Android forbids that anyway.
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != AppLifecycleState.resumed &&
+        state != AppLifecycleState.inactive) {
+      VoiceLog.log('wake: app is $state — cannot open the screen');
       return;
     }
 

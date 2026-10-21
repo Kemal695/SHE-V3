@@ -50,10 +50,13 @@ class RobiWakeService : Service() {
 
         /**
          * How long the detector stays off after a wake, so the command can use
-         * the mic. 30 s, not 15: the command session is the user's to finish, and
-         * re-arming too early stole the microphone mid-sentence.
+         * the mic. 90 s, not 15: the detector re-arming used to steal the
+         * microphone from a still-open recognizer, which left the voice screen
+         * stuck on "Listening…" forever while the notification went back to
+         * "Listening for Hey Robi". The user can always re-arm sooner by
+         * toggling Robi.
          */
-        private const val RESUME_AFTER_MS = 30_000L
+        private const val RESUME_AFTER_MS = 90_000L
 
         private const val SAMPLE_RATE = 16000
 
