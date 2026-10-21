@@ -165,7 +165,22 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
           ),
         ),
       );
+      return;
     }
+
+    // Say how to use it. "Hey Robi" does NOT work in armed mode by design — the
+    // service takes no microphone — and users reasonably expect the main switch
+    // to make the wake word work.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _continuous
+              ? 'Robi is listening for "Hey Robi".'
+              : 'Robi is ready. Tap the Robi notification to speak, or turn on '
+                  'Continuous "Hey Robi" below.',
+        ),
+      ),
+    );
   }
 
   String get _subtitle => switch (_state.phase) {
@@ -218,9 +233,21 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
           value: _continuous,
           onChanged: (v) async {
             setState(() => _continuous = v);
-            // The mode is a start-time argument, so restart to change it.
-            await robiWake.stop();
-            await robiWake.start(continuous: v);
+            // No stop/start pair: the service releases the mic itself when it is
+            // started with continuous=false. Stopping first raced with onDestroy
+            // and could leave nothing running.
+            final ok = await robiWake.start(continuous: v);
+            if (!ok && mounted) {
+              setState(() => _continuous = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Could not start continuous listening — microphone '
+                    'permission is required.',
+                  ),
+                ),
+              );
+            }
           },
         ),
       ),

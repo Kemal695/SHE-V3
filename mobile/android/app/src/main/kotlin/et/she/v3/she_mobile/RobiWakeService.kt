@@ -124,6 +124,12 @@ class RobiWakeService : Service() {
             running = true
 
             if (!continuous) {
+                // Switching continuous OFF must release the microphone. Doing it
+                // here means the caller can simply start the service again with
+                // continuous=false, instead of stop-then-start — which raced:
+                // stopService is asynchronous, so onDestroy could land AFTER the
+                // new start and kill the service the user just enabled.
+                stopDetector()
                 updateNotification("Tap to speak a command")
                 emit(EVENT_ARMED, null)
                 return START_NOT_STICKY
