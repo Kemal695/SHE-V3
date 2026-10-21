@@ -106,7 +106,17 @@ class RobiWake {
   }
 
   /// Raw (event, detail) pairs from the service.
-  Stream<({String event, String? detail})> events() =>
+  ///
+  /// The mapped stream is CACHED on purpose. `receiveBroadcastStream()` creates a
+  /// new channel subscription per call, and the native side pairs onListen /
+  /// onCancel with those subscriptions — so two callers meant two subscriptions,
+  /// and cancelling either one (the Settings tile being disposed) tore down the
+  /// other (the app-level listener). The symptom was exact: the wake word fired
+  /// in the native log, but nothing in the UI ever happened after visiting
+  /// Settings once. One cached broadcast stream = one subscription.
+  static Stream<({String event, String? detail})>? _cached;
+
+  Stream<({String event, String? detail})> events() => _cached ??=
       _events.receiveBroadcastStream().map((e) {
         final map = (e as Map).cast<Object?, Object?>();
         return (

@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'robi_wake.dart';
+import 'voice_log.dart';
 import '../../routing/app_router.dart';
 
 class RobiWakeListener extends ConsumerStatefulWidget {
@@ -51,6 +52,8 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
 
     // Only while the app is actually in front of the user.
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      VoiceLog.log('wake: app not resumed ('
+          '${WidgetsBinding.instance.lifecycleState}) — cannot open the screen');
       return;
     }
 
@@ -60,6 +63,7 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
     final location = router.routerDelegate.currentConfiguration.uri.path;
     if (location == '/voice') return;
 
+    VoiceLog.log('wake: opening the voice screen');
     router.push('/voice?auto=1');
   }
 
