@@ -45,23 +45,17 @@
 -dontwarn com.google.crypto.tink.**
 
 # -----------------------------------------------------------------------------
-# Vosk + JNA — Robi wake word (Phase 4)
+# sherpa-onnx — Robi wake word (Phase 4)
 # -----------------------------------------------------------------------------
-# Both reach native code reflectively, so R8 renaming or stripping them fails
-# ONLY in release builds and ONLY when the detector starts — the app installs,
-# launches and toggles fine, then dies the instant `Model(...)` is constructed:
+# sherpa-onnx reaches its native library through a JNI layer whose Java class and
+# method names must survive verbatim: `LibraryLoader` loads the .so and the JNI
+# code looks classes up by their exact names. R8 renaming them fails ONLY in
+# release builds, ONLY when the detector starts — the app installs, launches and
+# toggles fine, then dies the instant the spotter is constructed.
 #
-#   java.lang.UnsatisfiedLinkError: Unable to load library 'vosk'
-#   java.lang.NoClassDefFoundError: Failed resolution of: Lcom/sun/jna/Library;
-#
-# JNA builds its bridge from Java class metadata at runtime (it needs the real
-# names of the native-method classes and their fields), and org.vosk loads
-# libvosk.so through that bridge. Do not narrow these without testing a release
-# APK on a device — debug builds do not run R8 and will happily lie to you.
--keep class org.vosk.** { *; }
--keep class com.sun.jna.** { *; }
--keepclassmembers class * extends com.sun.jna.Structure { *; }
--keepclassmembers class * extends com.sun.jna.Library { *; }
--keepclassmembers class * extends com.sun.jna.PointerType { *; }
--dontwarn com.sun.jna.**
--dontwarn java.awt.**
+# This is the same failure that took down the previous Vosk-based attempt
+# (org.vosk.Recognizer was renamed away). Do not narrow these without testing a
+# RELEASE apk on a device: debug builds do not run R8 and will lie to you.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-keepclassmembers class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**

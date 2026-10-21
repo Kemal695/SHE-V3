@@ -25,6 +25,14 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+
+        // The phone is arm64. sherpa-onnx's AAR carries all four ABIs (~48 MB of
+        // native code); restricting to the two ARM ones keeps ~70 MB of x86
+        // libraries out of the APK. NOTE: this also means the app no longer runs
+        // on an x86_64 emulator — use the device.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -72,9 +80,15 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-    // Robi wake word (Phase 4). On-device keyword detection, Apache-2.0, no
-    // account or API key. Model is downloaded at runtime — see RobiModel.kt.
-    implementation("com.alphacephei:vosk-android:0.3.47")
-    // vosk-android reaches its native lib through JNA; the @aar is required.
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    // Robi wake word (Phase 4): sherpa-onnx keyword spotting.
+    //
+    // Replaces Vosk, which was a general speech-to-text model asked to transcribe
+    // a coined name — measured on the LE6 it returned "huh", "yeah catfish",
+    // "and i'm irish know him" and never the phrase. sherpa-onnx does not
+    // transcribe: it matches the audio against a keyword model, so "HEY ROBI"
+    // works even though "Robi" is not a word. See docs/robi-phase4-wake-word.md.
+    //
+    // The AAR is vendored in app/libs because it is not published to Maven
+    // Central. Local AARs also need a flat directory repository.
+    implementation(files("libs/sherpa-onnx.aar"))
 }

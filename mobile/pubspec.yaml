@@ -114,3 +114,6 @@ flutter:
     - assets/img/
     # Official SHE logo (transparent PNG) — used by splash, login and register.
     - assets/branding/
+    # NOTE: the Robi wake-word model is NOT a Flutter asset. It lives in
+    # android/app/src/main/assets/sherpa-kws/ so RobiKws.kt can open it as a
+    # plain Android asset — Flutter would bury it under flutter_assets/.

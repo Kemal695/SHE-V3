@@ -80,7 +80,7 @@ class MainActivity : FlutterActivity() {
 
                     "isRunning" -> result.success(RobiWakeService.running)
 
-                    "modelInstalled" -> result.success(RobiModel.isInstalled(this))
+                    "modelInstalled" -> result.success(RobiKws.isInstalled(this))
 
                     // Voice diagnostics. Log.e because Log.d/i/v are removed
                     // from release builds by this project's R8 config, and

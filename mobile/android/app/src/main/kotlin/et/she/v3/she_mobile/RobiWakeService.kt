@@ -16,25 +16,25 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
+import com.k2fsa.sherpa.onnx.KeywordSpotter
+import com.k2fsa.sherpa.onnx.OnlineStream
 
 /**
- * Robi wake word — foreground service (Phase 4, Stage 2).
+ * Robi wake word — foreground service (Phase 4, sherpa-onnx KWS).
  *
  * See docs/robi-phase4-wake-word.md.
  *
- * Lifecycle:
- *   start -> notification -> model installed?  no -> download (progress events)
- *                                              yes -> AudioRecord + Vosk loop
- *   "hey robi" heard -> emit `hey_robi`, RELEASE THE MICROPHONE (the command
- *   session needs it — two AudioRecords would fight), resume after 15 s.
+ * Two modes:
+ *   ARMED (default)  — notification only. NO microphone. Tapping it opens the
+ *                      voice screen. This exists because holding the mic makes
+ *                      it exclusive, which stops the normal in-app voice
+ *                      commands from working.
+ *   CONTINUOUS       — opens the mic and runs the keyword spotter. Explicit
+ *                      opt-in, because it costs the in-app voice commands.
  *
- * The recognizer is grammar-restricted to two entries, so it is a keyword
- * detector rather than an open transcriber: `["hey robi", "[unk]"]`. That is
- * what keeps the CPU cost down; it still costs far more than a purpose-built
- * KWS, which is why sherpa-onnx remains the documented upgrade path.
+ * The detector matches audio against a keyword model rather than transcribing,
+ * so "HEY ROBI" works even though "Robi" is not a word — see RobiKws.kt for why
+ * the previous Vosk-based attempt could never work.
  *
  * Android constraints this cannot escape (also stated in the UI):
  *   - force-stop kills it and it does not return until the app is opened again
@@ -51,12 +51,13 @@ class RobiWakeService : Service() {
         /** How long the detector stays off after a wake, so the command can use the mic. */
         private const val RESUME_AFTER_MS = 15_000L
 
+        private const val SAMPLE_RATE = 16000
+
         /**
          * Registered listeners. A LIST, not a single field: the Settings tile and
          * the app-level RobiWakeListener both subscribe to the same EventChannel,
          * and a single field meant whichever subscribed last silently stole every
-         * event from the other — which is why the tile sat on "Starting…" while
-         * the service was running and logging normally.
+         * event from the other.
          */
         private val listeners = mutableListOf<(String, String?) -> Unit>()
 
@@ -72,7 +73,7 @@ class RobiWakeService : Service() {
             listeners.remove(l)
         }
 
-        fun modelDir(context: android.content.Context) = RobiModel.dir(context)
+        fun modelDir(context: android.content.Context) = RobiKws.dir(context)
 
         /** Intent extra: actually open the microphone and run the detector. */
         const val EXTRA_CONTINUOUS = "continuous"
@@ -95,8 +96,8 @@ class RobiWakeService : Service() {
         }
     }
 
-    private var model: Model? = null
-    private var recognizer: Recognizer? = null
+    private var spotter: KeywordSpotter? = null
+    private var stream: OnlineStream? = null
     private var recorder: AudioRecord? = null
     private var worker: Thread? = null
 
@@ -108,7 +109,11 @@ class RobiWakeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!hasMicrophonePermission()) {
+        val continuous = intent?.getBooleanExtra(EXTRA_CONTINUOUS, false) == true
+
+        // The microphone is only needed for continuous detection. Arming the
+        // notification does not touch it, so do not demand the permission then.
+        if (continuous && !hasMicrophonePermission()) {
             emit("error", "microphone_permission")
             stopSelf()
             return START_NOT_STICKY
@@ -118,61 +123,26 @@ class RobiWakeService : Service() {
             startInForeground("Starting…")
             running = true
 
-            // Continuous detection is now OPT-IN, and off by default.
-            //
-            // Holding AudioRecord makes the microphone exclusive: with the
-            // detector running, the normal in-app voice commands STOP WORKING,
-            // because SpeechRecognizer cannot get the mic. Paying that for a
-            // detector that provably cannot hear the phrase on this device
-            // ("huh", "yeah catfish", never "hey robi") is indefensible, so by
-            // default Robi arms its notification and takes no microphone at all.
-            val continuous = intent?.getBooleanExtra(EXTRA_CONTINUOUS, false) == true
             if (!continuous) {
                 updateNotification("Tap to speak a command")
                 emit(EVENT_ARMED, null)
                 return START_NOT_STICKY
             }
 
-            if (RobiModel.isInstalled(this)) {
-                startDetector()
-            } else {
-                // First enable: fetch the model, then start. Runs off the main
-                // thread; progress goes to the UI through the event channel.
-                emit("downloading", "0")
-                Thread {
-                    try {
-                        val error = RobiModel.install(this) { pct ->
-                            emit("downloading", pct.toString())
-                            if (pct % 20 == 0) {
-                                updateNotification("Downloading speech model… $pct%")
-                            }
-                        }
-                        if (error == null) {
-                            main.post {
-                                updateNotification("Listening for \"Hey Robi\"")
-                                startDetector()
-                            }
-                        } else {
-                            emit("error", "model_download_failed: $error")
-                            main.post { stopSelf() }
-                        }
-                    } catch (e: Throwable) {
-                        // Unzip can OOM on a low-memory phone; an Error here
-                        // would otherwise kill the process from a worker thread.
-                        Log.e(TAG, "model install failed", e)
-                        emit("error", "${e::class.java.simpleName}: ${e.message}")
-                        main.post { stopSelf() }
-                    }
-                }.start()
+            val error = RobiKws.ensureInstalled(this)
+            if (error != null) {
+                emit("error", "model_install_failed: $error")
+                stopSelf()
+                return START_NOT_STICKY
             }
 
+            startDetector()
             START_NOT_STICKY
         } catch (e: Throwable) {
             // Throwable, not Exception: the failure modes here are ERRORS —
-            // UnsatisfiedLinkError (libvosk not loadable), NoClassDefFoundError
-            // (JNA stripped by R8), OutOfMemoryError (model too big for the
-            // device). `catch (Exception)` let all three escape onStartCommand
-            // and killed the whole app instead of showing an error.
+            // UnsatisfiedLinkError (native lib not loadable), NoClassDefFoundError
+            // (stripped by R8), OutOfMemoryError. `catch (Exception)` let all
+            // three escape onStartCommand and killed the whole app.
             Log.e(TAG, "could not start foreground service", e)
             emit("error", "${e::class.java.simpleName}: ${e.message}")
             stopSelf()
@@ -183,16 +153,6 @@ class RobiWakeService : Service() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         stopDetector()
-        try {
-            recognizer?.close()
-        } catch (_: Exception) {
-        }
-        try {
-            model?.close()
-        } catch (_: Exception) {
-        }
-        recognizer = null
-        model = null
         running = false
         emit("stopped", null)
         super.onDestroy()
@@ -202,26 +162,15 @@ class RobiWakeService : Service() {
 
     private fun startDetector() {
         if (listening) return
-        if (!RobiModel.isInstalled(this)) {
-            emit("model_missing", null)
-            return
-        }
 
         try {
-            val m = model ?: Model(RobiModel.dir(this).absolutePath).also { model = it }
-            // NO GRAMMAR. An earlier version restricted recognition to
-            // ["hey robi", "[unk]"], which was wrong: that phrase is not in the
-            // model's vocabulary, so with a two-choice grammar the recogniser
-            // answered "[unk]" to almost everything — measured on the LE6 it
-            // returned '[unk]' ~95% of the time and a bare 'hey' once, so the
-            // phrase never made it into a result at all. Free transcription
-            // costs a little more CPU but produces "hey roby" / "hey robby" /
-            // "hey robie", which the fuzzy match in isWakePhrase() accepts.
-            val r = Recognizer(m, 16000.0f)
-            recognizer = r
+            val s = RobiKws.create(this)
+            spotter = s
+            val st = s.createStream() // keywords come from keywords.txt
+            stream = st
 
             val minBuf = AudioRecord.getMinBufferSize(
-                16000,
+                SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
             )
@@ -231,7 +180,7 @@ class RobiWakeService : Service() {
                 // VOICE_RECOGNITION enables the platform's speech pre-processing
                 // (noise suppression / AGC) where the device supports it.
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                16000,
+                SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 bufSize,
@@ -249,54 +198,40 @@ class RobiWakeService : Service() {
             listening = true
 
             worker = Thread {
-                val buf = ShortArray(4096)
+                val pcm = ShortArray(1600) // 100 ms at 16 kHz
+                val samples = FloatArray(pcm.size)
                 try {
                     while (listening) {
-                        val n = rec.read(buf, 0, buf.size)
-                        if (n > 0 && r.acceptWaveForm(buf, n)) {
-                            val text = JSONObject(r.result).optString("text")
-                            if (text.isNotBlank()) {
-                                // Log.e, not Log.d: this project's R8 config
-                                // deletes Log.v/d/i from release builds, so a
-                                // debug line here would be invisible exactly
-                                // where we need it.
-                                Log.e(TAG, "vosk heard: '$text'")
-                            }
-                            if (isWakePhrase(text)) {
-                                onWake()
-                            }
+                        val n = rec.read(pcm, 0, pcm.size)
+                        if (n <= 0) continue
+                        for (i in 0 until n) {
+                            // sherpa-onnx expects normalised floats in [-1, 1].
+                            samples[i] = pcm[i] / 32768.0f
+                        }
+                        st.acceptWaveform(samples.copyOf(n), SAMPLE_RATE)
+                        while (s.isReady(st)) {
+                            s.decode(st)
+                        }
+                        val keyword = s.getResult(st).keyword
+                        if (keyword.isNotBlank()) {
+                            // Log.e, not Log.d: this project's R8 config deletes
+                            // Log.v/d/i from release builds.
+                            Log.e(TAG, "kws matched: '$keyword'")
+                            s.reset(st)
+                            onWake()
                         }
                     }
-                } catch (e: Throwable) {
-                    Log.e(TAG, "audio loop stopped", e)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "audio loop stopped", t)
                 }
             }.also { it.start() }
 
+            updateNotification("Listening for \"Hey Robi\"")
             emit("ready", null)
         } catch (e: Throwable) {
-            // See onStartCommand: these are Errors, not Exceptions. Report the
-            // class name so the UI can say WHICH failure it is.
             Log.e(TAG, "detector failed", e)
             emit("error", "${e::class.java.simpleName}: ${e.message}")
         }
-    }
-
-    /**
-     * Does [text] contain the wake phrase?
-     *
-     * NOT an exact "hey robi" comparison. "Robi" is a coined name that is not in
-     * the model's vocabulary, so the recogniser renders it however the nearest
-     * English words fall — "hey roby", "hey robby", "hey robie", "hey robe" are
-     * all normal outcomes for a non-native pronunciation. Requiring the exact
-     * spelling meant the phrase never matched and Robi listened forever.
-     *
-     * The rule stays narrow on purpose: an explicit "hey" AND a token starting
-     * with "rob". "hey" alone would fire on ordinary conversation.
-     */
-    private fun isWakePhrase(text: String): Boolean {
-        val lower = text.lowercase()
-        if (!lower.contains("hey")) return false
-        return lower.split(' ', '\t', ',', '.', '!', '?').any { it.startsWith("rob") }
     }
 
     private fun onWake() {
@@ -308,7 +243,6 @@ class RobiWakeService : Service() {
         main.postDelayed(
             {
                 if (running) {
-                    updateNotification("Listening for \"Hey Robi\"")
                     startDetector()
                 }
             },
@@ -333,10 +267,15 @@ class RobiWakeService : Service() {
         }
         recorder = null
         try {
-            recognizer?.close()
-        } catch (_: Exception) {
+            stream?.release()
+        } catch (_: Throwable) {
         }
-        recognizer = null
+        stream = null
+        try {
+            spotter?.release()
+        } catch (_: Throwable) {
+        }
+        spotter = null
     }
 
     // ---- notification ------------------------------------------------------
@@ -354,7 +293,7 @@ class RobiWakeService : Service() {
                     "Robi wake word",
                     NotificationManager.IMPORTANCE_LOW, // silent, no heads-up
                 ).apply {
-                    description = "Keeps Robi listening for \"Hey Robi\"."
+                    description = "Keeps Robi available for voice commands."
                     setShowBadge(false)
                 }
             )
@@ -388,9 +327,7 @@ class RobiWakeService : Service() {
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 // Tapping Robi's notification opens the mic directly. This is the
-                // reliable alternative to the wake word: it works from any app,
-                // with the screen locked, and does not depend on the model ever
-                // transcribing "Hey Robi" correctly.
+                // reliable path: it works from any app, with the screen locked.
                 putExtra(MainActivity.EXTRA_ROBI_ACTION, "voice")
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

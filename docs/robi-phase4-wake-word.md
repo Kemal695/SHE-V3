@@ -94,3 +94,58 @@ Those need the physical device, and I will not report them as working until meas
 - Audio is analysed in memory only and **never stored**.
 - The mic indicator is always visible (Android requirement) plus our own persistent notification.
 - The toggle is one tap off, and turning it off releases the microphone immediately.
+
+---
+
+# FINAL IMPLEMENTATION — sherpa-onnx KWS (replaces Vosk)
+
+**Vosk was rejected on evidence.** It is a dictation engine: it maps audio to
+words from a fixed vocabulary, and we then searched that text for "hey robi".
+"Robi" is not a word, so it was replaced by whatever English sounded closest.
+Measured on the TECNO LE6 with free transcription, the detector returned:
+
+```
+'huh'          'yeah catfish'      "and i'm irish know him"
+'did you'      'for minoan on twitter fibula'
+```
+
+— never anything resembling the phrase. No matching tolerance can fix a
+transcript that does not contain the words. A grammar restricted to
+`["hey robi","[unk]"]` was worse still: it answered `[unk]` to ~95% of speech.
+
+## What is shipped instead
+
+**sherpa-onnx keyword spotting**, Apache-2.0, on-device, no account, no key.
+
+It does not transcribe. It matches the audio against a small acoustic model of
+the keyword, which is given as **BPE tokens**, so an invented name works exactly
+like a real word:
+
+```
+▁HE Y ▁RO B I          HEY ROBI
+▁HE Y ▁RO B Y          HEY ROBY
+▁HE Y ▁RO B B I E      HEY ROBBIE
+▁HI ▁RO B I            HI ROBI
+```
+
+- Model: `sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, **int8**
+  (~5.1 MB) — bundled in `android/app/src/main/assets/sherpa-kws/`.
+  No 39 MB download, no network at first run.
+- Library: `sherpa-onnx-1.13.8.aar`, vendored in `android/app/libs/`
+  (not on Maven Central). `abiFilters` limits the APK to `arm64-v8a` and
+  `armeabi-v7a`, keeping ~70 MB of x86 libraries out.
+- `RobiKws.kt` copies the assets to `filesDir` once (sherpa-onnx needs real
+  paths) and builds the spotter; `RobiWakeService` runs a 16 kHz AudioRecord loop
+  and calls `acceptWaveform` → `isReady`/`decode` → `getResult().keyword`.
+- **R8 keep rules are mandatory** for `com.k2fsa.sherpa.onnx.**` — the JNI layer
+  looks classes up by exact name. This is precisely what broke the Vosk build
+  (`org.vosk.Recognizer` was renamed away) and it fails ONLY in release builds.
+
+## Still true
+
+- Continuous detection is **opt-in**: it holds the microphone, which is
+  exclusive, so the normal in-app voice commands stop working while it runs.
+- Default mode is ARMED: notification only, no microphone, tap to speak.
+- Force-stop still kills it; the notification and mic indicator stay visible.
+- **Amharic speech is still not possible on this device** — Android has no
+  Amharic recognizer, so that is a separate problem from the wake word.
