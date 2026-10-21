@@ -28,13 +28,16 @@ import 'voice_intent.dart';
 import 'voice_service.dart';
 
 class VoiceScreen extends ConsumerStatefulWidget {
-  const VoiceScreen({super.key, this.autoStart = false});
+  const VoiceScreen({super.key, this.autoStart = false, this.compact = false});
 
   /// Start capturing as soon as the screen opens.
   ///
   /// Set when the screen is opened by the wake word ("Hey Robi"): the user has
   /// already spoken, so making them hold a button would waste the activation.
   final bool autoStart;
+
+  /// Render as a small floating card instead of a full page (wake-word mode).
+  final bool compact;
 
   @override
   ConsumerState<VoiceScreen> createState() => _VoiceScreenState();
@@ -272,13 +275,50 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
   @override
   Widget build(BuildContext context) {
+    final full = _buildFull(context);
+    if (!widget.compact) return full;
+
+    // Compact mode (wake word): a small glowing card instead of a whole page —
+    // closer to a voice assistant bubble than a settings screen. The full page
+    // still exists for the mic button.
+    return Scaffold(
+      backgroundColor: Colors.black.withValues(alpha: 0.6),
+      body: Center(
+        child: Container(
+          width: 320,
+          height: 430,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: V3Colors.surface,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: V3Colors.primary.withValues(alpha: 0.35),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: V3Colors.primary.withValues(alpha: 0.30),
+                blurRadius: 32,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: full,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFull(BuildContext context) {
     final availability = ref.watch(voiceAvailabilityProvider);
 
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon:  Icon(Icons.arrow_back, color: V3Colors.textPrimary),
-          onPressed: () => context.go('/dashboard'),
+          // In compact mode this is a dismiss, not a jump to the dashboard —
+          // the user came from another app and should land back in it.
+          onPressed: () =>
+              widget.compact ? context.pop() : context.go('/dashboard'),
         ),
         title: const Text('Voice Control'),
       ),

@@ -191,6 +191,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         // "Hey Robi".
         builder: (context, state) => VoiceScreen(
           autoStart: state.uri.queryParameters['auto'] == '1',
+          // Wake-word mode: a small glowing card, not a full page.
+          compact: state.uri.queryParameters['compact'] == '1',
         ),
       ),
       // Design sheet screen 15. Detail-style route (no bottom bar) so it reads

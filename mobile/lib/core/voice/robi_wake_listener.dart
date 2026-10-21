@@ -70,7 +70,7 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
     if (location == '/voice') return;
 
     VoiceLog.log('wake: opening the voice screen');
-    router.push('/voice?auto=1');
+    router.push('/voice?auto=1&compact=1');
   }
 
   @override
