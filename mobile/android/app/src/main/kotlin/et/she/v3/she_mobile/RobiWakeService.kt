@@ -48,8 +48,12 @@ class RobiWakeService : Service() {
         private const val CHANNEL_ID = "robi_wake"
         private const val NOTIFICATION_ID = 4201
 
-        /** How long the detector stays off after a wake, so the command can use the mic. */
-        private const val RESUME_AFTER_MS = 15_000L
+        /**
+         * How long the detector stays off after a wake, so the command can use
+         * the mic. 30 s, not 15: the command session is the user's to finish, and
+         * re-arming too early stole the microphone mid-sentence.
+         */
+        private const val RESUME_AFTER_MS = 30_000L
 
         private const val SAMPLE_RATE = 16000
 
@@ -241,19 +245,25 @@ class RobiWakeService : Service() {
     }
 
     private fun onWake() {
-        emit("hey_robi", null)
-        // Release the microphone: the command session is about to need it, and
-        // Android will not let two AudioRecords share it cleanly.
-        stopDetector()
-        updateNotification("Heard \"Hey Robi\" — listening for your command")
-        main.postDelayed(
-            {
-                if (running) {
-                    startDetector()
-                }
-            },
-            RESUME_AFTER_MS,
-        )
+        // Runs on the main thread: stopDetector() joins the audio worker, and
+        // this method is CALLED FROM that worker — joining itself would stall
+        // the loop.
+        main.post {
+            // Release the microphone BEFORE telling Dart. The voice screen opens
+            // a recognizer within ~200 ms of the event and the mic is exclusive,
+            // so emitting first made the command session race the detector.
+            stopDetector()
+            emit("hey_robi", null)
+            updateNotification("Heard \"Hey Robi\" — listening for your command")
+            main.postDelayed(
+                {
+                    if (running) {
+                        startDetector()
+                    }
+                },
+                RESUME_AFTER_MS,
+            )
+        }
     }
 
     private fun stopDetector() {

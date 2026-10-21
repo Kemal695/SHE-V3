@@ -132,6 +132,8 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         // Push-to-talk: the finger lifting ends the recording, not silence.
         // Wake-word mode passes false so the sentence decides.
         pushToTalk: pushToTalk,
+        // The wake word opened this screen: give the user time to speak.
+        fromWake: !pushToTalk,
         onResult: (text, isFinal) {
           if (!mounted) return;
           setState(() => _transcript = text);

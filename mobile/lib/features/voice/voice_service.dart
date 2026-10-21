@@ -281,6 +281,10 @@ class VoiceService {
     required void Function(String transcript, bool isFinal) onResult,
     required void Function() onDone,
     bool pushToTalk = false,
+    /// True when the wake word opened this session. The user has just spoken a
+    /// wake phrase and needs a moment before the command, so the silence window
+    /// is longer than a normal tap-and-speak session.
+    bool fromWake = false,
   }) async {
     Future<void> listenIn(String locale) => _speech.listen(
           onResult: (SpeechRecognitionResult r) {
@@ -295,11 +299,16 @@ class VoiceService {
           // top-level args is deprecated and warns on every build.
           listenOptions: SpeechListenOptions(
             localeId: locale,
-            listenFor: Duration(seconds: pushToTalk ? 30 : 12),
-            // Stop after 3 s of silence so a finished sentence does not hold the
-            // mic open until listenFor expires — but NOT while a push-to-talk
-            // button is still held (see the doc comment above).
-            pauseFor: Duration(seconds: pushToTalk ? 30 : 3),
+            listenFor: Duration(
+              seconds: pushToTalk ? 30 : (fromWake ? 15 : 12),
+            ),
+            // Stop after a silence so a finished sentence does not hold the mic
+            // open until listenFor expires — but NOT while a push-to-talk button
+            // is still held, and longer for a wake-word session (measured: 3 s
+            // ended the session before the user had started the command).
+            pauseFor: Duration(
+              seconds: pushToTalk ? 30 : (fromWake ? 6 : 3),
+            ),
             // Partial results let the user watch the words land as they speak,
             // which is what makes a misheard command obvious immediately.
             partialResults: true,
