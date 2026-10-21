@@ -57,13 +57,20 @@ android {
         }
     }
 
-    // Vosk ships native .so files. AGP 8 compresses jniLibs by default, and the
-    // loader then cannot mmap them at runtime — the classic
-    // "UnsatisfiedLinkError: couldn't find libvosk.so" failure.
+    // sherpa-onnx's .so files are loaded with System.loadLibrary, so they must be
+    // extracted at install time (legacy packaging) rather than mmapped from the
+    // APK.
     packaging {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+
+    // sherpa-onnx reads the KWS model through AAssetManager in BUFFER mode,
+    // which needs the whole file in memory. Leaving the .onnx files compressed
+    // works but makes that read slower and more fragile on a low-end device.
+    androidResources {
+        noCompress += "onnx"
     }
 }
 
