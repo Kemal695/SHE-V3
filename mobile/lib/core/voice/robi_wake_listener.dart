@@ -38,6 +38,9 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
   /// Guards against a second wake starting a second headless session.
   bool _headlessBusy = false;
 
+  /// Hard stop for a headless session that never reports.
+  Timer? _headlessWatchdog;
+
   @override
   void initState() {
     super.initState();
@@ -105,9 +108,29 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
       final homeId = await resolveActiveHomeId(ref) ??
           '00000000-0000-0000-0000-000000000001';
       VoiceLog.log('headless: listening');
-      // The only feedback possible with no window: the notification. This is the
-      // lock-screen / in-game banner from the design sheet.
+      // Take the microphone from the detector BEFORE opening the recognizer.
+      // Awaiting matters: onWake releases AudioRecord asynchronously, and
+      // starting first means the recognizer can lose the mic and then never
+      // report anything — which is exactly what left the notification stuck on
+      // "Listening… say your command".
+      await robiWake.pause();
+      // The notification now announces the session — the only feedback there is
+      // when no window can be shown.
       unawaited(robiWake.notify('Listening… say your command'));
+
+      // Watchdog for a session that never reports. The visible card has one;
+      // without it here, a recognizer that loses the mic silently leaves the
+      // notification stuck on "Listening… say your command" forever.
+      _headlessWatchdog?.cancel();
+      _headlessWatchdog = Timer(const Duration(seconds: 18), () async {
+        if (handled || !_headlessBusy) return;
+        handled = true;
+        VoiceLog.log('headless: watchdog fired — no result');
+        await service.cancel();
+        await robiWake.notify("I didn't hear anything");
+        await robiWake.resume();
+        _headlessBusy = false;
+      });
 
       await service.startListening(
         pushToTalk: false,
@@ -163,6 +186,7 @@ class _RobiWakeListenerState extends ConsumerState<RobiWakeListener> {
 
   @override
   void dispose() {
+    _headlessWatchdog?.cancel();
     _sub?.cancel();
     super.dispose();
   }
