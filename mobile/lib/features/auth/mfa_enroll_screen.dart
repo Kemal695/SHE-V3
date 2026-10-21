@@ -106,11 +106,37 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
         _recoveryCodes = codes;
       });
     } catch (e) {
+      // Logged as well as shown: a hang and a rejection look identical on
+      // screen, and logcat is the only way to tell them apart.
+      debugPrint('MfaEnrollScreen._confirm failed: $e');
       if (!mounted) return;
-      setState(() => _error = '$e');
+      setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Turns a DioException into something a user can act on.
+  String _friendlyError(Object e) {
+    final text = e.toString();
+    if (text.contains('AUTH_MFA_INVALID') ||
+        text.contains('did not match')) {
+      return 'That code did not match. Check your phone\'s clock, then try the '
+          'next code.';
+    }
+    if (text.contains('MFA_NOT_ENROLLED') || text.contains('Start enrolment')) {
+      return 'Start the setup again — the setup key expired.';
+    }
+    if (text.contains('MFA_ALREADY_ENABLED')) {
+      return 'Two-factor authentication is already on.';
+    }
+    if (text.contains('TimeoutException') ||
+        text.contains('timeout') ||
+        text.contains('taking too long')) {
+      return 'The server did not respond in time. Check that the backend is '
+          'running, then try again.';
+    }
+    return text;
   }
 
   Future<void> _disable() async {
@@ -281,8 +307,17 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
+            // The spinner matters: without it a slow request looks identical to
+            // a dead button, and "pressed Verify and it hangs" is what the user
+            // reports either way.
             onPressed: _busy ? null : _confirm,
-            child: const Text('Verify and turn on'),
+            child: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Verify and turn on'),
           ),
         ),
       ],
