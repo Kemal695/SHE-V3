@@ -12,6 +12,29 @@
 
 import 'package:dio/dio.dart';
 
+/// The server's machine-readable error code, e.g. `AUTH_MFA_REQUIRED`.
+///
+/// Needed because [DioException.toString] contains the status code but **not**
+/// the response body, so `e.toString().contains('AUTH_MFA_REQUIRED')` is always
+/// false. Branching on the code (not the message, not the status) is the only
+/// reliable way to tell "wrong password" from "password fine, code needed" —
+/// both are HTTP 401.
+String? apiErrorCode(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is Map) {
+      final err = data['error'];
+      if (err is Map) {
+        final code = err['code'];
+        if (code is String && code.isNotEmpty) return code;
+      }
+      final code = data['code'];
+      if (code is String && code.isNotEmpty) return code;
+    }
+  }
+  return null;
+}
+
 /// Best-effort human-readable message for [error].
 ///
 /// Falls back to `toString()` when the body isn't the expected shape, so this is

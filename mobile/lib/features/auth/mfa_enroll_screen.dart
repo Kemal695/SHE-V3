@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/voice/voice_log.dart';
 import 'auth_service.dart';
@@ -117,8 +118,25 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
     }
   }
 
-  /// Turns a DioException into something a user can act on.
+  /// Turns a server error into something a user can act on.
+  ///
+  /// Branches on the error CODE, not the exception text: Dio's message carries
+  /// the status code but not the response body.
   String _friendlyError(Object e) {
+    switch (apiErrorCode(e)) {
+      case 'AUTH_MFA_INVALID':
+        return 'That code did not match. Check your phone\'s clock, then try '
+            'the next code.';
+      case 'MFA_NOT_ENROLLED':
+        return 'Start the setup again — the setup key expired.';
+      case 'MFA_ALREADY_ENABLED':
+        return 'Two-factor authentication is already on.';
+      case 'MFA_NOT_ENABLED':
+        return 'Two-factor authentication is not on.';
+      case 'AUTH_INVALID_CREDENTIALS':
+        return 'Password is incorrect.';
+    }
+
     final text = e.toString();
     // A 5xx used to print the whole DioException — a screenful of Mozilla docs
     // links that says nothing. The server failed; say that.
@@ -128,24 +146,7 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
       return 'Something went wrong on the server. Please try again — if it '
           'keeps failing, the backend log has the reason.';
     }
-    if (text.contains('AUTH_MFA_INVALID') ||
-        text.contains('did not match')) {
-      return 'That code did not match. Check your phone\'s clock, then try the '
-          'next code.';
-    }
-    if (text.contains('MFA_NOT_ENROLLED') || text.contains('Start enrolment')) {
-      return 'Start the setup again — the setup key expired.';
-    }
-    if (text.contains('MFA_ALREADY_ENABLED')) {
-      return 'Two-factor authentication is already on.';
-    }
-    if (text.contains('TimeoutException') ||
-        text.contains('timeout') ||
-        text.contains('taking too long')) {
-      return 'The server did not respond in time. Check that the backend is '
-          'running, then try again.';
-    }
-    return text;
+    return apiErrorMessage(e);
   }
 
   Future<void> _disable() async {

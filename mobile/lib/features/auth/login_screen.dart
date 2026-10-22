@@ -28,6 +28,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/she_colors.dart';
+import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/utils/validators.dart';
 import '../../core/network/base_url_provider.dart';
@@ -96,17 +97,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         context.go('/dashboard');
       }
     } catch (e) {
-      final text = e.toString();
+      // Branch on the server's error CODE, not on the exception text: Dio's
+      // message carries the status but not the body, so matching on
+      // 'AUTH_MFA_REQUIRED' in e.toString() never worked and the user was told
+      // "invalid email or password" while their password was fine.
+      final code = apiErrorCode(e);
 
-      // The account has 2FA on and no code was sent. Ask for one instead of
-      // reporting "invalid password" — without this the user is locked out of
-      // their own account the moment they enable 2FA.
-      if (text.contains('AUTH_MFA_REQUIRED') && mfaCode == null) {
+      if (code == 'AUTH_MFA_REQUIRED' && mfaCode == null) {
         if (mounted) {
           setState(() => _isLoading = false);
-          final code = await _askForMfaCode();
-          if (code != null && code.isNotEmpty) {
-            await _submit(mfaCode: code);
+          final entered = await _askForMfaCode();
+          if (entered != null && entered.isNotEmpty) {
+            await _submit(mfaCode: entered);
             return;
           }
         }
@@ -115,10 +117,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
       if (mounted) {
         setState(() {
-          _errorMessage = text.contains('AUTH_MFA_INVALID')
-              ? 'That code did not match. Check your authenticator app and try '
-                  'the next code.'
-              : _parseError(text);
+          if (code == 'AUTH_MFA_INVALID') {
+            _errorMessage =
+                'That code did not match. Check your authenticator app and try '
+                'the next code.';
+          } else if (code == 'AUTH_INVALID_CREDENTIALS') {
+            _errorMessage = 'Invalid email or password';
+          } else {
+            _errorMessage = _parseError(e.toString());
+          }
         });
       }
     } finally {
