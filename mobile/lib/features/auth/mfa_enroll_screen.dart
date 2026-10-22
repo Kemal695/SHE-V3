@@ -168,8 +168,17 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
         _passwordController.clear();
       });
     } catch (e) {
+      // Logged as well as shown: without this a failure here is silent.
+      debugPrint('MfaEnrollScreen._disable failed: ${apiErrorCode(e)} $e');
       if (!mounted) return;
-      setState(() => _error = '$e');
+      final message = _friendlyError(e);
+      setState(() => _error = message);
+      // Also as a SnackBar: the banner is at the TOP of this list and the
+      // Turn off button is at the BOTTOM, so on a phone the error rendered
+      // off-screen and pressing the button looked like it did nothing.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -462,7 +471,19 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
           width: double.infinity,
           child: OutlinedButton(
             onPressed: _busy ? null : _disable,
-            child: const Text('Turn off'),
+            // Destructive action — make it look deliberate rather than greyed
+            // out, which reads as "you cannot press this".
+            style: OutlinedButton.styleFrom(
+              foregroundColor: V3Colors.error,
+              side: BorderSide(color: V3Colors.error.withValues(alpha: 0.6)),
+            ),
+            child: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Turn off two-factor authentication'),
           ),
         ),
       ],
