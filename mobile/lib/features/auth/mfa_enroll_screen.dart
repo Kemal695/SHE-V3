@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/voice/voice_log.dart';
@@ -247,8 +248,40 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
           ),
         ),
         const SizedBox(height: V3Spacing.sm),
+        // The QR is the part that actually makes this usable: scanning it puts
+        // the secret AND the issuer into the authenticator app, so the codes the
+        // user sees are the codes the server expects. Without it people type the
+        // setup key wrong, or type a random number, and every code is rejected.
+        if (_otpAuthUri != null)
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(V3Spacing.md),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(V3Radius.md),
+              ),
+              child: QrImageView(
+                data: _otpAuthUri!,
+                version: QrVersions.auto,
+                size: 190,
+                backgroundColor: Colors.white,
+                // Dark modules on white — scanners need the contrast, and the
+                // app's dark theme would invert it into an unreadable square.
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ),
+
+        const SizedBox(height: V3Spacing.sm),
         Text(
-          'Scan the QR code, or type this setup key manually:',
+          'Or type this setup key manually:',
           style: TextStyle(color: V3Colors.textSecondary, height: 1.5),
         ),
         const SizedBox(height: V3Spacing.sm),

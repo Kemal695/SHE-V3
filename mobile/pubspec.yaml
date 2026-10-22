@@ -19,6 +19,11 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
+  # QR code for 2FA enrolment. Without it the setup key has to be typed into an
+  # authenticator app by hand, which users do not do — they type a random number
+  # and the code is rejected.
+  qr_flutter: ^4.1.0
+
   # ---- State management ----
   flutter_riverpod: ^2.5.1
   riverpod_annotation: ^2.3.5
