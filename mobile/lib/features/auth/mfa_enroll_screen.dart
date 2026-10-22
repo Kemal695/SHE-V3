@@ -151,8 +151,18 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
 
   Future<void> _disable() async {
     final password = _passwordController.text;
+    // Logged at entry: without this there is no way to tell "the button was
+    // never pressed" from "pressed and rejected".
+    debugPrint('MfaEnrollScreen._disable: pressed, password length=${password.length}');
+
     if (password.isEmpty) {
-      setState(() => _error = 'Enter your password to turn 2FA off');
+      const message = 'Type your password first, then press Turn off.';
+      setState(() => _error = message);
+      // SnackBar as well — the banner is at the top of the list and this button
+      // is at the bottom, so the banner is off-screen on a phone.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(message)),
+      );
       return;
     }
     setState(() {
@@ -464,6 +474,8 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
         TextField(
           controller: _passwordController,
           obscureText: true,
+          // The keyboard's "done" key does the same thing as the button.
+          onSubmitted: (_) => _disable(),
           decoration: const InputDecoration(labelText: 'Password'),
         ),
         const SizedBox(height: V3Spacing.md),
