@@ -297,11 +297,14 @@ public class AuthServiceImpl implements AuthService {
 
         List<String> recovery = totpService.generateRecoveryCodes(8);
         user.setMfaEnabled(true);
-        // The column is a single String: store the hashes newline-separated.
-        // The plain-text codes are returned to the caller once and never again.
+        // totp_recovery_codes is a JSONB column (V2__users.sql) and the entity
+        // maps it with @JdbcTypeCode(SqlTypes.JSON), so this MUST be valid JSON.
+        // Newline-joined hashes made Postgres reject the row and the endpoint
+        // answered 500 — which is what "Verify and turn on" showed.
         user.setTotpRecoveryCodes(recovery.stream()
                 .map(totpService::hashRecoveryCode)
-                .collect(java.util.stream.Collectors.joining("\n")));
+                .map(hash -> "\"" + hash + "\"")   // Base64 is JSON-safe
+                .collect(java.util.stream.Collectors.joining(",", "[", "]")));
         userRepository.save(user);
 
         auditService.record(user.getTenantId(), "USER", user.getId(),
