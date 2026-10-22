@@ -6,6 +6,7 @@
 
 import 'dart:async';
 import 'package:dio/dio.dart';
+import 'api_error.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/api_constants.dart';
@@ -83,7 +84,17 @@ Future<RefreshOutcome> _performRefreshDetailed(Ref ref) async {
   // build-time constant, or refresh would silently target a stale host.
   // A bare Dio instance: going through dioProvider would re-enter
   // JwtInterceptor and could recurse on a 401 from the refresh call itself.
-  final dio = Dio(BaseOptions(baseUrl: ref.read(apiBaseUrlProvider)));
+  //
+  // Timeouts are mandatory here even though this instance is short-lived: every
+  // queued request waits for this refresh, so a refresh that never returns hangs
+  // the whole app with no error at all. Measured on the device — a button press
+  // logged, then nothing for minutes, no success and no exception.
+  final dio = Dio(BaseOptions(
+    baseUrl: ref.read(apiBaseUrlProvider),
+    connectTimeout: const Duration(seconds: 8),
+    receiveTimeout: const Duration(seconds: 15),
+    sendTimeout: const Duration(seconds: 15),
+  ));
 
   Response<dynamic> response;
   try {
@@ -209,7 +220,33 @@ class JwtInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401) {
+    // NOT every 401 means "token expired". The auth endpoints answer 401 for a
+    // wrong password (AUTH_INVALID_CREDENTIALS) and for a missing/bad 2FA code
+    // (AUTH_MFA_REQUIRED / AUTH_MFA_INVALID). Refreshing on those, then retrying,
+    // produces another 401, which refreshes again — an infinite loop that never
+    // throws and never returns. Measured on the device: pressing "Turn off 2FA"
+    // logged once, then nothing for minutes.
+    final code = apiErrorCode(err);
+    const notATokenProblem = {
+      'AUTH_INVALID_CREDENTIALS',
+      'AUTH_MFA_REQUIRED',
+      'AUTH_MFA_INVALID',
+      'MFA_NOT_ENROLLED',
+      'MFA_ALREADY_ENABLED',
+      'MFA_NOT_ENABLED',
+      'AUTH_EMAIL_TAKEN',
+    };
+    final path = err.requestOptions.path;
+    final isAuthEndpoint = path.contains('/auth/login') ||
+        path.contains('/auth/register') ||
+        path.contains('/auth/oauth') ||
+        path.contains('/auth/mfa');
+    final alreadyRetried = err.requestOptions.extra['she_retried'] == true;
+
+    if (err.response?.statusCode == 401 &&
+        !isAuthEndpoint &&
+        !notATokenProblem.contains(code) &&
+        !alreadyRetried) {
       // refreshAccessToken() owns the mutex: if a refresh (REST or WS-initiated)
       // is already in flight this awaits that same result instead of starting a
       // second one and burning the single-use refresh token.
@@ -219,7 +256,10 @@ class JwtInterceptor extends Interceptor {
         final token = ref.read(accessTokenProvider);
         if (token != null) {
           final opts = err.requestOptions
-            ..headers[ApiConstants.authorization] = 'Bearer $token';
+            ..headers[ApiConstants.authorization] = 'Bearer $token'
+            // One retry only: a second 401 after a successful refresh means the
+            // token is fine and the request itself is being refused.
+            ..extra['she_retried'] = true;
           try {
             final dio = ref.read(dioProvider);
             final response = await dio.fetch(opts);
