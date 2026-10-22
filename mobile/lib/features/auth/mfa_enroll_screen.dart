@@ -120,6 +120,14 @@ class _MfaEnrollScreenState extends ConsumerState<MfaEnrollScreen> {
   /// Turns a DioException into something a user can act on.
   String _friendlyError(Object e) {
     final text = e.toString();
+    // A 5xx used to print the whole DioException — a screenful of Mozilla docs
+    // links that says nothing. The server failed; say that.
+    if (text.contains('status code 500') ||
+        text.contains('status code 502') ||
+        text.contains('status code 503')) {
+      return 'Something went wrong on the server. Please try again — if it '
+          'keeps failing, the backend log has the reason.';
+    }
     if (text.contains('AUTH_MFA_INVALID') ||
         text.contains('did not match')) {
       return 'That code did not match. Check your phone\'s clock, then try the '
