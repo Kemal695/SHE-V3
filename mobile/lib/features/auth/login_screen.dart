@@ -74,7 +74,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({String? mfaCode}) async {
     if (!_formKey.currentState!.validate()) return;
 
     // Dismiss keyboard
@@ -89,18 +89,80 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       await ref.read(authServiceProvider).login(
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
+            mfaCode: mfaCode,
           );
       if (mounted) {
         // Use go (not push) so back button from dashboard exits app
         context.go('/dashboard');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = _parseError(e.toString());
-      });
+      final text = e.toString();
+
+      // The account has 2FA on and no code was sent. Ask for one instead of
+      // reporting "invalid password" — without this the user is locked out of
+      // their own account the moment they enable 2FA.
+      if (text.contains('AUTH_MFA_REQUIRED') && mfaCode == null) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          final code = await _askForMfaCode();
+          if (code != null && code.isNotEmpty) {
+            await _submit(mfaCode: code);
+            return;
+          }
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _errorMessage = text.contains('AUTH_MFA_INVALID')
+              ? 'That code did not match. Check your authenticator app and try '
+                  'the next code.'
+              : _parseError(text);
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Six-digit code prompt, shown only when the server says it is required.
+  Future<String?> _askForMfaCode() {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Two-factor authentication'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Enter the 6-digit code from your authenticator app.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: const InputDecoration(
+                labelText: '6-digit code',
+                counterText: '',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Sign in'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _parseError(String error) {
