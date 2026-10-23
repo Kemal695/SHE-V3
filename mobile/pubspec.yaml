@@ -23,6 +23,8 @@ dependencies:
   # authenticator app by hand, which users do not do — they type a random number
   # and the code is rejected.
   qr_flutter: ^4.1.0
+  # QR scanning for device claim codes (provisioning).
+  mobile_scanner: ^5.2.3
 
   # ---- State management ----
   flutter_riverpod: ^2.5.1
