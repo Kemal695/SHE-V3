@@ -27,6 +27,13 @@ static bool s_connected = false;
  * on every successful connect. */
 static uint32_t s_disconnect_count = 0;
 
+/* True while wifi_prov_mgr owns the STA connection — see app_wifi.h. */
+static bool s_provisioning_active = false;
+
+void app_wifi_set_provisioning_active(bool active) {
+    s_provisioning_active = active;
+}
+
 uint32_t app_wifi_disconnect_count(void) {
     return s_disconnect_count;
 }
@@ -34,10 +41,23 @@ uint32_t app_wifi_disconnect_count(void) {
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        /* wifi_prov_mgr starts the driver itself, and at that point no SSID is
+         * configured yet — esp_wifi_connect() would just fail with
+         * ESP_ERR_WIFI_SSID and emit no STA_DISCONNECTED event. Let the manager
+         * do the connecting while it owns the session. */
+        if (!s_provisioning_active) {
+            esp_wifi_connect();
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
         s_disconnect_count++;
+        if (s_provisioning_active) {
+            /* The provisioning manager is driving the connection and counting the
+             * failures itself. Racing it here (and blocking the event loop with
+             * the backoff below) is what left the board retrying forever instead
+             * of concluding that the join had failed. */
+            return;
+        }
         if (s_retry_count < MAX_RETRY) {
             /* F11 fix: exponential backoff — 500ms, 1s, 2s, 4s, 8s (cap 10s).
              * Gentler on the AP and on the event task than a tight retry loop. */
@@ -83,16 +103,29 @@ esp_err_t app_wifi_init(void) {
 }
 
 esp_err_t app_wifi_connect(void) {
-    /* Load creds from NVS */
-    nvs_handle_t h;
-    esp_err_t err = nvs_open("nvs.net80211", NVS_READONLY, &h);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "No Wi-Fi creds in NVS — device not provisioned");
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    /* Distinguish "no SSID stored at all" from "SSID stored, association
+     * failed". The two need opposite handling in main.c: the first means the
+     * device is not really provisioned, the second means the AP is down or the
+     * password is wrong.
+     *
+     * The previous check — nvs_open("nvs.net80211") — could not tell them
+     * apart. The Wi-Fi driver creates that namespace during esp_wifi_init(),
+     * so it opens successfully even on a board that has never been
+     * provisioned. The connect then fails inside the STA_START handler
+     * (esp_wifi_connect() -> ESP_ERR_WIFI_SSID, logged as "invalid ssid"), and
+     * that failure emits no STA_DISCONNECTED event, so WIFI_FAIL_BIT is never
+     * set and the caller eats the full 30s timeout with no idea why.
+     *
+     * esp_wifi_get_config() reports what the driver actually loaded, which is
+     * the honest answer. esp_wifi_start() has already re-applied the stored
+     * config synchronously by the time it returns. */
+    wifi_config_t conf = {0};
+    if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK && conf.sta.ssid[0] == '\0') {
+        ESP_LOGE(TAG, "No SSID configured — this device has no Wi-Fi credentials");
         return ESP_ERR_INVALID_STATE;
     }
-    nvs_close(h);
-
-    ESP_ERROR_CHECK(esp_wifi_start());
 
     /* Wait for connection or timeout (30s) */
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
