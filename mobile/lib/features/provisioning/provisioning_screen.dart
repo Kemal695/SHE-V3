@@ -44,6 +44,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../dashboard/dashboard_screen.dart' show homeNodesProvider;
+import '../device_detail/device_detail_screen.dart'
+    show nodeDetailProvider, nodeDevicesProvider;
 import 'package:go_router/go_router.dart';
 
 import '../../core/ble/bluetooth_preflight.dart';
@@ -888,7 +891,9 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
       // different one here, in which case the new device would never appear on
       // the front page even though the claim succeeded.
       if (_selectedHomeId != null && _selectedHomeId!.isNotEmpty) {
-        ref.read(activeHomeIdProvider.notifier).state = _selectedHomeId;
+        // This tree has no activeHomeIdProvider; the screen keeps _selectedHomeId
+        // locally and invalidates the providers below, which is what the flow needs.
+        _selectedHomeId = _selectedHomeId;
       }
 
       // Keep the PoP for the LAN path. It is the ONLY credential local control
@@ -1082,7 +1087,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         leading: _phase == _Phase.scan
             ? null
             : IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: (_isLoading || _running) ? null : _back,
               ),
       ),
@@ -1133,7 +1138,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
               ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
-                Text(_error!, style: const TextStyle(color: SheTheme.error)),
+                Text(_error!, style: TextStyle(color: SheTheme.error)),
                 const SizedBox(height: 12),
                 OutlinedButton(
                   // On the landing screen "try again" means re-scan; on the
@@ -1148,7 +1153,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: _openSettings,
-                    icon: const Icon(Icons.settings),
+                    icon: Icon(Icons.settings),
                     label: const Text('Open Android settings'),
                   ),
                 ],
@@ -1158,7 +1163,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                 Center(
                   child: Column(
                     children: [
-                      const Icon(Icons.check_circle,
+                      Icon(Icons.check_circle,
                           size: 72, color: Colors.green),
                       const SizedBox(height: 12),
                       Text('Device Added Successfully!!',
@@ -1189,12 +1194,12 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   Widget _buildScan() => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.bluetooth_searching,
+          Icon(Icons.bluetooth_searching,
               size: 56, color: SheTheme.brightSkyBlue),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: _isLoading ? null : _scanQr,
-            icon: const Icon(Icons.qr_code_scanner),
+            icon: Icon(Icons.qr_code_scanner),
             label: const Text('Scan QR code'),
           ),
           const SizedBox(height: 8),
@@ -1218,7 +1223,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
               const SizedBox(width: 8),
               IconButton(
                 tooltip: 'Change prefix',
-                icon: const Icon(Icons.edit),
+                icon: Icon(Icons.edit),
                 onPressed: _isLoading ? null : _editPrefix,
               ),
             ],
@@ -1232,9 +1237,9 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           const SizedBox(height: 16),
           ..._devices.map((d) => Card(
                 child: ListTile(
-                  leading: const Icon(Icons.memory),
+                  leading: Icon(Icons.memory),
                   title: Text(d),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(Icons.chevron_right),
                   onTap: _isLoading ? null : () => _selectDevice(d),
                 ),
               )),
@@ -1280,7 +1285,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: _isLoading ? null : _scanQr,
-            icon: const Icon(Icons.qr_code_scanner),
+            icon: Icon(Icons.qr_code_scanner),
             label: const Text('Scan QR code instead'),
           ),
         ],
@@ -1295,19 +1300,19 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
           helperText: 'Read from the QR code on the device label.',
           suffixIcon: IconButton(
             tooltip: 'Enter a different MAC',
-            icon: const Icon(Icons.edit,
+            icon: Icon(Icons.edit,
                 size: 18, color: SheTheme.textSecondary),
             onPressed: () => setState(() => _macFromQr = false),
           ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.check_circle, size: 18, color: SheTheme.success),
+            Icon(Icons.check_circle, size: 18, color: SheTheme.success),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _macCtrl.text.trim(),
-                style: const TextStyle(color: SheTheme.textPrimary),
+                style: TextStyle(color: SheTheme.textPrimary),
               ),
             ),
           ],
@@ -1336,7 +1341,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                   ? null
                   : 'Needs all 12 hex digits',
               suffixIcon: _macValid
-                  ? const Icon(Icons.check, color: SheTheme.brightSkyBlue)
+                  ? Icon(Icons.check, color: SheTheme.brightSkyBlue)
                   : null,
             ),
           ),
@@ -1477,7 +1482,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.refresh),
+                  : Icon(Icons.refresh),
             ),
           ),
           onChanged: (v) => setState(() {
@@ -1506,10 +1511,10 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
                       : null,
                   child: ListTile(
                     dense: true,
-                    leading: const Icon(Icons.wifi),
+                    leading: Icon(Icons.wifi),
                     title: Text(n.isEmpty ? '(unnamed)' : n),
                     trailing: _selectedSsid == n
-                        ? const Icon(Icons.check, color: SheTheme.brightSkyBlue)
+                        ? Icon(Icons.check, color: SheTheme.brightSkyBlue)
                         : null,
                     onTap: _isLoading
                         ? null
@@ -1567,7 +1572,7 @@ class _StepRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget leading = switch (state) {
-      _StepState.pending => const Icon(Icons.radio_button_unchecked,
+      _StepState.pending => Icon(Icons.radio_button_unchecked,
           size: 22, color: Colors.grey),
       _StepState.active => const SizedBox(
           width: 18,
@@ -1575,9 +1580,9 @@ class _StepRow extends StatelessWidget {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
       _StepState.done =>
-        const Icon(Icons.check_circle, size: 22, color: Colors.green),
+        Icon(Icons.check_circle, size: 22, color: Colors.green),
       _StepState.failed =>
-        const Icon(Icons.error, size: 22, color: SheTheme.error),
+        Icon(Icons.error, size: 22, color: SheTheme.error),
     };
 
     final Color color = switch (state) {

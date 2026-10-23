@@ -52,6 +52,19 @@ class SecureStorage {
 
   static Future<String?> getLocale() => _storage.read(key: _localeKey);
 
+  // ---- Per-node proof-of-possession ----
+  //
+  // The PoP is generated during provisioning and needed afterwards for local
+  // control, so it is kept per node id rather than in one slot.
+  static Future<void> saveNodePop(String nodeId, String pop) =>
+      _storage.write(key: 'node_pop_$nodeId', value: pop);
+
+  static Future<String?> getNodePop(String nodeId) =>
+      _storage.read(key: 'node_pop_$nodeId');
+
+  static Future<void> deleteNodePop(String nodeId) =>
+      _storage.delete(key: 'node_pop_$nodeId');
+
   // ---- Clear all (logout) ----
   static Future<void> clearAll() async {
     await _storage.delete(key: _refreshTokenKey);

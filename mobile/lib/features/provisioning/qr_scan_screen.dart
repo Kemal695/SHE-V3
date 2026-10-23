@@ -324,7 +324,7 @@ class _QrScanScreenState extends State<QrScanScreen>
       // Retry a couple of times instead of surfacing an error the user can do
       // nothing about. `_starting` is released BEFORE the retry: the `finally`
       // below only runs when this method actually returns, which is after it.
-      if (e.errorCode == MobileScannerErrorCode.controllerInitializing &&
+      if (e.errorCode == MobileScannerErrorCode.genericError &&
           _startRetries < 2) {
         _startRetries++;
         setState(() => _starting = false);
@@ -338,7 +338,7 @@ class _QrScanScreenState extends State<QrScanScreen>
             : _ScanStatus.cameraError;
         _message = e.errorCode == MobileScannerErrorCode.permissionDenied
             ? null
-            : 'Camera error: ${e.errorCode.message}';
+            : 'Camera error: camera unavailable';
       });
     } on Object catch (e) {
       if (!mounted) return;
@@ -522,7 +522,7 @@ class _QrScanScreenState extends State<QrScanScreen>
                   // No `scanWindow` — see the file header. Detection covers the
                   // whole preview; the frame below is a guide for the user.
                   onDetect: _onDetect,
-                  errorBuilder: _buildError,
+                  errorBuilder: (context, error, _) => _buildError(context, error),
                 ),
                 if (showFrame) ...[
                   Positioned(
@@ -633,7 +633,7 @@ class _QrScanScreenState extends State<QrScanScreen>
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _openSettings,
-                icon: const Icon(Icons.settings),
+                icon: Icon(Icons.settings),
                 label: const Text('Open Android settings'),
               ),
             ],
@@ -661,15 +661,15 @@ class _QrScanScreenState extends State<QrScanScreen>
                     ? 'Camera permission is needed to scan the QR code.\n'
                         'Allow the camera for this app in Android Settings, '
                         'then tap Try again.'
-                    : 'Camera error: ${error.errorCode.message}',
+                    : 'Camera error: camera unavailable',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: SheTheme.textPrimary),
+                style: TextStyle(color: SheTheme.textPrimary),
               ),
               if (denied) ...[
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: _openSettings,
-                  icon: const Icon(Icons.settings),
+                  icon: Icon(Icons.settings),
                   label: const Text('Open Android settings'),
                 ),
               ],
