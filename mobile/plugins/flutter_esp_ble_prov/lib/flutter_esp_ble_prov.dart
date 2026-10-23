@@ -11,14 +11,23 @@ class FlutterEspBleProv {
   /// permission_handler, which this app already depends on, so there is no
   /// platform-channel work and no Kotlin change.
   ///
+  /// [extra] takes Android permission names (the newer plugin's shape) and maps
+  /// the ones we know onto permission_handler; unknown entries are ignored
+  /// rather than failing the whole request.
+  ///
   /// Android 12+ splits Bluetooth into SCAN/CONNECT; location is still required
   /// for BLE scanning on Android 10 and below.
-  Future<bool> requestPermissions() async {
-    final results = await [
+  Future<bool> requestPermissions({List<String> extra = const []}) async {
+    final wanted = <ph.Permission>[
       ph.Permission.bluetoothScan,
       ph.Permission.bluetoothConnect,
       ph.Permission.locationWhenInUse,
-    ].request();
+    ];
+    if (extra.contains('android.permission.CAMERA')) {
+      wanted.add(ph.Permission.camera);
+    }
+
+    final results = await wanted.request();
 
     // Bluetooth permissions do not exist below Android 12 — those return
     // granted/denied-forever rather than a real answer, so judge on what matters:
