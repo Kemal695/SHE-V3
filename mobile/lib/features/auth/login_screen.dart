@@ -378,6 +378,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             // ---- Form ----
                             Form(
                               key: _formKey,
+                              // Without this, validation errors persist after the
+                              // user fixes the field — the screen showed
+                              // "Password required" and "must be at least 12
+                              // characters" while a 14-character password sat in
+                              // the box, which reads as "your password is wrong".
+                              autovalidateMode:
+                                  AutovalidateMode.onUserInteraction,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
