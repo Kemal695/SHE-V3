@@ -445,6 +445,23 @@ public class AuthServiceImpl implements AuthService {
                         "Account not found", 404));
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+
+        // A completed reset ALSO clears 2FA.
+        //
+        // Without this, someone who lost both their password and their phone is
+        // permanently locked out: the new password gets them to the 2FA prompt,
+        // which needs the device they no longer have. Resetting proves control of
+        // the email address, which is the same root of trust 2FA sits on, so the
+        // recovery path has to be able to remove the second factor too.
+        //
+        // Consequence to be aware of: whoever can receive the reset email can
+        // bypass 2FA. That is standard for email-based recovery, and it is why
+        // the reset link must be short-lived and single-use — both enforced here.
+        final boolean hadMfa = user.isMfaEnabled();
+        user.setMfaEnabled(false);
+        user.setTotpSecretEncrypted(null);
+        user.setTotpRecoveryCodes(null);
+
         userRepository.save(user);
 
         // Single use: consume it before anything else can.
@@ -452,7 +469,7 @@ public class AuthServiceImpl implements AuthService {
 
         auditService.record(tenant.getId(), "USER", user.getId(),
                 "auth.password_reset.completed", "user", user.getId(),
-                Map.of(), null, null, null);
+                Map.of("mfa_cleared", hadMfa), null, null, null);
     }
 
     /** Lower-case hex SHA-256 — used to key reset tokens without storing them. */
