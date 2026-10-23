@@ -133,7 +133,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  /// Six-digit code prompt, shown only when the server says it is required.
+  /// Code prompt shown only when the server says MFA is required.
+  ///
+  /// Accepts BOTH a 6-digit authenticator (TOTP) code and a 10-character
+  /// single-use recovery code — the server decides which one it is, so the
+  /// field must not be locked to a numeric keyboard or a 6-char limit. A user
+  /// who lost their phone relies on the recovery code path to get back in.
   Future<String?> _askForMfaCode() {
     final controller = TextEditingController();
     return showDialog<String>(
@@ -143,15 +148,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Enter the 6-digit code from your authenticator app.'),
+            const Text(
+              'Enter the 6-digit code from your authenticator app, or a '
+              '10-character recovery code if you no longer have the app.',
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
+              enableSuggestions: false,
+              maxLength: 16,
               decoration: const InputDecoration(
-                labelText: '6-digit code',
+                labelText: 'Code or recovery code',
                 counterText: '',
               ),
             ),

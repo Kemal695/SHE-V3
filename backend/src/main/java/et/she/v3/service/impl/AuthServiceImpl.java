@@ -224,7 +224,16 @@ public class AuthServiceImpl implements AuthService {
                 throw new SheException("AUTH_MFA_REQUIRED",
                         "MFA code required", 401);
             }
-            if (!totpService.verifyCode(secretOf(user), req.mfa_code())) {
+            String code = req.mfa_code().trim();
+            boolean totpOk = totpService.verifyCode(secretOf(user), code);
+            boolean recoveryOk = false;
+            if (!totpOk) {
+                // A 10-char recovery code is not a 6-digit TOTP, so verifyCode
+                // already returned false. Fall back to the single-use recovery
+                // list so a user who lost their phone can still get in.
+                recoveryOk = consumeRecoveryCode(user, code);
+            }
+            if (!totpOk && !recoveryOk) {
                 // A wrong code is a failed authentication attempt — count it, but a
                 // missing code (AUTH_MFA_REQUIRED above) is not.
                 recordFailedLogin(rateKey);
@@ -351,6 +360,62 @@ public class AuthServiceImpl implements AuthService {
         byte[] raw = user.getTotpSecretEncrypted();
         if (raw == null || raw.length == 0) return null;
         return new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Verify a single-use recovery code at login and CONSUME it (remove it from
+     * the stored list) so it can't be reused. Returns true only on a match.
+     *
+     * Recovery codes are 10-char alphanumeric (see TotpService.randomCode); they
+     * are stored in totp_recovery_codes as a JSON array of their SHA-256 (Base64)
+     * hashes. We hash the incoming code the same way and compare it against each
+     * stored hash; on a hit we drop that element and persist the shortened list.
+     * totp_recovery_codes is a JSONB column, but the stored value is a flat array
+     * of Base64 strings (no embedded quotes/escapes), so a lightweight manual
+     * parse is safe and avoids pulling in a JSON library here.
+     */
+    private boolean consumeRecoveryCode(User user, String code) {
+        String stored = user.getTotpRecoveryCodes();
+        if (stored == null || stored.isBlank()) return false;
+
+        // Recovery codes are uppercase; tolerate a lowercase typo.
+        String candidate = totpService.hashRecoveryCode(
+                code.toUpperCase(java.util.Locale.ROOT));
+
+        String inner = stored.trim();
+        if (inner.startsWith("[")) inner = inner.substring(1);
+        if (inner.endsWith("]")) inner = inner.substring(0, inner.length() - 1);
+        if (inner.isBlank()) return false;
+
+        String[] parts = inner.split("\",\"");
+        java.util.List<String> remaining = new java.util.ArrayList<>();
+        boolean matched = false;
+        for (String p : parts) {
+            String h = p.replace("\"", "").trim();
+            if (h.isEmpty()) continue;
+            if (h.equals(candidate)) {
+                matched = true;            // consume: leave it out of `remaining`
+            } else {
+                remaining.add(h);
+            }
+        }
+
+        if (matched) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < remaining.size(); i++) {
+                if (i > 0) sb.append(",");
+                sb.append("\"").append(remaining.get(i)).append("\"");
+            }
+            sb.append("]");
+            user.setTotpRecoveryCodes(sb.toString());
+            userRepository.save(user);
+            auditService.record(user.getTenantId(), "USER", user.getId(),
+                    "auth.login.mfa_recovery_used", "user", user.getId(),
+                    Map.of("email", user.getEmail(),
+                           "codes_remaining", remaining.size()),
+                    null, null, null);
+        }
+        return matched;
     }
 
     private User currentUser() {
