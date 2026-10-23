@@ -53,6 +53,10 @@ public class SecurityConfig {
                 .requestMatchers("/api/v3/auth/login", "/api/v3/auth/register",
                         "/api/v3/auth/oauth/**").permitAll()
                 .requestMatchers("/api/v3/auth/refresh").permitAll()
+                // Password reset must be reachable while signed OUT — the whole
+                // point is that the user cannot log in. Without this the endpoint
+                // answers 401 and the reset flow is unusable.
+                .requestMatchers("/api/v3/auth/password-reset/**").permitAll()
                 .requestMatchers("/api/v3/tenant/branding").permitAll()
                 // Uploaded images are read by unguessable id (see V41): a plain
                 // Image.network cannot reliably carry the JWT. Uploads (POST)
