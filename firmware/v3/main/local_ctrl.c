@@ -591,7 +591,6 @@ static esp_err_t handler_schedule_clear(httpd_req_t *req) {
 }
 
 /* ---- Register /she/info + /she/ctrl on a started server ---- */
-static esp_err_t register_uris(httpd_handle_t server) {
 static esp_err_t handler_reprovision(httpd_req_t *req) {
     /* Same PoP gate as the other control endpoints: wiping the Wi-Fi config is
      * exactly what an attacker on the LAN would want to do. */
@@ -613,6 +612,7 @@ static esp_err_t handler_reprovision(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_info = {
         .uri = "/she/info", .method = HTTP_GET, .handler = handler_info,
     };
