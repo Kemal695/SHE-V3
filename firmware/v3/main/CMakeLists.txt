@@ -25,9 +25,19 @@ idf_component_register(
         # Vendored Ed25519 verifier (see third_party/README.md for why and for checksums)
         "third_party/tweetnacl.c"
         "third_party/tweetnacl_port.c"
+        # Vendored QR generator (Espressif esp_qrcode + Nayuki qrcodegen) — prints
+        # the provisioning QR to the console. ble_provisioning.c includes
+        # "qrcode.h", which lives in third_party/qrcode (added to INCLUDE_DIRS
+        # below) — without both, the build fails with "qrcode.h: No such file".
+        "third_party/qrcode/qrcodegen.c"
+        "third_party/qrcode/esp_qrcode_main.c"
+        "third_party/qrcode/esp_qrcode_wrapper.c"
     INCLUDE_DIRS
         "."
         "third_party"
+        # Holds qrcode.h, and the esp_rmaker_utils.h shim that esp_qrcode_main.c
+        # needs in place of the RainMaker component.
+        "third_party/qrcode"
     REQUIRES
         nvs_flash
         esp_wifi
