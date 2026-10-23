@@ -322,12 +322,17 @@ void app_main(void) {
 #endif
 
 #if defined(CONFIG_SHE_R24)
-    /* ---- TEMPORARY BENCH TEST (remove once the relay wiring is confirmed) ----
-     * Walks all 24 channels ON/OFF one at a time, logging each channel with its
-     * expander address and pin. Runs BEFORE Wi-Fi/MQTT on purpose: the Wi-Fi path
-     * has been hanging on this board and the relay test must still work when it
-     * does. Watch/listen for 24 clicks in channel order. */
-    relay_selftest(400);
+    /* The boot-time relay self-test that used to live here has been removed.
+     *
+     * It was marked "TEMPORARY BENCH TEST (remove once the relay wiring is
+     * confirmed)" and walked all 24 channels ON/OFF before Wi-Fi came up, so
+     * every single boot clicked the relays for ~10 seconds — lights visibly
+     * flickered and sockets pulsed on power-up.
+     *
+     * relay_selftest() still exists and is still reachable on demand over MQTT
+     * ("relay_selftest" command in she_mqtt.c), which is where a bench check
+     * belongs: deliberate, not a side effect of rebooting.
+     */
 #endif
 
 #ifdef CONFIG_SHE_HAS_PZEM
