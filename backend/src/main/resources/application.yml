@@ -111,9 +111,14 @@ server:
 # Management / Actuator (V3-OPS-RUNBOOK §3.3)
 # =============================================================================
 management:
-  server:
-    port: ${MANAGEMENT_SERVER_PORT:9090}    # separate from main 8080
-    address: 0.0.0.0
+  # No separate management port: the actuator (health/info/prometheus/...) shares
+  # the application port. A separate port used to be set here (with address
+  # 0.0.0.0), but Spring forbids `management.server.address` unless the
+  # management server listens on its own port — and SecurityConfig already
+  # permitAll's /actuator/health on the main filter chain, so the intent was
+  # always for health to be reachable on the app port. Keeping it here would have
+  # left /actuator/health on the app port unmapped (NoResourceFoundException ->
+  # 500 from the catch-all handler) while the real endpoint sat on 9090.
   endpoints:
     enabled-by-default: false
     web:

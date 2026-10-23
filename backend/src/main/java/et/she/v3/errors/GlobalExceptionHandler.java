@@ -12,6 +12,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -72,6 +73,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public void illegalArg(IllegalArgumentException ex, HttpServletRequest req, HttpServletResponse resp) throws IOException {
         writeError(resp, req, "VALIDATION_FAILED", ex.getMessage(), 400, null);
+    }
+
+    /**
+     * Unmatched paths — a typo'd route, or /actuator/** struck on the main port
+     * when the management server runs on a separate port — resolve to a
+     * NoResourceFoundException in Spring 6 rather than a plain 404. Treat it as
+     * the 404 it is, NOT an INTERNAL_ERROR: otherwise the catch-all below masks
+     * ordinary routing misses as server errors (this is why /actuator/health on
+     * the main port used to return 500 instead of 404).
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public void noResource(NoResourceFoundException ex, HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        writeError(resp, req, "RESOURCE_NOT_FOUND", ex.getMessage(), 404, null);
     }
 
     // =========================================================================
