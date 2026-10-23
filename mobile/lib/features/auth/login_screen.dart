@@ -430,16 +430,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   const SizedBox(height: 10),
 
-                                  // Forgot password
+                                  // Forgot password — a real button, not a bare
+                                  // Text: a Text with a GestureDetector gives a
+                                  // tiny hit area and no affordance, and the user
+                                  // reported "there is no reset button".
                                   Align(
                                     alignment: Alignment.centerRight,
-                                    child: GestureDetector(
-                                      onTap: _isLoading ? null : _forgotPassword,
+                                    child: TextButton(
+                                      onPressed:
+                                          _isLoading ? null : _forgotPassword,
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        minimumSize: const Size(0, 36),
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.padded,
+                                      ),
                                       child: Text(
                                         'Forgot password?',
                                         style: TextStyle(
                                           fontSize: 13,
-                                          fontWeight: FontWeight.w500,
+                                          fontWeight: FontWeight.w600,
                                           color: p.primary,
                                         ),
                                       ),
