@@ -5,6 +5,7 @@
  * ==========================================================================*/
 
 #include "local_ctrl.h"
+#include "ble_provisioning.h"
 #include "she_mqtt.h"
 #include "relay_driver.h"     /* relay_set() / relay_save_state() for the offline control path */
 #include "input_monitor.h"    /* AC-feedback absolute light control — same path as online */
@@ -591,11 +592,37 @@ static esp_err_t handler_schedule_clear(httpd_req_t *req) {
 
 /* ---- Register /she/info + /she/ctrl on a started server ---- */
 static esp_err_t register_uris(httpd_handle_t server) {
+static esp_err_t handler_reprovision(httpd_req_t *req) {
+    /* Same PoP gate as the other control endpoints: wiping the Wi-Fi config is
+     * exactly what an attacker on the LAN would want to do. */
+    char pop_header[16] = {0};
+    size_t pop_len = httpd_req_get_hdr_value_len(req, "X-SHE-PoP");
+    if (pop_len > 0 && pop_len < sizeof(pop_header)) {
+        httpd_req_get_hdr_value_str(req, "X-SHE-PoP", pop_header, sizeof(pop_header));
+    }
+    if (!verify_pop(pop_header, strlen(pop_header))) {
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
+        return ESP_OK;
+    }
+
+    httpd_resp_sendstr(req, "{\"status\":\"reprovisioning\"}");
+    /* The reboot happens on a short delay inside ble_provisioning_reset(), so
+     * the response above reaches the caller before the radio goes down. */
+    ble_provisioning_reset();
+    return ESP_OK;
+}
+
     httpd_uri_t uri_info = {
         .uri = "/she/info", .method = HTTP_GET, .handler = handler_info,
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_info));
 
+    httpd_uri_t uri_reprov = {
+        .uri = "/she/reprovision", .method = HTTP_POST, .handler = handler_reprovision,
+        .user_ctx = NULL
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_reprov));
     httpd_uri_t uri_ctrl = {
         .uri = "/she/ctrl", .method = HTTP_POST, .handler = handler_ctrl,
     };

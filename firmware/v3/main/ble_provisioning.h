@@ -59,6 +59,18 @@ esp_err_t ble_provisioning_start(she_node_t *node);
  */
 bool ble_provisioning_is_provisioned(void);
 
+/**
+ * Erase the stored Wi-Fi credentials and reboot into provisioning mode.
+ *
+ * There is no serial port on the deployment box, so without this the only way
+ * back to provisioning is erasing NVS with a cable. Exposed to the LAN through
+ * POST /she/reprovision (PoP-protected) in local_ctrl.c.
+ *
+ * Does not return: the device restarts so app_main takes the "not provisioned"
+ * branch and starts BLE advertising again.
+ */
+esp_err_t ble_provisioning_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

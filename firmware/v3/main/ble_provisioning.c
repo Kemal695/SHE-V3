@@ -407,3 +407,31 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
      * nothing to act on. */
     return ESP_OK;
 }
+
+esp_err_t ble_provisioning_reset(void) {
+    ESP_LOGW(TAG, "reprovision requested — clearing Wi-Fi creds and the provisioned flag");
+
+    /* Wi-Fi credentials live in the default NVS partition and are owned by the
+     * provisioning manager, so they must be dropped through it rather than by
+     * erasing keys by hand. */
+    esp_err_t err = wifi_prov_mgr_reset_provisioning();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "wifi_prov_mgr_reset_provisioning: %s", esp_err_to_name(err));
+    }
+
+    /* ble_provisioning_is_provisioned() reads this flag, so it has to go too or
+     * the board would reboot and skip provisioning again. */
+    nvs_handle_t h;
+    if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_key(h, SHE_FCTRY_KEY_PROVISIONED);
+        nvs_commit(h);
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "could not open fctry partition to clear the flag");
+    }
+
+    ESP_LOGW(TAG, "rebooting into provisioning mode");
+    vTaskDelay(pdMS_TO_TICKS(1500));   /* let the HTTP response go out first */
+    esp_restart();
+    return ESP_OK;
+}
