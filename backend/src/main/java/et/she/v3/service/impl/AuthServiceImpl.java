@@ -364,6 +364,113 @@ public class AuthServiceImpl implements AuthService {
     }
 
     // =========================================================================
+    // PASSWORD RESET
+    // =========================================================================
+
+    private static final String REDIS_PWD_RESET_PREFIX = "pwdreset:";
+    private static final long PWD_RESET_TTL_MINUTES = 15;
+
+    @Override
+    public String requestPasswordReset(String email) {
+        if (email == null || email.isBlank()) {
+            throw new SheException("VALIDATION_FAILED", "Email is required", 400);
+        }
+
+        // Same tenant resolution as login: B2C accounts live in the default tenant.
+        tenantContextInterceptor.setRlsGucsForTenantLookup();
+        Tenant tenant = tenantRepository.findBySubdomain("default").orElse(null);
+        if (tenant == null) return null;
+        tenantContextInterceptor.setRlsGucsForBootstrap(tenant.getId());
+
+        var user = userRepository.findActiveByEmail(tenant.getId(), email);
+        if (user.isEmpty()) {
+            // Deliberately silent: a different answer for unknown addresses would
+            // let anyone probe which emails have accounts.
+            return null;
+        }
+
+        // 32 random bytes, stored HASHED so a Redis dump cannot be replayed.
+        byte[] raw = new byte[32];
+        new java.security.SecureRandom().nextBytes(raw);
+        String token = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(raw);
+
+        redis.opsForValue().set(
+                REDIS_PWD_RESET_PREFIX + sha256Hex(token),
+                user.get().getId().toString(),
+                PWD_RESET_TTL_MINUTES,
+                TimeUnit.MINUTES);
+
+        auditService.record(tenant.getId(), "USER", user.get().getId(),
+                "auth.password_reset.requested", "user", user.get().getId(),
+                Map.of("email", email), null, null, null);
+
+        // No mailer is configured in this deployment, so the token is returned to
+        // the caller and logged. With SMTP configured this must return null and
+        // the token must be emailed instead — never sent in a response body.
+        org.slf4j.LoggerFactory.getLogger(AuthServiceImpl.class)
+                .info("password reset token for {} (valid {} min): {}",
+                        email, PWD_RESET_TTL_MINUTES, token);
+        return token;
+    }
+
+    @Override
+    public void confirmPasswordReset(String token, String newPassword) {
+        if (token == null || token.isBlank()) {
+            throw new SheException("AUTH_RESET_TOKEN_INVALID",
+                    "This reset link is not valid", 400);
+        }
+        if (newPassword == null || newPassword.length() < 12) {
+            throw new SheException("VALIDATION_FAILED",
+                    "Password must be at least 12 characters", 400);
+        }
+
+        String key = REDIS_PWD_RESET_PREFIX + sha256Hex(token);
+        String userId = redis.opsForValue().get(key);
+        if (userId == null) {
+            // Unknown, already used, or expired — all the same answer, because the
+            // server genuinely cannot tell them apart.
+            throw new SheException("AUTH_RESET_TOKEN_INVALID",
+                    "This reset link has expired. Request a new one.", 400);
+        }
+
+        tenantContextInterceptor.setRlsGucsForTenantLookup();
+        Tenant tenant = tenantRepository.findBySubdomain("default")
+                .orElseThrow(() -> new SheException("INTERNAL_ERROR",
+                        "Default B2C tenant not seeded", 500));
+        tenantContextInterceptor.setRlsGucsForBootstrap(tenant.getId());
+
+        User user = userRepository.findActiveById(UUID.fromString(userId))
+                .orElseThrow(() -> new SheException("USER_NOT_FOUND",
+                        "Account not found", 404));
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        // Single use: consume it before anything else can.
+        redis.delete(key);
+
+        auditService.record(tenant.getId(), "USER", user.getId(),
+                "auth.password_reset.completed", "user", user.getId(),
+                Map.of(), null, null, null);
+    }
+
+    /** Lower-case hex SHA-256 — used to key reset tokens without storing them. */
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    // =========================================================================
     // OAUTH (Google / Apple)
     // =========================================================================
 

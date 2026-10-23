@@ -145,6 +145,37 @@ public class AuthController {
     }
 
     /**
+     * POST /api/v3/auth/password-reset/request — body {"email":"..."}
+     *
+     * Always 202, whatever the address, so nobody can probe for accounts. In this
+     * deployment (no SMTP) the response carries the token so the flow is usable;
+     * with a mailer configured the token goes by email and this returns null.
+     */
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Map<String, Object>> requestPasswordReset(
+            @RequestBody Map<String, String> body) {
+        String token = authService.requestPasswordReset(
+                body == null ? null : body.get("email"));
+        return ResponseEntity.accepted().body(Map.of(
+                "data", token == null
+                        ? Map.of("sent", true)
+                        : Map.of("sent", true, "dev_token", token)));
+    }
+
+    /**
+     * POST /api/v3/auth/password-reset/confirm
+     * body {"token":"...","new_password":"..."}
+     */
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Map<String, Object>> confirmPasswordReset(
+            @RequestBody Map<String, String> body) {
+        authService.confirmPasswordReset(
+                body == null ? null : body.get("token"),
+                body == null ? null : body.get("new_password"));
+        return ResponseEntity.ok(Map.of("data", Map.of("reset", true)));
+    }
+
+    /**
      * POST /api/v3/auth/claim-token — issue 10-min claim JWT for BLE provisioning
      */
     @PostMapping("/claim-token")

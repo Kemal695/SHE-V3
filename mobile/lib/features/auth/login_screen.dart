@@ -172,6 +172,98 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
+  /// Password reset: ask for the email, then set a new password.
+  ///
+  /// The server returns the reset token in the response because this deployment
+  /// has no mailer configured. With SMTP configured the token is emailed and the
+  /// response is empty — then this screen would say "check your email" and stop.
+  Future<void> _forgotPassword() async {
+    final email = await _promptText(
+      title: 'Reset your password',
+      label: 'Email',
+      initial: _emailCtrl.text.trim(),
+      keyboard: TextInputType.emailAddress,
+      hint: 'The email you signed up with',
+    );
+    if (email == null || email.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final token = await ref.read(authServiceProvider).requestPasswordReset(email);
+      if (!mounted) return;
+
+      if (token == null) {
+        // Emailed (or the address is unknown — the server does not say which).
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('If that email has an account, a reset link is on its way.'),
+          ),
+        );
+        return;
+      }
+
+      final newPassword = await _promptText(
+        title: 'Choose a new password',
+        label: 'New password',
+        obscure: true,
+        hint: 'At least 12 characters',
+      );
+      if (newPassword == null || newPassword.isEmpty) return;
+      if (newPassword.length < 12) {
+        if (!mounted) return;
+        setState(() => _errorMessage = 'Password must be at least 12 characters');
+        return;
+      }
+
+      await ref.read(authServiceProvider).confirmPasswordReset(token, newPassword);
+      if (!mounted) return;
+      _passwordCtrl.text = newPassword;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password changed — you can sign in now.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = apiErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// One-field prompt, used by the reset flow.
+  Future<String?> _promptText({
+    required String title,
+    required String label,
+    String initial = '',
+    String? hint,
+    bool obscure = false,
+    TextInputType? keyboard,
+  }) {
+    final controller = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: obscure,
+          keyboardType: keyboard,
+          decoration: InputDecoration(labelText: label, helperText: hint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _parseError(String error) {
     if (error.contains('401')) return 'Invalid email or password';
     if (error.contains('429')) return 'Too many attempts. Try again later.';
@@ -338,15 +430,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   const SizedBox(height: 10),
 
-                                  // Forgot password (inert — no reset flow yet)
+                                  // Forgot password
                                   Align(
                                     alignment: Alignment.centerRight,
-                                    child: Text(
-                                      'Forgot password?',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                        color: p.primary,
+                                    child: GestureDetector(
+                                      onTap: _isLoading ? null : _forgotPassword,
+                                      child: Text(
+                                        'Forgot password?',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: p.primary,
+                                        ),
                                       ),
                                     ),
                                   ),

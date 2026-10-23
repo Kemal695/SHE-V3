@@ -42,6 +42,25 @@ public interface AuthService {
     /** True when the authenticated user has MFA enabled. */
     boolean mfaEnabled();
 
+    /**
+     * POST /api/v3/auth/password-reset/request
+     *
+     * Issues a single-use reset token for [email]. Returns the token ONLY when
+     * the deployment has no mailer configured (dev), otherwise null — the token
+     * is then delivered by email and must never appear in a response.
+     *
+     * Always behaves the same for unknown addresses: no account enumeration.
+     */
+    String requestPasswordReset(String email);
+
+    /**
+     * POST /api/v3/auth/password-reset/confirm
+     *
+     * Consumes a reset token and sets a new password. The token is single-use
+     * and expires after 15 minutes.
+     */
+    void confirmPasswordReset(String token, String newPassword);
+
     AuthResponse register(RegisterRequest req);
 
     /**

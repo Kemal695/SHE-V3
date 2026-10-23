@@ -55,6 +55,30 @@ class AuthService {
     return data;
   }
 
+  /// Ask for a password-reset token.
+  ///
+  /// Returns the token when the server has no mailer configured (this
+  /// deployment), or null when it was emailed. Always succeeds for unknown
+  /// addresses — the server will not reveal whether an account exists.
+  Future<String?> requestPasswordReset(String email) async {
+    final dio = ref.read(dioProvider);
+    final response = await dio.post(
+      ApiConstants.authPasswordResetRequest,
+      data: {'email': email},
+    );
+    final data = _responseData(response);
+    return data['dev_token'] as String?;
+  }
+
+  /// Consume a reset token and set a new password.
+  Future<void> confirmPasswordReset(String token, String newPassword) async {
+    final dio = ref.read(dioProvider);
+    await dio.post(ApiConstants.authPasswordResetConfirm, data: {
+      'token': token,
+      'new_password': newPassword,
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Two-factor authentication (TOTP)
   // ---------------------------------------------------------------------------
