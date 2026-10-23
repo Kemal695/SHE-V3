@@ -28,6 +28,18 @@ public interface NodeRepository extends JpaRepository<Node, UUID> {
     @Query("SELECT n FROM Node n WHERE n.normalizedMac = :mac AND n.deletedAt IS NULL")
     Optional<Node> findByNormalizedMac(@Param("mac") String mac);
 
+    /**
+     * Same lookup IGNORING the soft-delete flag.
+     *
+     * `nodes_mac_address_key` and `nodes_normalized_mac_key` are unique over ALL
+     * rows, including soft-deleted ones, so a board the user removed from the
+     * app still occupies them. Claiming it again misses the live lookup, falls
+     * into the "create it" branch and dies on the duplicate key with a 500.
+     * The caller revives the row instead.
+     */
+    @Query("SELECT n FROM Node n WHERE n.normalizedMac = :mac")
+    Optional<Node> findByNormalizedMacIncludingDeleted(@Param("mac") String mac);
+
     @Query("SELECT n FROM Node n WHERE n.certFingerprint = :fp AND n.deletedAt IS NULL")
     Optional<Node> findByCertFingerprint(@Param("fp") String fp);
 

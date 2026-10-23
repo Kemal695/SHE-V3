@@ -125,10 +125,28 @@ public class NodeServiceImpl implements NodeService {
         tenantContextInterceptor.setRlsGucs(UUID.fromString("00000000-0000-0000-0000-000000000000"), true);
 
         Optional<Node> nodeOpt = nodeRepository.findByNormalizedMac(normalizedMac);
+
+        // A node the user removed from the app is only SOFT-deleted: the row stays
+        // in `nodes` and keeps occupying the unique indexes nodes_mac_address_key
+        // and nodes_normalized_mac_key. findByNormalizedMac filters `deleted_at IS
+        // NULL`, so re-adding that same physical board used to miss here, fall
+        // through to the "create it" branch below, and die on the duplicate key
+        // with an HTTP 500 (GlobalExceptionHandler catch-all) — which the app
+        // reports as "Could not add the device to your account". Look it up again
+        // ignoring the flag and revive the row instead.
+        boolean wasRemoved = false;
+        if (nodeOpt.isEmpty()) {
+            nodeOpt = nodeRepository.findByNormalizedMacIncludingDeleted(normalizedMac);
+            wasRemoved = nodeOpt.isPresent();
+        }
+
         Node node;
         if (nodeOpt.isPresent()) {
             node = nodeOpt.get();
-            if (node.getTenantId() != null && !node.getTenantId().equals(user.tenantId())) {
+            // The "taken by another tenant" guard only applies to a LIVE row. A
+            // device the owner removed is free to be claimed again — by anyone.
+            if (!wasRemoved && node.getTenantId() != null
+                    && !node.getTenantId().equals(user.tenantId())) {
                 throw new SheException("CONFLICT_DEVICE_MAC_TAKEN",
                         "Device already claimed by another tenant", 409);
             }
@@ -136,6 +154,11 @@ public class NodeServiceImpl implements NodeService {
             node.setTenantId(user.tenantId());
             node.setHomeId(homeId);
             node.setProvisionedAt(Instant.now());
+            // A revived (soft-deleted) node must have its tombstone cleared or it
+            // stays invisible — every list/lookup query filters `deleted_at IS
+            // NULL`. Setting null when it was already null is a no-op, so this is
+            // safe for the normal live-unclaimed claim path too.
+            node.setDeletedAt(null);
             nodeRepository.save(node);
             log.info("Node claimed: nodeId={} tenant={} user={}", node.getNodeId(), user.tenantId(), user.email());
         } else {
