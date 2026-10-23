@@ -202,18 +202,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         return;
       }
 
-      final newPassword = await _promptText(
-        title: 'Choose a new password',
-        label: 'New password',
-        obscure: true,
-        hint: 'At least 12 characters',
-      );
+      final newPassword = await _promptNewPassword();
       if (newPassword == null || newPassword.isEmpty) return;
-      if (newPassword.length < 12) {
-        if (!mounted) return;
-        setState(() => _errorMessage = 'Password must be at least 12 characters');
-        return;
-      }
 
       await ref.read(authServiceProvider).confirmPasswordReset(token, newPassword);
       if (!mounted) return;
@@ -227,6 +217,91 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// New password prompt — asked TWICE.
+  ///
+  /// A single field means a typo becomes a password nobody knows, which is the
+  /// same dead end the user is already in. The dialog validates in place (length,
+  /// policy, match) so the mistake is visible before the request is sent.
+  Future<String?> _promptNewPassword() {
+    final first = TextEditingController();
+    final second = TextEditingController();
+    String? localError;
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Choose a new password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: first,
+                autofocus: true,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+              ),
+              TextField(
+                controller: second,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm password'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'At least 12 characters, with uppercase, lowercase, a number '
+                'and a symbol.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: V3Colors.textSecondary,
+                ),
+              ),
+              if (localError != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  localError!,
+                  style: TextStyle(fontSize: 12, color: V3Colors.error),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final a = first.text;
+                final b = second.text;
+                String? problem;
+                if (a.length < 12) {
+                  problem = 'Password must be at least 12 characters';
+                } else if (!RegExp(r'[A-Z]').hasMatch(a)) {
+                  problem = 'Password must contain an uppercase letter';
+                } else if (!RegExp(r'[a-z]').hasMatch(a)) {
+                  problem = 'Password must contain a lowercase letter';
+                } else if (!RegExp(r'\d').hasMatch(a)) {
+                  problem = 'Password must contain a number';
+                } else if (!RegExp(r'[^A-Za-z0-9]').hasMatch(a)) {
+                  problem = 'Password must contain a symbol';
+                } else if (a != b) {
+                  problem = 'The two passwords do not match';
+                }
+                if (problem != null) {
+                  setDialogState(() => localError = problem);
+                  return;
+                }
+                Navigator.of(dialogContext).pop(a);
+              },
+              child: const Text('Set password'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// One-field prompt, used by the reset flow.
