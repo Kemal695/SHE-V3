@@ -9,18 +9,22 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.Vibrator
 import android.util.Log
 import com.k2fsa.sherpa.onnx.KeywordSpotter
 import com.k2fsa.sherpa.onnx.OnlineStream
 
 /**
- * Robi wake word — foreground service (Phase 4, sherpa-onnx KWS).
+ * Robi wake word — foreground service (Phase 4, sherpa-onnx KWS; Phase 5 route
+ * decision lives in RobiWakeListener.kt).
  *
  * See docs/robi-phase4-wake-word.md.
  *
@@ -45,7 +49,12 @@ class RobiWakeService : Service() {
 
     companion object {
         private const val TAG = "RobiWake"
-        private const val CHANNEL_ID = "robi_wake"
+        /**
+         * v2: Android IGNORES an importance change on an existing channel, so the
+         * old `IMPORTANCE_LOW` channel could never be made visible on the lock
+         * screen. A fresh id is the only way to apply the new DEFAULT importance.
+         */
+        private const val CHANNEL_ID = "robi_wake_v2"
         private const val NOTIFICATION_ID = 4201
 
         /**
@@ -110,6 +119,17 @@ class RobiWakeService : Service() {
         @Volatile
         private var continuousMode = false
 
+        /**
+         * True when the detector is (or was last started) holding the
+         * microphone. The Settings tile reads this so its switch reflects the
+         * SERVICE, not a widget-local flag that resets to false whenever the
+         * screen is reopened — which made the tile show "armed" while the
+         * detector was actually listening, and made the next toggle silently
+         * switch continuous detection off.
+         */
+        val continuous: Boolean
+            get() = continuousMode
+
         /** Deliver an event that did not originate in this service (e.g. a tap). */
         fun postEvent(event: String, detail: String?) {
             for (l in listeners.toList()) {
@@ -126,6 +146,9 @@ class RobiWakeService : Service() {
     private var stream: OnlineStream? = null
     private var recorder: AudioRecord? = null
     private var worker: Thread? = null
+
+    /** Reused beeper for the "heard you" cue; released in onDestroy(). */
+    private var tone: ToneGenerator? = null
 
     @Volatile
     private var listening = false
@@ -226,6 +249,17 @@ class RobiWakeService : Service() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         stopDetector()
+        // Release the reused KeywordSpotter (Plan §D.11 step 2) on the way out.
+        try {
+            spotter?.release()
+        } catch (_: Throwable) {
+        }
+        spotter = null
+        try {
+            tone?.release()
+        } catch (_: Throwable) {
+        }
+        tone = null
         running = false
         emit("stopped", null)
         super.onDestroy()
@@ -237,8 +271,10 @@ class RobiWakeService : Service() {
         if (listening) return
 
         try {
-            val s = RobiKws.create(this)
-            spotter = s
+            // Reuse the loaded KeywordSpotter across wake cycles (Plan §D.11 step
+            // 2) so the ~5 MB model is not reloaded and re-initialised on every
+            // wake. Only the per-session stream is recreated.
+            val s = spotter ?: RobiKws.create(this).also { spotter = it }
             val st = s.createStream() // keywords come from keywords.txt
             stream = st
 
@@ -249,18 +285,15 @@ class RobiWakeService : Service() {
             )
             val bufSize = if (minBuf > 0) minBuf * 2 else 8192
 
-            val rec = AudioRecord(
-                // VOICE_RECOGNITION enables the platform's speech pre-processing
-                // (noise suppression / AGC) where the device supports it.
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufSize,
-            )
-
-            if (rec.state != AudioRecord.STATE_INITIALIZED) {
-                rec.release()
+            // RAW microphone, NOT VOICE_RECOGNITION. The platform's speech
+            // pre-processing (AGC + noise suppression) on VOICE_RECOGNITION made
+            // the capture level swing with the room: in a quiet room its gain sat
+            // low and "Hey Robi" was recorded too quietly to spot (missed wake);
+            // in a noisy room it cranked the gain up and the same phrase fired.
+            // We capture raw and normalise the level ourselves (the AGC in the
+            // worker loop) so the keyword spotter sees a consistent signal in
+            // EVERY condition — quiet room, noise, or echo.
+            val rec = createRawRecorder(bufSize) ?: run {
                 // Another app (a call, another assistant) owns the microphone.
                 emit("error", "microphone_busy")
                 return
@@ -273,13 +306,48 @@ class RobiWakeService : Service() {
             worker = Thread {
                 val pcm = ShortArray(1600) // 100 ms at 16 kHz
                 val samples = FloatArray(pcm.size)
+                // Our own level normalisation (AGC) — replaces the platform AGC we
+                // just removed. Brings every frame to a fixed RMS so the keyword
+                // score is independent of room loudness, mic distance, or noise.
+                var agcGain = 3.0f
+                val AGC_TARGET = 0.10f
+                val AGC_MIN = 1.0f
+                val AGC_MAX = 14.0f
+                var frameCount = 0
                 try {
                     while (listening) {
                         val n = rec.read(pcm, 0, pcm.size)
                         if (n <= 0) continue
+                        var sumSq = 0.0f
                         for (i in 0 until n) {
-                            // sherpa-onnx expects normalised floats in [-1, 1].
-                            samples[i] = pcm[i] / 32768.0f
+                            val raw = pcm[i] / 32768.0f
+                            sumSq += raw * raw
+                        }
+                        val rms = kotlin.math.sqrt(sumSq / n)
+                        // Desired gain to drive this frame to the target RMS,
+                        // clamped so we never wildly amplify silence or deafen
+                        // on loud input.
+                        val desired = if (rms > 1e-4f) {
+                            (AGC_TARGET / rms).coerceIn(AGC_MIN, AGC_MAX)
+                        } else {
+                            AGC_MIN
+                        }
+                        // Smooth so the gain does not jump between 100 ms frames.
+                        agcGain = agcGain * 0.6f + desired * 0.4f
+                        for (i in 0 until n) {
+                            var v = (pcm[i] / 32768.0f) * agcGain
+                            if (v > 1.0f) v = 1.0f else if (v < -1.0f) v = -1.0f
+                            samples[i] = v
+                        }
+                        // ~1 Hz level report — confirms we feed the spotter a sane,
+                        // steady signal (and are not amplifying silence).
+                        if (++frameCount % 10 == 0) {
+                            Log.e(
+                                TAG,
+                                "kws level rms=" +
+                                    String.format("%.4f", rms) +
+                                    " gain=" + String.format("%.2f", agcGain),
+                            )
                         }
                         st.acceptWaveform(samples.copyOf(n), SAMPLE_RATE)
                         while (s.isReady(st)) {
@@ -287,9 +355,13 @@ class RobiWakeService : Service() {
                         }
                         val keyword = s.getResult(st).keyword
                         if (keyword.isNotBlank()) {
-                            // Log.e, not Log.d: this project's R8 config deletes
-                            // Log.v/d/i from release builds.
-                            Log.e(TAG, "kws matched: '$keyword'")
+                            // Log.e, not Log.d: R8 deletes Log.v/d/i in release.
+                            Log.e(
+                                TAG,
+                                "kws matched: '$keyword' rms=" +
+                                    String.format("%.4f", rms) +
+                                    " gain=" + String.format("%.2f", agcGain),
+                            )
                             s.reset(st)
                             onWake()
                         }
@@ -307,6 +379,40 @@ class RobiWakeService : Service() {
         }
     }
 
+    /**
+     * Open a RAW microphone recorder with no platform AGC / noise suppression, so
+     * the wake-word capture level is predictable across rooms. Tries UNPROCESSED
+     * (cleanest, API 29+) first, then falls back to MIC. Returns null if neither
+     * could be initialised — i.e. the microphone is owned by a call / another app.
+     */
+    private fun createRawRecorder(bufSize: Int): AudioRecord? {
+        val candidates = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            arrayOf(
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.MIC,
+            )
+        } else {
+            arrayOf(MediaRecorder.AudioSource.MIC)
+        }
+        for (src in candidates) {
+            val rec = try {
+                AudioRecord(
+                    src,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufSize,
+                )
+            } catch (t: Throwable) {
+                Log.e(TAG, "createRawRecorder src=$src failed", t)
+                null
+            }
+            if (rec != null && rec.state == AudioRecord.STATE_INITIALIZED) return rec
+            rec?.release()
+        }
+        return null
+    }
+
     private fun onWake() {
         // Runs on the main thread: stopDetector() joins the audio worker, and
         // this method is CALLED FROM that worker — joining itself would stall
@@ -316,7 +422,15 @@ class RobiWakeService : Service() {
             // a recognizer within ~200 ms of the event and the mic is exclusive,
             // so emitting first made the command session race the detector.
             stopDetector()
-            emit("hey_robi", null)
+            // Immediate "I heard you" cue — ONLY when no window can be shown
+            // (locked / another app in front). In the foreground the voice screen
+            // itself is the cue, and a beep there could be captured by the
+            // recognizer that is about to open the mic.
+            if (!RobiWakeListener.isAppForeground(this)) cueHeard()
+            // Route the wake natively (Plan §D.11 / §F.1): foreground -> open the
+            // voice screen, background -> let Dart run headless. The Dart
+            // RobiWakeListener still re-checks visibility as a safety net.
+            RobiWakeListener.routeWake(this)
             updateNotification("Heard \"Hey Robi\" — listening for your command")
             // NO timer here. The session resumes the detector when it closes
             // (ACTION_RESUME). Re-arming on a timer is what stole the mic back
@@ -324,10 +438,40 @@ class RobiWakeService : Service() {
         }
     }
 
+    /**
+     * Audible + tactile acknowledgement that "Hey Robi" was heard.
+     *
+     * Beep on the notification stream (muted in silent mode), plus a brief
+     * vibration that still fires when the phone is silenced — so there is a sign
+     * the assistant is working even with the screen locked and dark.
+     */
+    private fun cueHeard() {
+        try {
+            val t = tone ?: ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90)
+                .also { tone = it }
+            t.startTone(ToneGenerator.TONE_PROP_BEEP, 180)
+        } catch (t: Throwable) {
+            Log.w(TAG, "beep failed", t)
+        }
+        try {
+            @Suppress("DEPRECATION")
+            val v = getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
+            if (v != null && v.hasVibrator()) {
+                @Suppress("DEPRECATION")
+                v.vibrate(140)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "vibrate failed", t)
+        }
+    }
+
     private fun stopDetector() {
         listening = false
+        // 200 ms, not 400: the worker reads in 100 ms chunks and exits on the
+        // next loop, so 200 ms is plenty — and every millisecond here is wake
+        // latency the user feels.
         try {
-            worker?.join(400)
+            worker?.join(200)
         } catch (_: InterruptedException) {
         }
         worker = null
@@ -345,11 +489,8 @@ class RobiWakeService : Service() {
         } catch (_: Throwable) {
         }
         stream = null
-        try {
-            spotter?.release()
-        } catch (_: Throwable) {
-        }
-        spotter = null
+        // Do NOT release the KeywordSpotter here: it is reused across detector
+        // cycles (Plan §D.11 step 2). It is released once in onDestroy().
     }
 
     // ---- notification ------------------------------------------------------
@@ -365,12 +506,26 @@ class RobiWakeService : Service() {
                 NotificationChannel(
                     CHANNEL_ID,
                     "Robi wake word",
-                    NotificationManager.IMPORTANCE_LOW, // silent, no heads-up
+                    // DEFAULT, not LOW: LOW is hidden on many lock screens, which
+                    // is exactly why the user saw "no sign". The channel is still
+                    // silent (no per-update sound); the one-time "heard you" cue
+                    // is played explicitly in cueHeard().
+                    NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply {
                     description = "Keeps Robi available for voice commands."
                     setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                    // Show the actual text on the lock screen instead of
+                    // "Contents hidden".
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
             )
+            // Retire the old silent channel so it does not linger in Settings.
+            try {
+                manager.deleteNotificationChannel("robi_wake")
+            } catch (_: Throwable) {
+            }
         }
 
         val notification = buildNotification(text)
@@ -420,10 +575,15 @@ class RobiWakeService : Service() {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setContentIntent(open)
+            // Make the status text readable on the lock screen — the only
+            // feedback available when no window can be shown.
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setPriority(Notification.PRIORITY_DEFAULT)
             .build()
     }
 
-    private fun emit(event: String, detail: String?) {
+    internal fun emit(event: String, detail: String?) {
         // Copy before iterating: a listener may unsubscribe while we dispatch.
         for (l in listeners.toList()) {
             try {

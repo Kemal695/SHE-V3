@@ -198,6 +198,12 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
               onTap: () => context.push('/voice'),
             ),
             _MenuTile(
+              icon: Icons.list_alt_outlined,
+              title: 'Voice commands',
+              subtitle: 'See everything you can say to Robi',
+              onTap: () => context.push('/voice-commands'),
+            ),
+            _MenuTile(
               icon: Icons.add_circle_outline,
               title: l?.addDevice ?? 'Add Device',
               subtitle: 'Pair a new board over Bluetooth',

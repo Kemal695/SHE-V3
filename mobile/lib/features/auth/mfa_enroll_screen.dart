@@ -5,7 +5,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/network/api_error.dart';
 import '../../core/theme/v3_design_tokens.dart';
-import '../../core/voice/voice_log.dart';
 import 'auth_service.dart';
 
 /// Two-factor authentication (TOTP) enrolment and management.

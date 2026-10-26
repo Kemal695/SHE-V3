@@ -55,10 +55,16 @@ class _RobiWakeTileState extends State<RobiWakeTile> {
       setState(() => _state = RobiWakeState.off);
       return;
     }
-    // `armed` (notification only) unless the user explicitly turned continuous
-    // detection on — see RobiWakePhase.armed.
+    // Read the SERVICE's real continuous state. `_continuous` is widget-local
+    // and resets to false whenever Settings is reopened; trusting it showed
+    // "armed" (and the sub-switch OFF) while the detector was actually holding
+    // the microphone, and the next main-switch toggle then silently disabled
+    // continuous detection.
+    final continuous = await robiWake.isContinuous();
+    if (!mounted) return;
     setState(() {
-      _state = _continuous
+      _continuous = continuous;
+      _state = continuous
           ? const RobiWakeState(RobiWakePhase.listening)
           : const RobiWakeState(RobiWakePhase.armed);
     });

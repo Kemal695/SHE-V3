@@ -17,6 +17,11 @@ import '../auth/auth_service.dart';
 import 'server_settings_dialog.dart';
 import '../../routing/app_router.dart';
 
+/// Voice recognition language: null = auto (follow the UI locale), 'en', 'am'.
+/// Separate from the UI locale so someone can read Amharic but speak English.
+final _voiceLocaleProvider =
+    FutureProvider<String?>((ref) => SecureStorage.getVoiceLocale());
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -85,6 +90,29 @@ class SettingsScreen extends ConsumerWidget {
                     ? 'አማርኛ (Amharic)' : 'English'),
                 trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
                 onTap: () => _showLanguageDialog(context, ref),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: V3Colors.primary.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(V3Radius.full),
+                  ),
+                  child:  Icon(Icons.record_voice_over, color: V3Colors.primary, size: 20),
+                ),
+                title: const Text('Voice language'),
+                subtitle: ref.watch(_voiceLocaleProvider).when(
+                      loading: () => const Text('…'),
+                      error: (_, __) =>
+                          const Text('Auto (follow app language)'),
+                      data: (v) => Text(v == 'en'
+                          ? 'English'
+                          : v == 'am'
+                              ? 'አማርኛ (Amharic)'
+                              : 'Auto (follow app language)'),
+                    ),
+                trailing:  Icon(Icons.chevron_right, color: V3Colors.textSecondary),
+                onTap: () => _showVoiceLanguageDialog(context, ref),
               ),
               ListTile(
                 leading: Container(
@@ -237,6 +265,48 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showVoiceLanguageDialog(BuildContext context, WidgetRef ref) {
+    final current = ref.read(_voiceLocaleProvider).valueOrNull;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        Widget check(bool on) => on
+            ? Icon(Icons.check, color: V3Colors.primary)
+            : const SizedBox.shrink();
+        Future<void> choose(String? value) async {
+          await SecureStorage.saveVoiceLocale(value);
+          ref.invalidate(_voiceLocaleProvider);
+          if (dialogContext.mounted) Navigator.pop(dialogContext);
+        }
+
+        return AlertDialog(
+          title: const Text('Voice language'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text('Auto (follow app language)'),
+                leading: check(current == null),
+                onTap: () => choose(null),
+              ),
+              ListTile(
+                title: const Text('English'),
+                leading: check(current == 'en'),
+                onTap: () => choose('en'),
+              ),
+              ListTile(
+                title: const Text('አማርኛ (Amharic)'),
+                leading: check(current == 'am'),
+                onTap: () => choose('am'),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

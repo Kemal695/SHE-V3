@@ -22,7 +22,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
 import '../../core/voice/robi_wake.dart';
-import '../../core/voice/voice_log.dart';
+import '../robi/application/command_executor.dart';
+import '../robi/data/robi_tts.dart';
+import '../robi/data/voice_diagnostics.dart';
 import '../../core/voice/wake_phrase.dart';
 import '../device_detail/node_service.dart';
 import 'voice_intent.dart';
@@ -50,6 +52,10 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
   VoicePhase _phase = VoicePhase.initializing;
   String? _transcript;
+
+  /// Every hypothesis the recognizer offered for the current utterance, best
+  /// first. Parsed together so a mangled top guess does not lose the command.
+  List<String> _lastHypotheses = const [];
   VoiceIntent? _intent;
   String? _message;
   String _homeId = '00000000-0000-0000-0000-000000000001';
@@ -68,9 +74,26 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// True when the wake word opened this session (no button to release).
   bool _wakeSession = false;
 
+  /// Set when the user pressed "Stop listening", so the UI can say so instead of
+  /// claiming nothing was heard.
+  bool _userStopped = false;
+
   /// Guards the partial-result barge-in against restarting twice for the same
   /// utterance (partials arrive repeatedly).
   bool _bargingIn = false;
+
+  /// How many times a wake session has re-opened the recognizer because its
+  /// final was only the tail of "Hey Robi" (see [isWakeEcho]).
+  ///
+  /// The keyword detector fires on the LAST syllable of the phrase, so the
+  /// recognizer opens ~200 ms later and its first final is usually the tail
+  /// ("he's", "hey", "yes"). Acting on that ended the session before the user
+  /// had even started their command — measured on the LE6 as
+  /// `recognizerFinal="he's"` followed by "I didn't understand it". Bounded at
+  /// [_maxWakeRetries] so a noisy room cannot hold the microphone open.
+  int _wakeRetries = 0;
+
+  static const int _maxWakeRetries = 1;
 
   /// Hard stop for a wake session.
   ///
@@ -79,6 +102,13 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// the recognizer never calls back and the screen sits on "Listening…"
   /// forever. This guarantees the UI returns to a usable state.
   Timer? _sessionWatchdog;
+
+  /// Backstop for a recognizer that never calls back.
+  ///
+  /// [_sessionWatchdog] only covers the UI; this one FORCE-CANCELS the
+  /// recognizer, because on this device `SpeechListenOptions.listenFor` is not
+  /// honoured (measured: 17-minute sessions that never released the mic).
+  Timer? _hardStop;
 
   /// Last few pipeline events, shown on screen (see the diagnostics block).
   final List<String> _diag = [];
@@ -106,6 +136,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   @override
   void dispose() {
     _sessionWatchdog?.cancel();
+    _hardStop?.cancel();
     // Hand the mic back so the wake word works again after this screen closes.
     unawaited(robiWake.resume());
     _pulseController.dispose();
@@ -115,7 +146,12 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     super.dispose();
   }
 
-  Future<void> _bootstrap() async {
+  /// Resolve the real home id in the BACKGROUND.
+  ///
+  /// Never awaited before the microphone opens: it is an API call, and the user
+  /// is already speaking by the time it returns (the LE6 log showed the
+  /// recognizer opening ~1 s after the wake word and reporting "no speech").
+  Future<void> _resolveHome() async {
     try {
       final homes = await ref.read(nodeServiceProvider).listHomes();
       if (homes.isNotEmpty) {
@@ -126,9 +162,11 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
         if (id != null && id.isNotEmpty) _homeId = id;
       }
     } catch (_) {
-      // Keep the placeholder home; the probe below is independent of it.
+      // Keep the placeholder home — it is the tenant id, and commands still work.
     }
+  }
 
+  Future<void> _bootstrap() async {
     final availability = await ref.read(voiceAvailabilityProvider.future);
     if (!mounted) return;
     setState(() {
@@ -136,17 +174,23 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
       _message = availability.reason;
     });
 
-    // Opened by the wake word: start listening immediately, in sentence mode
-    // (not push-to-talk — there is no finger to hold).
+    // Opened by the wake word: open the microphone FIRST, in sentence mode (not
+    // push-to-talk — there is no finger to hold), then resolve the home while
+    // the user is still speaking.
     if (widget.autoStart && availability.available) {
+      _wakeRetries = 0;
+      unawaited(_resolveHome());
       await _startListening(pushToTalk: false);
+      return;
     }
+    await _resolveHome();
   }
 
   bool get _listening => _phase == VoicePhase.listening;
 
   /// Records until the finger lifts (push-to-talk), or until the sentence
   /// finishes when [pushToTalk] is false (wake-word activation).
+  ///
   Future<void> _startListening({bool pushToTalk = true}) async {
     if (_phase == VoicePhase.unavailable ||
         _phase == VoicePhase.executing ||
@@ -164,6 +208,9 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
       _message = null;
       _releasePending = false;
       _wakeSession = !pushToTalk;
+      // A finger on the mic is a fresh intent to speak: the echo allowance from
+      // a previous wake session must not carry over.
+      if (pushToTalk) _wakeRetries = 0;
     });
     _pulseController.repeat(reverse: true);
 
@@ -190,20 +237,68 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     }
 
     _starting = true;
+    _stage('capture: start (pushToTalk=$pushToTalk fromWake=${!pushToTalk})');
+    // Backstop: force the recognizer shut if it never reports back. The plugin's
+    // own listenFor is NOT honoured on this device, so this is the real cap.
+    _hardStop?.cancel();
+    _hardStop = Timer(const Duration(seconds: 12), () {
+      if (!mounted || _phase != VoicePhase.listening) return;
+      _stage('capture: hard stop — recognizer never reported back');
+      ref.read(voiceServiceProvider).cancel();
+      unawaited(robiWake.resume());
+      _pulseController.stop();
+      setState(() {
+        _phase = VoicePhase.idle;
+        _message = _userStopped
+            ? 'Stopped. Tap the mic when you are ready.'
+            : "I didn't catch that — tap the mic and try again.";
+      });
+      _userStopped = false;
+    });
     try {
       // Take the microphone from the wake detector BEFORE opening the
       // recognizer. Awaiting matters: the detector releases AudioRecord
-      // asynchronously, and starting the recognizer first lost the mic.
-      await robiWake.pause();
+      // asynchronously, and starting the recognizer first lost the mic. Bounded,
+      // because a wedged native service must never be able to block the mic.
+      await robiWake.pause().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () =>
+            _stage('capture: robiWake.pause() timed out — continuing'),
+      );
+      // Warm the context cache WHILE the user speaks so the command can execute
+      // the instant the transcript arrives (loadContext used to run only AFTER
+      // the utterance, adding seconds of latency).
+      unawaited(ref.read(commandExecutorProvider).loadContext(_homeId));
+      // Wake cue. Spoken CONCURRENTLY (not awaited) so the microphone opens
+      // immediately — waiting for the TTS added ~0.5-1 s to every wake and
+      // clipped the user's first word. The parser ignores the extra "Yes?" if
+      // the recognizer hears it. Push-to-talk stays silent (the button is the
+      // cue).
+      // Speak the cue and let it FINISH before the microphone opens.
+      //
+      // The cue was previously spoken concurrently with listening, so the
+      // recognizer transcribed our own "Yes?" and the tail of "Hey Robi" as part
+      // of the command. Measured on the LE6 for "turn on socket 1 socket 2 and
+      // light 1":
+      //   heard="turn on socket one it's okay to in the light one"
+      // i.e. "socket two and" came back as "it's okay to in", and Socket 2 was
+      // never in the transcript at all. A fixed delay is used instead of waiting
+      // for the engine's completion callback, which never fires on this device.
+      if (!pushToTalk && _wakeRetries == 0) {
+        unawaited(RobiTts.instance.speak('Yes?'));
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+      }
       await service.startListening(
         // Push-to-talk: the finger lifting ends the recording, not silence.
         // Wake-word mode passes false so the sentence decides.
         pushToTalk: pushToTalk,
         // The wake word opened this screen: give the user time to speak.
         fromWake: !pushToTalk,
-        onResult: (text, isFinal) {
+        onResult: (text, isFinal, hypotheses) {
           if (!mounted) return;
           setState(() => _transcript = text);
+          // Keep every hypothesis so the parse can pick the best one.
+          _lastHypotheses = hypotheses;
 
           // Barge-in on a PARTIAL result. The recognizer streams partials while
           // the user is still speaking (partialResults: true), so checking here
@@ -214,21 +309,77 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
             _bargeIn();
             return;
           }
-          if (isFinal) _finish(text);
+          if (isFinal) {
+            // Logged BEFORE anything else so the raw recognizer output is always
+            // in the log, even if the parse or the session later misbehaves.
+            VoiceLog.log('recognizerFinal="$text" wake=$_wakeSession');
+            // The wake word fires on its last syllable, so the first final of a
+            // wake session is usually just that tail. Ending here is what made
+            // "turn on socket 1 socket 2 and light 1" and "is socket 2 on" look
+            // broken: the command was never in the transcript.
+            if (_wakeSession &&
+                _wakeRetries < _maxWakeRetries &&
+                isWakeEcho(text)) {
+              unawaited(_relisten('wake echo "$text"'));
+              return;
+            }
+            _finish(text, hypotheses: hypotheses);
+          }
         },
         onDone: () {
           // Distinguishes "the session ended with no transcript" from "the
           // session never ended" — the two look identical in the UI.
+          _hardStop?.cancel();
           _stage('capture: ended (final=${_transcript ?? '<none>'})');
           if (!mounted) return;
-          // Nothing finalized (silence, or released before speaking): do not
-          // leave the button pulsing forever.
-          if (_phase == VoicePhase.listening) {
-            setState(() => _phase = VoicePhase.idle);
+          // Ignore a stale session's end while a barge-in restart is in flight:
+          // the OLD onDone can land after the NEW session has set `listening`,
+          // and acting on its leftover partial would run the wrong command.
+          if (_phase == VoicePhase.listening && !_bargingIn) {
+            // The recognizer can end the session WITHOUT delivering a FINAL
+            // result — a known dictation-mode quirk on some devices, and the
+            // normal outcome when only partials arrived before the silence
+            // timeout. `_phase` is still `listening` here, so no final was
+            // processed. Running what we DID hear is far better than discarding
+            // it and leaving the user staring at "Listening…" until the 15 s cap
+            // or the 18 s watchdog fires — that was the "stuck waiting for my
+            // command even after I finished" bug.
+            final heard = _transcript?.trim() ?? '';
+            if (heard.isNotEmpty) {
+              // Same echo rule as the final path: a session that ended on the
+              // wake-word tail has not heard a command yet.
+              if (_wakeSession &&
+                  _wakeRetries < _maxWakeRetries &&
+                  isWakeEcho(heard)) {
+                unawaited(_relisten('wake echo "$heard"'));
+                return;
+              }
+              _stage('capture: ended without final — running the transcript');
+              _finish(heard, hypotheses: _lastHypotheses);
+              return;
+            }
+            // Nothing at all: the recognizer errored (no speech / no match) or
+            // the user released before speaking. In a wake session, re-open the
+            // mic once instead of leaving them with the 12 s "Listening…" hang
+            // that reads as "stuck".
+            if (_wakeSession &&
+                !_userStopped &&
+                _wakeRetries < _maxWakeRetries) {
+              unawaited(_relisten('nothing heard'));
+              return;
+            }
+            setState(() {
+              _phase = VoicePhase.idle;
+              _message = _userStopped
+                  ? 'Stopped. Tap the mic when you are ready.'
+                  : "I didn't hear anything — tap the mic and try again.";
+            });
+            _userStopped = false;
             _pulseController.stop();
           }
         },
       );
+      _stage('capture: recognizer is live');
     } finally {
       _starting = false;
     }
@@ -246,13 +397,14 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
   /// the recognizer time out) is the whole point of push-to-talk: `stop()`
   /// flushes the last partial result as final, so a short command is sent the
   /// instant the button is released.
-  Future<void> _stopListening() async {
+  Future<void> _stopListening({bool explicit = false}) async {
     if (_starting) {
       // Recognizer not live yet — remember it and let _startListening finish.
       _releasePending = true;
       return;
     }
     if (!_listening) return;
+    if (explicit) _userStopped = true;
 
     _pulseController.stop();
     await ref.read(voiceServiceProvider).stopListening();
@@ -280,26 +432,54 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     );
   }
 
-  Future<void> _finish(String transcript) async {
+  /// Re-open the microphone for one more try.
+  ///
+  /// Covers both failure modes seen on the LE6: the session ended on the wake
+  /// word's tail ("he's", "it's okay") — see [isWakeEcho] — and the session ended
+  /// with nothing at all because the recognizer errored (the system log says
+  /// "#onRecognitionFinished no speech - erroring"). Re-opening beats making the
+  /// user say "Hey Robi" again.
+  Future<void> _relisten(String why) async {
+    _wakeRetries++;
+    _stage('$why — listening again ($_wakeRetries/$_maxWakeRetries)');
+    _sessionWatchdog?.cancel();
+    _hardStop?.cancel();
+    ref.read(voiceServiceProvider).cancel();
+    // Let the last syllable decay so it is not captured a second time.
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    if (!mounted) return;
+    setState(() {
+      _phase = VoicePhase.idle;
+      _transcript = null;
+      _message = 'Listening…';
+    });
+    await _startListening(pushToTalk: false);
+  }
+
+  Future<void> _finish(String transcript,
+      {List<String> hypotheses = const []}) async {
     _sessionWatchdog?.cancel();
     _pulseController.stop();
 
-    // Barge-in: the user said "Hey Robi" again because they want to abort and
-    // start over (they missed their command, or said the wrong thing). During a
-    // session the detector is paused — the session owns the mic — so the phrase
-    // arrives inside the transcript and is caught here.
-    if (isWakePhrase(transcript)) {
-      VoiceLog.log('barge-in: wake phrase during a session — restarting');
+    // Nothing but the wake phrase, even after the retries in the result handler
+    // were used up. Restarting here would loop forever on a noisy room, and
+    // running it would answer "I didn't understand 'he's'". Say so plainly and
+    // hand the microphone back to the wake detector.
+    //
+    // Note this is [isWakeEcho], not [isWakePhrase]: "hey robi turn on socket 1"
+    // contains the phrase AND a command, and must be executed, not restarted.
+    if (isWakeEcho(transcript)) {
+      VoiceLog.log('finish: only the wake echo "$transcript" — not a command');
       ref.read(voiceServiceProvider).cancel();
       if (mounted) {
         setState(() {
           _phase = VoicePhase.idle;
-          _message = 'Restarted — say your command';
           _transcript = null;
           _intent = null;
+          _message = "I didn't catch that — try again.";
         });
       }
-      await _startListening(pushToTalk: false);
+      unawaited(robiWake.resume());
       return;
     }
     if (!mounted) return;
@@ -307,25 +487,37 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
 
     final service = ref.read(voiceServiceProvider);
     try {
-      final result = await service.handleUtterance(
-        transcript,
-        homeId: _homeId,
-        // Only trust Latin device tokens when the recognizer is actually Latin;
-        // see voice_intent.dart's header for why this is a correctness guard.
-        latinDeviceTokens: !service.transcriptIsAmharic,
-      );
+      // Several hypotheses: let the brain pick the one that parses. The top
+      // hypothesis is often mangled while a lower-ranked one names real devices.
+      final result = hypotheses.length > 1
+          ? await service.handleUtterances(
+              hypotheses,
+              homeId: _homeId,
+              latinDeviceTokens: !service.transcriptIsAmharic,
+            )
+          : await service.handleUtterance(
+              transcript,
+              homeId: _homeId,
+              // Only trust Latin device tokens when the recognizer is actually
+              // Latin; see voice_intent.dart's header for why this is a guard.
+              latinDeviceTokens: !service.transcriptIsAmharic,
+            );
       if (!mounted) return;
       setState(() {
         _intent = result.intent;
         _message = result.message;
         _phase = result.intent.isUnknown ? VoicePhase.error : VoicePhase.done;
       });
+      // Speak the outcome — the action taken, "didn't understand", or a
+      // follow-up question. Fire-and-forget so the UI updates immediately.
+      unawaited(RobiTts.instance.speak(result.message));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _phase = VoicePhase.error;
         _message = 'Command failed: $e';
       });
+      unawaited(RobiTts.instance.speak('Sorry, that failed.'));
     } finally {
       // The command is finished, so the microphone is free again. Resuming here
       // (not only on dispose) keeps the notification honest — it used to sit on
@@ -375,7 +567,10 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
     final working = _phase == VoicePhase.executing;
     final failed = _phase == VoicePhase.error;
 
-    final device = _intent?.device?.label;
+    // Every device named, so "socket 1 and light 2" shows both.
+    final device = _intent == null || _intent!.devices.isEmpty
+        ? null
+        : _intent!.devices.map((d) => d.label).join(', ');
 
     return Padding(
       padding: const EdgeInsets.all(V3Spacing.lg),
@@ -469,6 +664,28 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
             ),
           ),
 
+          // ---- Stop listening ----------------------------------------------
+          // Background noise never looks like silence, so the recognizer can
+          // hold the mic until its listenFor cap. Always offer a way out.
+          if (listening) ...[
+            const SizedBox(height: V3Spacing.md),
+            OutlinedButton.icon(
+              onPressed: () => _stopListening(explicit: true),
+              icon: const Icon(Icons.stop, size: 18),
+              label: const Text('Stop listening'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: V3Colors.textSecondary,
+                side: BorderSide(
+                  color: V3Colors.textSecondary.withValues(alpha: 0.4),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: V3Spacing.md,
+                  vertical: 10,
+                ),
+              ),
+            ),
+          ],
+
           // ---- Device chip (design sheet: "Living Room Lights · ON · 70%") --
           if (done && device != null) ...[
             const SizedBox(height: V3Spacing.md),
@@ -540,6 +757,13 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
               widget.compact ? context.pop() : context.go('/dashboard'),
         ),
         title: const Text('Voice Control'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt),
+            tooltip: 'My commands',
+            onPressed: () => context.push('/custom-commands'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -654,6 +878,18 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen>
                         '${(_intent!.confidence * 100).round()}% sure'
                     : null,
               ),
+              // When nothing was understood, show what Robi DOES take, so the
+              // user is not guessing.
+              if (_intent != null && _intent!.isUnknown) ...[
+                const SizedBox(height: V3Spacing.sm),
+                _panel(
+                  icon: Icons.lightbulb_outline,
+                  iconColor: V3Colors.primary,
+                  title: 'Try saying',
+                  body: 'turn on socket 1 · turn off light 2 · '
+                      'switch on socket 1 · turn on the living room',
+                ),
+              ],
             ],
 
             const SizedBox(height: V3Spacing.lg),

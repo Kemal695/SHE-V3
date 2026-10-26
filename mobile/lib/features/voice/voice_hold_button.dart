@@ -11,11 +11,15 @@
 // transcript, parsed intent, example commands).
 // =============================================================================
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/v3_design_tokens.dart';
+import '../../core/voice/robi_wake.dart';
 import '../device_detail/node_service.dart';
+import '../robi/data/robi_tts.dart';
 import 'voice_service.dart';
 
 class VoiceHoldButton extends ConsumerStatefulWidget {
@@ -134,15 +138,33 @@ class _VoiceHoldButtonState extends ConsumerState<VoiceHoldButton> {
       return;
     }
 
+    // Hand the microphone over from the wake detector FIRST. With continuous
+    // "Hey Robi" on, the detector holds the mic; opening the recognizer without
+    // pausing it meant the recognizer got no audio and never reported — the
+    // reason the old design said continuous "blocks in-app voice". The voice
+    // screen already does this; the hold button was the one path that did not.
+    await robiWake.pause();
+    if (!mounted) return;
+    // Finger lifted while we were releasing the detector — do not open the mic
+    // with nothing left to close it.
+    if (!_pressed) {
+      setState(() => _listening = false);
+      unawaited(robiWake.resume());
+      return;
+    }
+
     await ref.read(voiceServiceProvider).startListening(
       // Release, not silence, ends this recording.
       pushToTalk: true,
-      onResult: (text, isFinal) {
+      onResult: (text, isFinal, hypotheses) {
         if (isFinal) _run(text);
       },
       onDone: () {
         if (!mounted) return;
         if (_listening) setState(() => _listening = false);
+        // The recognizer's session has ended, so the mic is free — give it back
+        // to the wake detector (no-op unless continuous detection is on).
+        unawaited(robiWake.resume());
       },
     );
   }
@@ -175,13 +197,14 @@ class _VoiceHoldButtonState extends ConsumerState<VoiceHoldButton> {
         // Only trust Latin device tokens when the recognizer really is Latin.
         latinDeviceTokens: !service.transcriptIsAmharic,
       );
-      _say(
-        result.intent.isUnknown
-            ? 'Heard "$transcript" — not a command I know.'
-            : result.message,
-        error: result.intent.isUnknown,
-      );
+      final said = result.intent.isUnknown
+          ? 'Heard "$transcript" — not a command I know.'
+          : result.message;
+      // Spoken feedback so the user hears the outcome without looking.
+      unawaited(RobiTts.instance.speak(said));
+      _say(said, error: result.intent.isUnknown);
     } catch (e) {
+      unawaited(RobiTts.instance.speak('Sorry, that failed.'));
       _say('Command failed: $e', error: true);
     }
   }

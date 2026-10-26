@@ -21,6 +21,9 @@ class ApiConstants {
   // Auth
   static const String authRegister = '$apiPrefix/auth/register';
   static const String authLogin = '$apiPrefix/auth/login';
+  /// Confirm the signed-in user's password. Does NOT count against the login
+  /// rate limit, so a wrong guess can never lock the account out.
+  static const String authVerifyPassword = '$apiPrefix/auth/verify-password';
 
   // Two-factor authentication (TOTP).
   static const String authPasswordResetRequest =

@@ -6,6 +6,9 @@
 // Refresh token: Keychain (iOS) / EncryptedSharedPreferences (Android).
 // =============================================================================
 
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorage {
@@ -51,6 +54,60 @@ class SecureStorage {
       _storage.write(key: _localeKey, value: locale);
 
   static Future<String?> getLocale() => _storage.read(key: _localeKey);
+
+  // ---- Voice recognition language ----
+  //
+  // Independent of the UI locale: a user may read Amharic but speak English.
+  // null = auto (follow the UI locale), 'en' = force English, 'am' = force
+  // Amharic. The recognizer reads this in AndroidSpeechProvider.probe.
+  static const _voiceLocaleKey = 'voice_locale';
+
+  static Future<void> saveVoiceLocale(String? locale) => locale == null
+      ? _storage.delete(key: _voiceLocaleKey)
+      : _storage.write(key: _voiceLocaleKey, value: locale);
+
+  static Future<String?> getVoiceLocale() =>
+      _storage.read(key: _voiceLocaleKey);
+
+  // ---- Custom voice command PIN ----
+  //
+  // Optional gate for the "My commands" page: when set, the page (and therefore
+  // the list of custom phrases) is hidden behind this PIN. Stored in encrypted
+  // storage, never in Hive.
+  static const _commandPinKey = 'custom_cmd_pin';
+
+  static Future<void> saveCommandPin(String pin) =>
+      _storage.write(key: _commandPinKey, value: pin);
+
+  static Future<String?> getCommandPin() =>
+      _storage.read(key: _commandPinKey);
+
+  static Future<void> clearCommandPin() =>
+      _storage.delete(key: _commandPinKey);
+
+  // ---- Custom command Hive key ----
+  //
+  // The custom-commands box is encrypted, because its contents are the user's
+  // private phrases. The 32-byte AES key lives in encrypted storage; if it is
+  // ever lost the box simply reads empty (see CustomCommandsNotifier._read) —
+  // it never crashes, it just forgets the custom commands.
+  static const _hiveKeyKey = 'custom_cmd_hive_key';
+
+  static Future<List<int>> getOrCreateHiveKey() async {
+    final existing = await _storage.read(key: _hiveKeyKey);
+    if (existing != null && existing.isNotEmpty) {
+      try {
+        final decoded = base64Decode(existing);
+        if (decoded.length == 32) return decoded;
+      } catch (_) {
+        // Corrupt value: regenerate below.
+      }
+    }
+    final rnd = Random.secure();
+    final key = List<int>.generate(32, (_) => rnd.nextInt(256));
+    await _storage.write(key: _hiveKeyKey, value: base64Encode(key));
+    return key;
+  }
 
   // ---- Per-node proof-of-possession ----
   //

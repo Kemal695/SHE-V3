@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Voice control (phone-side speech recognition) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Tactile "Hey Robi was heard" cue — works even when the phone is
+         silenced and the screen is locked. Normal permission, auto-granted. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Location automations (foreground geofence). Foreground-only: the app
          never asks for ACCESS_BACKGROUND_LOCATION, so the fence stops when the
@@ -71,6 +74,12 @@
              (and on any Google Play Services build). -->
         <intent>
             <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- Android 11+ package visibility for the TTS engine. Without this,
+             flutter_tts' TextToSpeech.init() can report "no engine", and Robi
+             would stay silent (no "Yes?", no spoken result). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
     </queries>
 </manifest>

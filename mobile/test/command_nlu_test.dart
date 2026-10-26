@@ -25,7 +25,7 @@ NluResult result({
       normalized: transcript.toLowerCase(),
       language: 'en',
       action: action,
-      device: device,
+      devices: device == null ? const [] : [device],
       group: group,
       confidence: confidence,
       candidates: candidates,

@@ -55,6 +55,22 @@ class AuthService {
     return data;
   }
 
+  /// Confirm the signed-in user's password.
+  ///
+  /// The account is identified by the access token, so no email is needed. Unlike
+  /// [login], a wrong password does NOT consume a login attempt — this endpoint
+  /// is for local confirmations (e.g. resetting the voice-command PIN) and must
+  /// never be able to lock the account out of the login screen.
+  ///
+  /// Throws (401) when the password is wrong.
+  Future<void> verifyPassword(String password) async {
+    final dio = ref.read(dioProvider);
+    await dio.post(
+      ApiConstants.authVerifyPassword,
+      data: {'password': password},
+    );
+  }
+
   /// Ask for a password-reset token.
   ///
   /// Returns the token when the server has no mailer configured (this

@@ -56,6 +56,9 @@ dependencies:
   firebase_messaging: ^15.0.0
   flutter_local_notifications: ^17.2.0
 
+  # ---- Text-to-speech (spoken Robi feedback: "Yes?", failures, results) ----
+  flutter_tts: ^4.2.0
+
   # ---- Payments (Phase 3) ----
   # flutter_web_auth_2: ^3.1.2
 

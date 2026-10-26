@@ -134,6 +134,32 @@ void main() {
       expect(s.isStale('tx-old'), isTrue);
       expect(s.isStale('tx-new'), isFalse);
     });
+
+    test('pendingTransactionId is the binding id for the pending command', () {
+      final s = session('tx-1');
+      expect(s.transactionId, 'tx-1');
+      expect(s.pendingTransactionId, 'tx-1');
+    });
+
+    test('a stale confirmation cannot execute a different command', () {
+      final s = session('tx-open');
+      s.begin();
+      s.onTranscript();
+      s.askConfirmation('Open the gate?');
+      // A reply carrying a different (stale) id must NOT authorise execution.
+      expect(
+        s.onControl(const ControlMatch(ControlIntent.confirm),
+            transactionId: 'tx-stale'),
+        SessionStep.waiting,
+      );
+      expect(s.state, SessionState.awaitingYesNoConfirmation);
+      // The real answer (matching id) still executes.
+      expect(
+        s.onControl(const ControlMatch(ControlIntent.confirm),
+            transactionId: 'tx-open'),
+        SessionStep.execute,
+      );
+    });
   });
 
   group('control intents inside a session', () {

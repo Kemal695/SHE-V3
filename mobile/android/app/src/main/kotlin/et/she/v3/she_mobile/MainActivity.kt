@@ -30,6 +30,9 @@ class MainActivity : FlutterActivity() {
     private val methodChannel = "she/robi"
     private val eventChannel = "she/robi/events"
 
+    /** Recognition with domain biasing — see [RobiSpeech]. */
+    private val speechChannelName = "she/robi/speech"
+
     private val eventListeners =
         mutableMapOf<EventChannel.EventSink?, (String, String?) -> Unit>()
 
@@ -120,6 +123,11 @@ class MainActivity : FlutterActivity() {
 
                     "isRunning" -> result.success(RobiWakeService.running)
 
+                    // Whether the detector currently holds the microphone
+                    // (continuous "Hey Robi"). The Settings tile reads this so it
+                    // never shows "armed" while the service is really listening.
+                    "isContinuous" -> result.success(RobiWakeService.continuous)
+
                     "modelInstalled" -> result.success(RobiKws.isInstalled(this))
 
                     // Voice diagnostics. Log.e because Log.d/i/v are removed
@@ -135,9 +143,43 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // ---- Recognition with domain biasing (see RobiSpeech) ----------------
+        // Own SpeechRecognizer instead of the speech_to_text plugin: only the
+        // platform API exposes EXTRA_BIASING_STRINGS, which is what makes
+        // "socket two" recognisable at all on this device.
+        val speechChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            speechChannelName,
+        )
+        val robiSpeech = RobiSpeech(this, speechChannel)
+        speechChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "available" -> result.success(RobiSpeech.isAvailable(this))
+
+                "start" -> {
+                    val locale = call.argument<String>("locale") ?: "en-US"
+                    val phrases = call.argument<List<String>>("phrases") ?: emptyList()
+                    val silenceMs = call.argument<Int>("silenceMs") ?: 6000
+                    robiSpeech.start(locale, phrases, silenceMs)
+                    result.success(null)
+                }
+
+                "stop" -> {
+                    robiSpeech.stop()
+                    result.success(null)
+                }
+
+                "cancel" -> {
+                    robiSpeech.cancel()
+                    result.success(null)
+                }
+
+                else -> result.notImplemented()
+            }
+        }
+
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, eventChannel)
-            .setStreamHandler(object : EventChannel.StreamHandler {
-                override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
+            .setStreamHandler(object : EventChannel.StreamHandler {                override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
                     val cb: (String, String?) -> Unit = { event, detail ->
                         // Always deliver on the platform thread.
                         runOnUiThread {

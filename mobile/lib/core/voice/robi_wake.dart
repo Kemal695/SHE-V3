@@ -96,8 +96,11 @@ class RobiWake {
   Future<void> pause() async {
     try {
       await _method.invokeMethod<void>('pause');
-    } on PlatformException {
-      // The service may not be running; nothing to pause.
+    } catch (_) {
+      // The service may not be running, or the channel may be absent on a
+      // platform without MainActivity. Either way there is nothing to pause —
+      // and this MUST NOT throw, or the caller's `await pause()` would skip
+      // opening the recognizer and leave the screen stuck on "Listening…".
     }
   }
 
@@ -108,7 +111,7 @@ class RobiWake {
   Future<void> notify(String text) async {
     try {
       await _method.invokeMethod<void>('notify', {'text': text});
-    } on PlatformException {
+    } catch (_) {
       // No service to notify; nothing to do.
     }
   }
@@ -117,7 +120,7 @@ class RobiWake {
   Future<void> resume() async {
     try {
       await _method.invokeMethod<void>('resume');
-    } on PlatformException {
+    } catch (_) {
       // The service may not be running; nothing to resume.
     }
   }
@@ -135,6 +138,18 @@ class RobiWake {
     try {
       return await _method.invokeMethod<bool>('modelInstalled') ?? false;
     } on PlatformException {
+      return false;
+    }
+  }
+
+  /// True when the detector currently holds the microphone (continuous
+  /// "Hey Robi"). The Settings tile reads this so its switch reflects the
+  /// SERVICE — a widget-local flag reset to false on every reopen, which made
+  /// the tile show "armed" while the detector was actually listening.
+  Future<bool> isContinuous() async {
+    try {
+      return await _method.invokeMethod<bool>('isContinuous') ?? false;
+    } catch (_) {
       return false;
     }
   }

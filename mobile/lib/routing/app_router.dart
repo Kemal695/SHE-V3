@@ -48,6 +48,8 @@ import '../features/settings/profile_screen.dart';
 import '../features/auth/mfa_enroll_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/voice/voice_screen.dart';
+import '../features/robi/presentation/voice_commands_screen.dart';
+import '../features/robi/presentation/custom_commands_screen.dart';
 import '../features/telemetry/telemetry_screen.dart';
 import '../features/home/members_screen.dart';
 import 'app_shell.dart';
@@ -199,6 +201,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           // Wake-word mode: a small glowing card, not a full page.
           compact: state.uri.queryParameters['compact'] == '1',
         ),
+      ),
+      // Human-facing list of every command Robi understands.
+      GoRoute(
+        path: '/voice-commands',
+        builder: (context, state) => const VoiceCommandsScreen(),
+      ),
+      // User-defined commands / macros (PIN-gateable, hide/lock per command).
+      GoRoute(
+        path: '/custom-commands',
+        builder: (context, state) => const CustomCommandsScreen(),
       ),
       // Design sheet screen 15. Detail-style route (no bottom bar) so it reads
       // as a drill-down from the dashboard bell.
