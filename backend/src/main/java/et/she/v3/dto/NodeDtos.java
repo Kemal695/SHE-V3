@@ -24,7 +24,7 @@ public class NodeDtos {
             String mac,
 
             @NotBlank String claim_token,    // 10-min TTL JWT from /api/v3/auth/claim-token
-            @NotBlank @Pattern(regexp = "^(SHE-R4|SHE-R8|SHE-R16)$") String sku,
+            @NotBlank @Pattern(regexp = "^(SHE-R4|SHE-R8|SHE-R16|SHE-R24)$") String sku,
             UUID home_id,                    // optional — device can be unassigned initially
             Map<String, Object> config       // node self-description (devices, services, params)
     ) {}

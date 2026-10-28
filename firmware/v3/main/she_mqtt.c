@@ -11,6 +11,7 @@
 #include "input_monitor.h"   /* absolute light set over a 2-way wall switch (SHE-R24) */
 #include "schedule_store.h"  /* device-local schedules (schedule_add/clear via cmd topic) */
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
+#include "sensors.h"         /* sensor_sample_t — optional climate block in telemetry */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
 #include "system_service.h"  /* system_service_execute() for the command direction */
 #include "freertos/FreeRTOS.h"
@@ -25,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>            /* isfinite() for the telemetry sensor block */
 #include <time.h>
 
 static const char *TAG = "she_mqtt";
@@ -882,7 +884,8 @@ esp_err_t mqtt_publish_params_local(she_node_t *node) {
 }
 
 esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
-                                 uint32_t min_free_heap, const char *reset_reason) {
+                                 uint32_t min_free_heap, const char *reset_reason,
+                                 const sensor_sample_t *sensors) {
     char *topic = mqtt_build_topic("telemetry");
 
     /* V3-MQTT-STANDARDS §8.5 — FLAT diagnostics payload.
@@ -893,16 +896,77 @@ esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
      * device_telemetry table. Keep it flat.
      *
      * The payload's `ts` is advisory only: the backend stamps each row with its
-     * own Instant.now(), so an unsynced device clock cannot corrupt the series. */
-    char payload[320];
-    snprintf(payload, sizeof(payload),
-             "{\"uptime_s\":%d,\"rssi_dbm\":%d,\"free_heap_bytes\":%u,"
-             "\"min_free_heap_bytes\":%u,\"wifi_disconnects\":%u,"
-             "\"mqtt_reconnects\":%u,\"reset_reason\":\"%s\",\"ts\":%ld}",
-             uptime_s, rssi_dbm,
-             (unsigned)free_heap, (unsigned)min_free_heap,
-             (unsigned)app_wifi_disconnect_count(), (unsigned)g_mqtt_reconnects,
-             reset_reason ? reset_reason : "unknown", (long)time(NULL));
+     * own Instant.now(), so an unsynced device clock cannot corrupt the series.
+     *
+     * Assembled in pieces because the environmental block is OPTIONAL: a board
+     * with no DHT22 must not publish a temperature of 0.0 — that is a plausible
+     * reading and would look like real data on the chart. The buffer is 768 (the
+     * old 320 barely fit the diagnostics) and every append is bounds-checked, so
+     * a truncation becomes a loud ESP_LOGE instead of malformed JSON that the
+     * backend silently drops. */
+    char payload[768];
+    int off = snprintf(payload, sizeof(payload),
+                       "{\"uptime_s\":%d,\"rssi_dbm\":%d,\"free_heap_bytes\":%u,"
+                       "\"min_free_heap_bytes\":%u,\"wifi_disconnects\":%u,"
+                       "\"mqtt_reconnects\":%u,\"reset_reason\":\"%s\",\"ts\":%ld",
+                       uptime_s, rssi_dbm,
+                       (unsigned)free_heap, (unsigned)min_free_heap,
+                       (unsigned)app_wifi_disconnect_count(), (unsigned)g_mqtt_reconnects,
+                       reset_reason ? reset_reason : "unknown", (long)time(NULL));
+    if (off < 0 || off >= (int)sizeof(payload)) {
+        ESP_LOGE(TAG, "Telemetry payload overflow while writing the diagnostics block");
+        free(topic);
+        return ESP_FAIL;
+    }
+
+    if (sensors && sensors->dht_valid &&
+        isfinite(sensors->temperature_c) && isfinite(sensors->humidity_pct)) {
+        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                               ",\"temp_c\":%.1f,\"humidity_pct\":%.1f",
+                               (double)sensors->temperature_c,
+                               (double)sensors->humidity_pct);
+        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+            ESP_LOGE(TAG, "Telemetry payload overflow at the climate block");
+            free(topic);
+            return ESP_FAIL;
+        }
+        off += n;
+    }
+
+    if (sensors && sensors->soil_valid) {
+        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                               ",\"soil_pct\":%d", sensors->soil_pct);
+        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+            ESP_LOGE(TAG, "Telemetry payload overflow at the soil block");
+            free(topic);
+            return ESP_FAIL;
+        }
+        off += n;
+    }
+
+    if (sensors && sensors->air_valid &&
+        isfinite(sensors->co_ppm) && isfinite(sensors->alcohol_ppm) &&
+        isfinite(sensors->co2_ppm)) {
+        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                               ",\"co_ppm\":%.1f,\"alcohol_ppm\":%.1f,\"co2_ppm\":%.1f",
+                               (double)sensors->co_ppm,
+                               (double)sensors->alcohol_ppm,
+                               (double)sensors->co2_ppm);
+        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+            ESP_LOGE(TAG, "Telemetry payload overflow at the air-quality block");
+            free(topic);
+            return ESP_FAIL;
+        }
+        off += n;
+    }
+
+    if (off > (int)sizeof(payload) - 2) {
+        ESP_LOGE(TAG, "Telemetry payload full before the closing brace");
+        free(topic);
+        return ESP_FAIL;
+    }
+    payload[off++] = '}';
+    payload[off]   = '\0';
 
     esp_err_t err = mqtt_publish(topic, payload, 0, false);   /* QoS 0, not retained */
     free(topic);

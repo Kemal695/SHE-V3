@@ -31,6 +31,7 @@ import '../features/auth/splash_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/device_detail/device_detail_screen.dart';
 import '../features/devices/devices_screen.dart';
+import '../features/devices/parent_devices_screen.dart';
 import '../features/energy/energy_screen.dart';
 import '../features/energy/home_energy_screen.dart';
 import '../features/groups/group_detail_screen.dart';
@@ -45,6 +46,7 @@ import '../features/provisioning/provisioning_screen.dart';
 import '../features/scenes/scene_detail_screen.dart';
 import '../features/scenes/scenes_screen.dart';
 import '../features/settings/profile_screen.dart';
+import '../features/local_admin/local_admin_screen.dart';
 import '../features/auth/mfa_enroll_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/voice/voice_screen.dart';
@@ -179,6 +181,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/provisioning',
         builder: (context, state) => const ProvisioningScreen(),
       ),
+      // Desktop-repo port still reachable from More → "Parent devices". The
+      // bottom-nav Devices tab (/devices) shows the user's OWN DevicesScreen;
+      // this dedicated route keeps the ported board list from the desktop repo
+      // available without hijacking that tab.
+      GoRoute(
+        path: '/parent-devices',
+        builder: (context, state) {
+          final homeId = state.uri.queryParameters['homeId'] ?? '';
+          return ParentDevicesScreen(homeId: homeId);
+        },
+      ),
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
@@ -190,6 +203,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/local-admin',
+        builder: (context, state) => const LocalAdminScreen(),
       ),
       GoRoute(
         path: '/voice',

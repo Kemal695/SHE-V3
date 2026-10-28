@@ -84,6 +84,17 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
   SceneDeviceOption? _sourceDevice;
   String _comparator = '==';
   bool _triggerValue = true;
+  /// Which param of the source device the trigger watches. Defaults to Power for
+  /// a switch; swapped to a sensor metric when a sensor device is picked.
+  String _sourceParam = 'Power';
+  final TextEditingController _valueCtrl = TextEditingController();
+
+  bool get _sourceIsSensor =>
+      _sourceDevice?.deviceType == 'esp.device.sensor';
+  List<String> get _sourceParams => _sourceIsSensor
+      ? const ['Temperature', 'Humidity', 'Soil_Moisture', 'CO', 'Alcohol', 'CO2']
+      : const ['Power'];
+  bool get _sourceParamIsNumeric => _sourceParam != 'Power';
 
   // --- Then ---
   /// One or more "Then" entries. The backend stores each as its own
@@ -124,8 +135,6 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
       _sunrise = isSolar;
       _solarEvent = (e.trigger['event'] as String?) ?? 'sunrise';
       _hasCondition = e.trigger['type'] == 'NODE_STATE';
-      _comparator = (e.trigger['comparator'] as String?) ?? '==';
-      _triggerValue = e.trigger['value'] == true;
       final cron = e.trigger['cron'] as String?;
       if (cron != null) {
         final parts = cron.split(RegExp(r'\s+'));
@@ -167,6 +176,20 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           orElse: () => devices.isNotEmpty ? devices.first : _fallbackDevice,
         );
         _sourceDevice = _match(sourceId, sourceName) ?? firstSwitch;
+        // Restore the trigger's param / comparator / value once we know which
+        // device it is — the param list depends on the device type, so this can
+        // only be done after _sourceDevice is resolved.
+        if (e != null && e.trigger['type'] == 'NODE_STATE') {
+          _sourceParam = (e.trigger['param_name'] as String?) ?? 'Power';
+          if (_sourceParamIsNumeric) {
+            final v = e.trigger['value'];
+            _valueCtrl.text = v is num ? v.toString() : '';
+            _comparator = (e.trigger['comparator'] as String?) ?? '>=';
+          } else {
+            _comparator = (e.trigger['comparator'] as String?) ?? '==';
+            _triggerValue = e.trigger['value'] == true;
+          }
+        }
         // Restore every WRITE_PARAM rule as its own action row.
         _actions.clear();
         if (writeRules.isEmpty) {
@@ -256,6 +279,7 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _valueCtrl.dispose();
     super.dispose();
   }
 
@@ -412,9 +436,12 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
           'device_name': _sourceDevice?.deviceName ?? '',
           if ((_sourceDevice?.deviceId ?? '').isNotEmpty)
             'node_device_id': _sourceDevice!.deviceId,
-          'param_name': 'Power',
+          'param_name': _sourceParam,
           'comparator': _comparator,
-          'value': _triggerValue,
+          if (_sourceParamIsNumeric)
+            'value': double.tryParse(_valueCtrl.text) ?? 0.0
+          else
+            'value': _triggerValue,
         },
       AutomationTriggerType.manual => <String, Object>{'type': 'MANUAL'},
       AutomationTriggerType.location => <String, Object>{
@@ -911,18 +938,24 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
         ];
       case AutomationTriggerType.nodeState:
         return [
-           Text('Only run if all conditions are met',
+           Text('Set the condition that triggers this automation.',
               style: TextStyle(color: V3Colors.text2, fontSize: 12.5)),
           const SizedBox(height: V3Spacing.md),
           _devicePicker(
             label: 'Select device',
             value: _sourceDevice,
-            onPick: (d) => setState(() => _sourceDevice = d),
+            onPick: (d) => setState(() {
+              _sourceDevice = d;
+              _sourceParam = (d.deviceType == 'esp.device.sensor')
+                  ? 'Temperature'
+                  : 'Power';
+              _comparator =
+                  (d.deviceType == 'esp.device.sensor') ? '>=' : '==';
+              if (_sourceParamIsNumeric) _valueCtrl.clear();
+            }),
           ),
           const SizedBox(height: V3Spacing.sm),
           _conditionRow(),
-          const SizedBox(height: V3Spacing.md),
-          _addConditionButton(),
         ];
       case AutomationTriggerType.location:
         // The fence is configured on the "When" step, so there is nothing left
@@ -955,8 +988,72 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
     }
   }
 
-  /// One condition row: Power | is / is not | ON / OFF.
+  /// The "If" condition for a device trigger.
+  ///
+  /// For a SENSOR device the user picks which metric (Temperature, Humidity,
+  /// Soil moisture, CO, Alcohol, CO₂) and a numeric threshold (≥ / ≤ / > / <).
+  /// For a SWITCH the metric is Power and the condition is the boolean ON/OFF.
+  /// The value the device publishes (via params/local) is compared against the
+  /// threshold on the backend, which fires the automation when the reading
+  /// CROSSES into the matching range.
   Widget _conditionRow() {
+    final params = _sourceParams;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: V3Spacing.md, vertical: 6),
+          decoration: BoxDecoration(
+            color: V3Colors.surface,
+            borderRadius: BorderRadius.circular(V3Radius.xl),
+            border: Border.all(color: V3Colors.border),
+          ),
+          child: DropdownButton<String>(
+            value: params.contains(_sourceParam) ? _sourceParam : params.first,
+            dropdownColor: V3Colors.surface2,
+            isExpanded: true,
+            underline: const SizedBox.shrink(),
+            style: TextStyle(color: V3Colors.ink, fontSize: 13),
+            items: [
+              for (final p in params)
+                DropdownMenuItem(value: p, child: Text(_sensorParamLabel(p))),
+            ],
+            onChanged: (v) => setState(() {
+              _sourceParam = v ?? _sourceParam;
+              if (_sourceParamIsNumeric && _comparator == '==') {
+                _comparator = '>=';
+              }
+            }),
+          ),
+        ),
+        const SizedBox(height: V3Spacing.sm),
+        _sourceParamIsNumeric ? _numericCondition() : _boolCondition(),
+      ],
+    );
+  }
+
+  String _sensorParamLabel(String p) => switch (p) {
+        'Temperature' => 'Temperature',
+        'Humidity' => 'Humidity',
+        'Soil_Moisture' => 'Soil moisture',
+        'CO' => 'CO',
+        'Alcohol' => 'Alcohol',
+        'CO2' => 'CO₂',
+        _ => p,
+      };
+
+  Widget _numericCondition() {
+    const comps = [
+      ('>=', '≥'),
+      ('<=', '≤'),
+      ('>', '>'),
+      ('<', '<'),
+    ];
+    final hint = switch (_sourceParam) {
+      'Soil_Moisture' => 'Soil % (0–100)',
+      'CO' || 'Alcohol' || 'CO2' => 'ppm',
+      _ => 'e.g. 30',
+    };
     return Container(
       padding: const EdgeInsets.symmetric(
           horizontal: V3Spacing.md, vertical: V3Spacing.sm),
@@ -967,16 +1064,66 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
       ),
       child: Row(
         children: [
-           Icon(Icons.bolt, size: 16, color: V3Colors.primary),
+          Icon(Icons.tune, size: 16, color: V3Colors.primary),
           const SizedBox(width: 8),
-           Text('Power',
+          DropdownButton<String>(
+            value: _comparator,
+            dropdownColor: V3Colors.surface2,
+            underline: const SizedBox.shrink(),
+            style: TextStyle(color: V3Colors.ink, fontSize: 16),
+            items: [
+              for (final c in comps)
+                DropdownMenuItem(value: c.$1, child: Text(c.$2)),
+            ],
+            onChanged: (v) => setState(() => _comparator = v ?? _comparator),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _valueCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              style: TextStyle(color: V3Colors.ink, fontSize: 14),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: TextStyle(color: V3Colors.dim),
+                filled: true,
+                fillColor: V3Colors.surface2,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(V3Radius.lg),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _boolCondition() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: V3Spacing.md, vertical: V3Spacing.sm),
+      decoration: BoxDecoration(
+        color: V3Colors.surface,
+        borderRadius: BorderRadius.circular(V3Radius.xl),
+        border: Border.all(color: V3Colors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.bolt, size: 16, color: V3Colors.primary),
+          const SizedBox(width: 8),
+          Text('Power',
               style: TextStyle(color: V3Colors.ink, fontSize: 13)),
           const Spacer(),
           DropdownButton<String>(
             value: _comparator,
             dropdownColor: V3Colors.surface2,
             underline: const SizedBox.shrink(),
-            style:  TextStyle(color: V3Colors.dim, fontSize: 12.5),
+            style: TextStyle(color: V3Colors.dim, fontSize: 12.5),
             items: const [
               DropdownMenuItem(value: '==', child: Text('is')),
               DropdownMenuItem(value: '!=', child: Text('is not')),
@@ -993,42 +1140,13 @@ class _AutomationWizardPageState extends ConsumerState<AutomationWizardPage> {
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(_triggerValue ? 'ON' : 'OFF',
-                  style:  TextStyle(
+                  style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: V3Colors.night)),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// Dashed "+ Add condition" from the design sheet. Multiple conditions are
-  /// not supported by the backend yet, so this says so rather than silently
-  /// doing nothing.
-  Widget _addConditionButton() {
-    return GestureDetector(
-      onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Multiple conditions are not supported yet'),
-        ),
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: V3Spacing.md),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(V3Radius.lg),
-          border: Border.all(color: V3Colors.border),
-        ),
-        child:  Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.add, size: 16, color: V3Colors.text2),
-            SizedBox(width: 8),
-            Text('Add condition',
-                style: TextStyle(color: V3Colors.text2, fontSize: 13)),
-          ],
-        ),
       ),
     );
   }

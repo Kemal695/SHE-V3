@@ -152,7 +152,14 @@ public class NodeServiceImpl implements NodeService {
             }
             // Claim it
             node.setTenantId(user.tenantId());
-            node.setHomeId(homeId);
+            // Don't silently re-home an already-assigned LIVE node when the client
+            // didn't name a home. A null home_id used to pull the device into the
+            // caller's most-recent "My Home", making it vanish from the user's real
+            // dashboard (2026-10-23 incident). Keep its home unless the request
+            // explicitly asks for one, or the node has no home yet.
+            if (req.home_id() != null || node.getHomeId() == null) {
+                node.setHomeId(homeId);
+            }
             node.setProvisionedAt(Instant.now());
             // A revived (soft-deleted) node must have its tombstone cleared or it
             // stays invisible — every list/lookup query filters `deleted_at IS

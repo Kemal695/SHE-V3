@@ -713,6 +713,50 @@ public class MqttSubscriberService implements MqttCallbackExtended {
         insertTelemetryRow(now, node, diag.getId(), "WiFi_Disconnects", root.path("wifi_disconnects").asDouble(), "count");
         insertTelemetryRow(now, node, diag.getId(), "MQTT_Reconnects", root.path("mqtt_reconnects").asDouble(), "count");
 
+        // Environmental sensor rows (DHT22 -> the "Sensors" esp.device.sensor).
+        //
+        // The firmware only appends temp_c / humidity_pct to the telemetry payload
+        // when a checksum-valid sample exists, so a board with no probe sends
+        // neither key — do not insert a fabricated 0.0. The live value also reaches
+        // the app through params/local (node_params) and the WebSocket below; these
+        // rows are what feed the device_telemetry trend chart.
+        if (root.has("temp_c") || root.has("humidity_pct")
+                || root.has("soil_pct") || root.has("co2_ppm")) {
+            var sensorOpt = devices.stream()
+                    .filter(d -> "esp.device.sensor".equals(d.getDeviceType()))
+                    .findFirst();
+            if (sensorOpt.isPresent()) {
+                UUID sensorId = sensorOpt.get().getId();
+                if (root.has("temp_c")) {
+                    insertTelemetryRow(now, node, sensorId, "Temperature",
+                            root.path("temp_c").asDouble(), "C");
+                }
+                if (root.has("humidity_pct")) {
+                    insertTelemetryRow(now, node, sensorId, "Humidity",
+                            root.path("humidity_pct").asDouble(), "%");
+                }
+                if (root.has("soil_pct")) {
+                    insertTelemetryRow(now, node, sensorId, "Soil_Moisture",
+                            root.path("soil_pct").asDouble(), "%");
+                }
+                if (root.has("co_ppm")) {
+                    insertTelemetryRow(now, node, sensorId, "CO",
+                            root.path("co_ppm").asDouble(), "ppm");
+                }
+                if (root.has("alcohol_ppm")) {
+                    insertTelemetryRow(now, node, sensorId, "Alcohol",
+                            root.path("alcohol_ppm").asDouble(), "ppm");
+                }
+                if (root.has("co2_ppm")) {
+                    insertTelemetryRow(now, node, sensorId, "CO2",
+                            root.path("co2_ppm").asDouble(), "ppm");
+                }
+            } else {
+                log.debug("telemetry carried sensor values but node {} has no esp.device.sensor",
+                        node.getNodeId());
+            }
+        }
+
         // Push WebSocket node.telemetry
         wsEventBus.publishNodeTelemetry(node.getTenantId(), node.getHomeId(), node.getId(), root);
     }

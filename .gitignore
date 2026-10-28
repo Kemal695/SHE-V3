@@ -150,3 +150,8 @@ admin-web/package-lock.json.old
 
 # Assistant workspace
 .workbuddy-ai/
+
+# Backend runtime storage: uploaded media blobs (profile pictures etc.) are written
+# here with UUID filenames by the running server. They are user data, not source —
+# committing them bloats history permanently and ships other people's photos.
+backend/data/

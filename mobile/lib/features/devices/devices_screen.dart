@@ -21,6 +21,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/local/local_control_service.dart';
 import '../../core/network/active_home.dart';
+import '../../core/network/device_kind.dart';
 import '../../core/offline/device_snapshot.dart';
 import '../../core/network/ws_client.dart'
     show livePowerProvider, wsConnectedProvider;
@@ -148,6 +149,12 @@ final _homeDevicesFlatProvider =
       // row — which is also what put "OTA · On" into the command queue.
       if (d['is_service'] == true) continue;
 
+      // The environmental sensor (DHT22 -> esp.device.sensor) is read-only
+      // telemetry, not a relay. It is surfaced on the dashboard's Climate card
+      // (Temperature / Humidity), so keep it out of this toggleable relay grid —
+      // otherwise it renders as a 25th "Sensors" switch with no Power param.
+      if ((d['device_type']?.toString() ?? '') == 'esp.device.sensor') continue;
+
       final params = (d['params'] as List<dynamic>? ?? const []);
       final power = params.cast<Map<String, dynamic>?>().firstWhere(
             (p) => p?['param_name'] == 'Power',
@@ -210,6 +217,13 @@ final _homeDevicesFlatProvider =
   return out;
 });
 
+/// Public alias + typedef so the Parent devices page can reuse the EXACT same
+/// flattened device list (and the identical device-kind mapper) as the Devices
+/// tab — a single source of truth for "my devices". Do not duplicate the logic
+/// elsewhere; the mapper (`_kindFromDeviceType`) must stay identical everywhere.
+typedef DeviceRow = _DeviceRow;
+final homeDevicesFlatProvider = _homeDevicesFlatProvider;
+
 /// Maps a device onto the prototype's kind vocabulary so icons and tints differ.
 ///
 /// The firmware registers EVERY relay channel as `esp.device.switch` — on the
@@ -222,35 +236,11 @@ final _homeDevicesFlatProvider =
 /// `relay_names_r24` as "Light 1".."Light 16" / "Socket 1".."Socket 8".
 /// So: prefer the concrete `esp.device.*` type when it is specific, and fall
 /// back to keyword-matching the display name for the generic relay type.
-String _kindFromDeviceType(String type, {String name = ''}) {
-  // ---- Specific firmware types: unambiguous, trust them first ----
-  if (type.contains('lightbulb')) return 'light';
-  if (type.contains('fan')) return 'appliance';
-  if (type.contains('temp_sensor')) return 'climate';
-  if (type.contains('energy_meter')) return 'meter';
-
-  // ---- Relay channels: type is generic, so read the name ----
-  // Checked in priority order. Word-boundary-ish matching on a lowercased name
-  // so "Socket 1" and "Power Socket" both resolve to an outlet.
-  final n = name.toLowerCase();
-  if (n.contains('socket') || n.contains('outlet') || n.contains('plug')) {
-    return 'outlet';
-  }
-  if (n.contains('light') || n.contains('lamp')) return 'light';
-  if (n.contains('fan')) return 'appliance';
-  if (n.contains('gate') || n.contains('door')) return 'gate';
-  if (n.contains('pump') || n.contains('irrigation') || n.contains('water')) {
-    return 'irrigation';
-  }
-  if (n.contains('camera')) return 'camera';
-  if (n.contains('tv')) return 'tv';
-  if (n.contains('meter')) return 'meter';
-
-  // ---- Generic switch / relay / unknown ----
-  if (type.contains('switch') || type.contains('relay')) return 'outlet';
-  if (type.contains('sensor')) return 'sensor';
-  return 'generic';
-}
+/// Thin wrapper around the shared [kindFromDeviceType]
+/// (core/network/device_kind.dart) so every existing caller in this file keeps
+/// working unchanged — there is now a single source of the mapping.
+String _kindFromDeviceType(String type, {String name = ''}) =>
+    kindFromDeviceType(type, name: name);
 
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({super.key, this.homeId});

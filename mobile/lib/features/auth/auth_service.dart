@@ -15,6 +15,31 @@ import '../../core/storage/secure_storage.dart';
 
 final authServiceProvider = Provider<AuthService>((ref) => AuthService(ref));
 
+/// The signed-in user's profile: `GET /api/v3/auth/me`.
+///
+/// Shape (server: MeResponse): `{user: {...}, tenant: {...}}`.
+///
+/// Kept as a provider so the Profile screen can refresh/retry with
+/// `ref.invalidate(meProvider)`.
+final meProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  return ref.read(authServiceProvider).me();
+});
+
+/// A failed auth call, carrying the server's own error code and message.
+///
+/// Dio's raw `DioException` stringifies to "DioException [bad response]: ...",
+/// which is not something to show a user. The backend answers failures with
+/// `{"error": {"code", "message", "http_status"}}`, so unwrap that when present.
+class AuthException implements Exception {
+  AuthException(this.message, {this.code});
+
+  final String message;
+  final String? code;
+
+  @override
+  String toString() => message;
+}
+
 class AuthService {
   final Ref ref;
   AuthService(this.ref);
@@ -216,6 +241,61 @@ class AuthService {
       },
     );
     return response.data['data'] as Map<String, dynamic>;
+  }
+
+  /// Replaces the signed-in user's password.
+  ///
+  /// `POST /api/v3/auth/change-password` → 204. The server verifies
+  /// `currentPassword` itself (BCrypt) and answers 400 with
+  /// `AUTH_CURRENT_PASSWORD_INVALID` when it does not match, or
+  /// `VALIDATION_PASSWORD_UNCHANGED` when the new one equals the old one.
+  ///
+  /// Throws [AuthException] with the server's message so the caller can show
+  /// something a user can act on.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final dio = ref.read(dioProvider);
+    try {
+      await dio.post(ApiConstants.authChangePassword, data: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      });
+    } on DioException catch (e) {
+      throw AuthException(
+        _errorMessage(e) ?? 'Could not change the password. Please try again.',
+        code: _errorCode(e),
+      );
+    }
+  }
+
+  /// The backend's `{"error": {"message": ...}}` envelope, if this response has
+  /// one. Returns null for a network failure (no response at all) so the caller
+  /// can substitute a generic message.
+  String? _errorMessage(DioException e) {
+    final data = e.response?.data;
+    if (data is Map && data['error'] is Map) {
+      final msg = (data['error'] as Map)['message'];
+      if (msg is String && msg.isNotEmpty) return msg;
+    }
+    // A 404/405 means the server predates the endpoint — say so plainly rather
+    // than blaming the user's password.
+    final status = e.response?.statusCode;
+    if (status == 404 || status == 405) {
+      return 'This server does not support changing the password yet '
+          '(update the backend to enable it).';
+    }
+    return null;
+  }
+
+  String? _errorCode(DioException e) {
+    final data = e.response?.data;
+    if (data is Map && data['error'] is Map) {
+      final code = (data['error'] as Map)['code'];
+      if (code is String) return code;
+    }
+    return null;
   }
 
   /// Unwraps the canonical {data: {...}} envelope with safe casts (M9 fix).

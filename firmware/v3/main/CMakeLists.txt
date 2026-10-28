@@ -17,6 +17,7 @@ idf_component_register(
         "relay_driver.c"
         "feedback_monitor.c"
         "input_monitor.c"
+        "sensors.c"
         "energy_monitor.c"
         "device_profiles.c"
         "system_service.c"
@@ -53,6 +54,7 @@ idf_component_register(
         wifi_provisioning
         json
         driver
+        esp_adc
         app_update
         bt
         # esp_random.h for tweetnacl_port.c (hardware RNG backing randombytes)

@@ -5,6 +5,8 @@
 // SecureStorage: these are convenience preferences, not credentials.
 // =============================================================================
 
+import 'dart:typed_data';
+
 import 'package:hive/hive.dart';
 
 import '../constants/api_constants.dart';
@@ -40,6 +42,27 @@ class SettingsStore {
 
   static Future<void> setThemeMode(String value) =>
       _box.put(_themeModeKey, value);
+
+  // ---- Avatar accent (local-only preference, Profile screen) ----
+  static const String _avatarColorIndexKey = 'avatar_color_index';
+
+  /// Index into the Profile screen's avatar swatch palette. 0 by default.
+  static int get avatarColorIndex =>
+      (_box.get(_avatarColorIndexKey) as int?) ?? 0;
+
+  static Future<void> setAvatarColorIndex(int value) =>
+      _box.put(_avatarColorIndexKey, value);
+
+  // ---- Profile picture (local-only; no avatar column on the server) ----
+  static const String _profileImageKey = 'profile_image';
+
+  /// Uploaded profile picture as raw bytes (Hive stores Uint8List natively).
+  /// Null until the user sets one.
+  static Uint8List? get profileImage =>
+      _box.get(_profileImageKey) as Uint8List?;
+
+  static Future<void> setProfileImage(Uint8List? value) =>
+      _box.put(_profileImageKey, value);
 
   /// True when the user has overridden either value.
   static bool get hasOverride =>

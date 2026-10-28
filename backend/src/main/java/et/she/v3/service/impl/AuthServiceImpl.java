@@ -355,6 +355,26 @@ public class AuthServiceImpl implements AuthService {
         return currentUser().isMfaEnabled();
     }
 
+    /**
+     * Confirm the signed-in user's password without consuming a login attempt.
+     *
+     * The user comes from the JWT (currentUser), so no email is needed. Unlike
+     * login(), a wrong password here does NOT call recordFailedLogin — otherwise
+     * a few failed attempts at a local confirmation (e.g. resetting the
+     * voice-command PIN) would lock the account out of /login entirely.
+     */
+    @Override
+    public void verifyPassword(String password) {
+        User user = currentUser();
+        if (password == null || password.isBlank()
+                || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            throw new SheException("AUTH_INVALID_CREDENTIALS",
+                    "Password is incorrect", 401);
+        }
+        auditService.record(user.getTenantId(), "USER", user.getId(),
+                "auth.password.verified", "user", user.getId(), Map.of(), null, null, null);
+    }
+
     /** Base32 secret as a String, or null when the user has not enrolled. */
     private String secretOf(User user) {
         byte[] raw = user.getTotpSecretEncrypted();

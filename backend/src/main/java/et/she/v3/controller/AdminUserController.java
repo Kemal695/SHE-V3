@@ -2,6 +2,7 @@ package et.she.v3.controller;
 
 import et.she.v3.entity.User;
 import et.she.v3.errors.SheException;
+import et.she.v3.repository.AuditLogRepository;
 import et.she.v3.repository.UserRepository;
 import et.she.v3.security.AuthenticatedUser;
 import et.she.v3.security.TenantContextInterceptor;
@@ -26,7 +27,7 @@ import java.util.UUID;
  *   PATCH  /api/admin/users/{id}/role        — change role
  *   POST   /api/admin/users/{id}/disable      — disable (set deleted_at)
  *   POST   /api/admin/users/{id}/enable       — re-enable
- *   DELETE /api/admin/users/{id}              — hard delete
+ *   DELETE /api/admin/users/{id}              — anonymize + wipe (row kept for audit)
  *
  * Auth: TENANT_ADMIN+ for own tenant, SUPER_ADMIN for any tenant.
  */
@@ -35,11 +36,14 @@ import java.util.UUID;
 public class AdminUserController {
 
     private final UserRepository userRepository;
+    private final AuditLogRepository auditLogRepository;
     private final TenantContextInterceptor tenantContextInterceptor;
 
     public AdminUserController(UserRepository userRepository,
+                                 AuditLogRepository auditLogRepository,
                                  TenantContextInterceptor tenantContextInterceptor) {
         this.userRepository = userRepository;
+        this.auditLogRepository = auditLogRepository;
         this.tenantContextInterceptor = tenantContextInterceptor;
     }
 
@@ -49,10 +53,10 @@ public class AdminUserController {
             @RequestParam(defaultValue = "20") int size) {
         AuthenticatedUser admin = currentUser();
         if (size > 100) size = 100;
-        // RLS is already set by TenantContextAspect — JPA query auto-filters by tenant
+        // RLS is already set by TenantContextAspect — JPA query auto-filters by tenant.
+        // Disabled users (deleted_at set) stay in the list so the console can re-enable them.
         Page<User> result = userRepository.findAll(PageRequest.of(page, size));
         var data = result.getContent().stream()
-                .filter(u -> u.getDeletedAt() == null)
                 .map(this::toResponse)
                 .toList();
         return ResponseEntity.ok(Map.of("data", data, "meta", Map.of(
@@ -110,14 +114,42 @@ public class AdminUserController {
         return ResponseEntity.ok(Map.of("data", Map.of("id", id, "status", "enabled")));
     }
 
+    /**
+     * DELETE /api/admin/users/{id}
+     * V3-ADMIN-PLATFORM §4.2 / V3-PRIVACY-COMPLIANCE §2 — anonymize, not
+     * hard-delete: a hard delete is impossible anyway (homes.owner_user_id
+     * and other FKs reference the row) and would destroy audit history.
+     *
+     * Wipes personal data + credentials + privileges, keeps the row so audit
+     * log entries survive with actor_user_id = NULL.
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable UUID id) {
         AuthenticatedUser admin = currentUser();
         if (id.equals(admin.userId())) {
             throw new SheException("VALIDATION_FAILED", "Cannot delete your own account", 400);
         }
-        userRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new SheException("USER_NOT_FOUND", "User not found", 404));
+
+        user.setEmail("deleted-" + user.getId() + "@anonymized.invalid");
+        // password_hash is NOT NULL — set an unusable value so login can never succeed
+        user.setPasswordHash(UUID.randomUUID().toString());
+        user.setFullName(null);
+        user.setPhoneNumber(null);
+        user.setTotpSecretEncrypted(null);
+        user.setTotpRecoveryCodes(null);
+        user.setMfaEnabled(false);
+        user.setOauthSubject(null);
+        user.setOauthProvider(null);
+        user.setPlatformRole("USER");
+        user.setTenantRole(null);
+        user.setDeletedAt(Instant.now());
+        userRepository.save(user);
+
+        auditLogRepository.clearActorUserId(id);
+
+        return ResponseEntity.ok(Map.of("data", Map.of("id", id, "status", "anonymized")));
     }
 
     /**
@@ -148,17 +180,19 @@ public class AdminUserController {
     }
 
     private Map<String, Object> toResponse(User u) {
-        return Map.of(
-                "id", u.getId(),
-                "email", u.getEmail(),
-                "platform_role", u.getPlatformRole(),
-                "tenant_role", u.getTenantRole() != null ? u.getTenantRole() : "",
-                "full_name", u.getFullName() != null ? u.getFullName() : "",
-                "phone_number", u.getPhoneNumber() != null ? u.getPhoneNumber() : "",
-                "mfa_enabled", u.isMfaEnabled(),
-                "created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : "",
-                "last_login_at", u.getLastLoginAt() != null ? u.getLastLoginAt().toString() : ""
-        );
+        // HashMap, not Map.of — deleted_at/full_name etc. can be null and Map.of rejects null values
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("id", u.getId());
+        data.put("email", u.getEmail());
+        data.put("platform_role", u.getPlatformRole());
+        data.put("tenant_role", u.getTenantRole() != null ? u.getTenantRole() : "");
+        data.put("full_name", u.getFullName() != null ? u.getFullName() : "");
+        data.put("phone_number", u.getPhoneNumber() != null ? u.getPhoneNumber() : "");
+        data.put("mfa_enabled", u.isMfaEnabled());
+        data.put("created_at", u.getCreatedAt() != null ? u.getCreatedAt().toString() : "");
+        data.put("last_login_at", u.getLastLoginAt() != null ? u.getLastLoginAt().toString() : "");
+        data.put("deleted_at", u.getDeletedAt() != null ? u.getDeletedAt().toString() : null);
+        return data;
     }
 
     private AuthenticatedUser currentUser() {

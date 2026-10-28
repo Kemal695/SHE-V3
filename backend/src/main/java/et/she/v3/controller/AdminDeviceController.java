@@ -112,15 +112,16 @@ public class AdminDeviceController {
         tenantContextInterceptor.setRlsGucs(UUID.fromString("00000000-0000-0000-0000-000000000000"), true);
         var cert = deviceCertRepository.findActiveByFingerprint(node.getCertFingerprint())
                 .orElseThrow(() -> new SheException("CERT_NOT_FOUND", "Cert not found", 404));
-        return ResponseEntity.ok(Map.of("data", Map.of(
-                "cn", cert.getCn(),
-                "serial", cert.getCertSerial(),
-                "fingerprint", cert.getFingerprint(),
-                "status", cert.getStatus(),
-                "issued_at", cert.getIssuedAt().toString(),
-                "expires_at", cert.getExpiresAt().toString(),
-                "revoked_at", cert.getRevokedAt() != null ? cert.getRevokedAt().toString() : null
-        )));
+        // HashMap, not Map.of — revoked_at is null for active certs and Map.of rejects null values
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("cn", cert.getCn());
+        data.put("serial", cert.getCertSerial());
+        data.put("fingerprint", cert.getFingerprint());
+        data.put("status", cert.getStatus());
+        data.put("issued_at", cert.getIssuedAt() != null ? cert.getIssuedAt().toString() : null);
+        data.put("expires_at", cert.getExpiresAt() != null ? cert.getExpiresAt().toString() : null);
+        data.put("revoked_at", cert.getRevokedAt() != null ? cert.getRevokedAt().toString() : null);
+        return ResponseEntity.ok(Map.of("data", data));
     }
 
     @PostMapping("/{id}/revoke-cert")

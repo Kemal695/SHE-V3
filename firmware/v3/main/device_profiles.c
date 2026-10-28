@@ -101,6 +101,96 @@ static node_device_t build_diagnostics_service(void) {
     };
 }
 
+/* ---- Build the Sensors device (esp.device.sensor) ----
+ *
+ * Environmental sensors ported from the reference firmware: DHT22 (temperature +
+ * humidity), MQ-135 (air quality) and a soil-moisture probe. See sensors.c/h.
+ *
+ * ⚠ This is NOT a service. It goes in the `devices` array, so the backend stores
+ * it with `is_service = false` — the same as a relay. It is a read-only sensor
+ * device, so the mobile app must filter it out of any "relay" list by TYPE, not
+ * by `is_service`. (The dashboard's Climate card reads its Temperature /
+ * Humidity params directly.)
+ *
+ * Params are heap-allocated with calloc: profile_free() frees .params for every
+ * device whose type is not `esp.service.*`, and this one is `esp.device.*`, so a
+ * static array would be freed -> undefined behaviour.
+ *
+ * Every param is read-only + PROP_TIME_SERIES, so the values flow into the
+ * device_telemetry hypertable as well as node_params. Only the three gases the
+ * product shows (CO, Alcohol, CO2) are modelled — Toluene/NH3/Acetone are the
+ * same single MQ-135 measurement through other curves and are not published. */
+static node_device_t build_sensor_device(void) {
+    node_param_t *sensor_params = calloc(9, sizeof(node_param_t));
+    sensor_params[0] = (node_param_t){
+        .name = "Temperature", .type = "esp.param.temperature", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .min_val = -40.0f, .max_val = 80.0f,
+        .last_value = param_float(0.0f),
+    };
+    sensor_params[1] = (node_param_t){
+        .name = "Humidity", .type = "esp.param.humidity", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .min_val = 0.0f, .max_val = 100.0f,
+        .last_value = param_float(0.0f),
+    };
+    sensor_params[2] = (node_param_t){
+        .name = "Soil_Moisture", .type = "esp.param.soil_moisture", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .min_val = 0.0f, .max_val = 100.0f,
+        .last_value = param_float(0.0f),
+    };
+    sensor_params[3] = (node_param_t){
+        .name = "CO", .type = "esp.param.co", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .last_value = param_float(0.0f),
+    };
+    sensor_params[4] = (node_param_t){
+        .name = "Alcohol", .type = "esp.param.alcohol", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .last_value = param_float(0.0f),
+    };
+    sensor_params[5] = (node_param_t){
+        .name = "CO2", .type = "esp.param.co2", .data_type = DATA_FLOAT,
+        .properties = PROP_READ | PROP_TIME_SERIES,
+        .last_value = param_float(0.0f),
+    };
+    /* Diagnostic: which GPIO the DHT auto-detect found (-1 = none). Lets the
+     * operator confirm the sensor's data line without a serial console. */
+    sensor_params[6] = (node_param_t){
+        .name = "DHT_GPIO", .type = "esp.param.dht_gpio", .data_type = DATA_FLOAT,
+        .properties = PROP_READ,
+        .last_value = param_float(-1.0f),
+    };
+    /* 0 = valid frame, 1 = handshake only (no frame — check pull-up),
+     * 2 = no response on any probed GPIO. */
+    sensor_params[7] = (node_param_t){
+        .name = "DHT_Status", .type = "esp.param.dht_status", .data_type = DATA_FLOAT,
+        .properties = PROP_READ,
+        .last_value = param_float(2.0f),
+    };
+    /* Idle level of the detected DHT pin: 1 = pulled up (real data line),
+     * 0 = pulled down (a strapping/LED pin -> false positive). */
+    sensor_params[8] = (node_param_t){
+        .name = "DHT_Idle", .type = "esp.param.dht_idle", .data_type = DATA_FLOAT,
+        .properties = PROP_READ,
+        .last_value = param_float(-1.0f),
+    };
+
+    cJSON *attrs = cJSON_CreateObject();
+    cJSON_AddStringToObject(attrs, "Sensor Type",
+                            "Temperature, Humidity, Air Quality, Soil Moisture");
+    cJSON_AddStringToObject(attrs, "Measurement", "Celsius, Percent, PPM");
+    cJSON_AddStringToObject(attrs, "Hardware",
+                            "DHT22 (GPIO27), MQ-135 (ADC1_CH4/GPIO32), Soil (ADC1_CH5/GPIO33)");
+
+    return (node_device_t){
+        .name = "Sensors", .type = "esp.device.sensor", .channel = 0,
+        .params = sensor_params, .param_count = 9,
+        .attributes = attrs,
+    };
+}
+
 /* ---- Build a single relay device (esp.device.switch with Power param) ---- */
 static node_device_t build_relay_device(const char *name, uint8_t channel) {
     node_param_t *params = calloc(1, sizeof(node_param_t));
@@ -221,13 +311,14 @@ she_node_t* profile_build_r16(void) {
  * of its own — it is served by relay_apply_group() with the RELAY_GROUP_* masks
  * from relay_driver.h. Modelling it as a device would imply it has a pin. */
 she_node_t* profile_build_r24(void) {
-    static node_device_t devices[26];   /* 24 relays + OTA + Diagnostics */
+    static node_device_t devices[27];   /* 24 relays + OTA + Diagnostics + Sensors */
 
     for (int i = 0; i < 24; i++) {
         devices[i] = build_relay_device(relay_names_r24[i], i);
     }
     devices[24] = build_ota_service();
     devices[25] = build_diagnostics_service();
+    devices[26] = build_sensor_device();   /* DHT22 temperature + humidity */
 
     static she_node_t node = {
         .node_id = "SHE-R24-PLACEHOLDER",
@@ -237,7 +328,7 @@ she_node_t* profile_build_r24(void) {
         .hw_rev = "rev-a",
         .secure_version = 1,
         .devices = devices,
-        .device_count = 26,
+        .device_count = 27,
     };
     return &node;
 }

@@ -33,15 +33,18 @@ import '../../core/widgets/she_toggle.dart';
 import '../../core/network/api_error.dart';
 import '../../core/network/active_home.dart' show resolveActiveHomeId;
 import '../../core/network/ws_client.dart';
+import 'dart:typed_data';
+
+import '../../core/providers/profile_provider.dart';
 import '../../l10n/app_localizations.dart';
-import '../device_detail/device_detail_screen.dart'
+import '../device_detail/device_groups.dart'
     show
         GroupEditResult,
         GroupEditorDialog,
         kGroupIconChoices,
-        nodeDeviceGroupsProvider,
-        nodeDeviceParamsProvider,
-        nodeDevicesProvider;
+        nodeDeviceGroupsProvider;
+import '../device_detail/device_detail_screen.dart'
+    show nodeDeviceParamsProvider, nodeDevicesProvider;
 import '../device_detail/node_service.dart';
 import '../notifications/notification_store.dart';
 import '../voice/voice_hold_button.dart';
@@ -55,19 +58,32 @@ final homeNodesProvider =
   (ref, homeId) => ref.read(nodeServiceProvider).listNodesByHome(homeId),
 );
 
-/// Best-effort home climate reading for the status card's HVAC gauges.
+/// Best-effort home sensor reading for the status card's HVAC gauges AND the
+/// "Sensors" panel.
 ///
-/// Scans the home's devices for a `Temperature` / `Humidity` param (the same
-/// param names the temp-sensor card and telemetry use) and returns the first
-/// found. Nulls when the home has no such sensor — the gauges then render as
-/// "—" placeholders, the honest state until a climate device is provisioned.
-final homeClimateProvider =
-    FutureProvider.family<({double? temp, double? humidity}), String>(
+/// Scans the home's devices for the environmental params the firmware publishes
+/// (Temperature / Humidity from the DHT22, Soil_Moisture from the soil probe,
+/// and CO / Alcohol / CO2 from the MQ-135) and returns the first of each found.
+/// Nulls when a sensor is absent — the widgets then render "—" placeholders,
+/// which is the honest state until that sensor is connected.
+final homeClimateProvider = FutureProvider.family<
+    ({
+      double? temp,
+      double? humidity,
+      double? soil,
+      double? co,
+      double? alcohol,
+      double? co2,
+    }), String>(
   (ref, homeId) async {
     final nodes = await ref.watch(homeNodesProvider(homeId).future);
     final service = ref.read(nodeServiceProvider);
     double? temp;
     double? humidity;
+    double? soil;
+    double? co;
+    double? alcohol;
+    double? co2;
     for (final node in nodes) {
       final nodeId = node['id']?.toString();
       if (nodeId == null) continue;
@@ -77,19 +93,65 @@ final homeClimateProvider =
       } catch (_) {
         continue; // one unreachable board must not blank the gauges
       }
+
+      // All environmental readings live on ONE device — the firmware's
+      // "Sensors" device (device_type `esp.device.sensor`) — and its params are
+      // reported via the board's `params/local` publish into `node_params`.
+      //
+      // The device LIST (DeviceResponse) carries NO params field, so reading
+      // d['params'] here would always be null and the Climate / Sensors cards
+      // would render "—" forever. We must fetch the params for that device
+      // explicitly through the params endpoint.
+      String? sensorDeviceId;
       for (final d in devices) {
-        final params = d['params'] as List<dynamic>? ?? const [];
-        for (final p in params) {
-          if (p is! Map) continue;
-          final name = p['param_name']?.toString();
-          final v = p['last_value'];
-          if (name == 'Temperature' && v is num) temp ??= v.toDouble();
-          if (name == 'Humidity' && v is num) humidity ??= v.toDouble();
+        final type = (d['device_type']?.toString() ?? '');
+        final name = (d['device_name']?.toString() ?? '');
+        if (type == 'esp.device.sensor' || name == 'Sensors') {
+          sensorDeviceId = d['id']?.toString();
+          break;
         }
       }
+      if (sensorDeviceId == null) continue;
+
+      List<Map<String, dynamic>> params;
+      try {
+        params = await service.listParams(nodeId, sensorDeviceId);
+      } catch (_) {
+        continue;
+      }
+
+      for (final p in params) {
+        if (p is! Map) continue;
+        final name = p['param_name']?.toString();
+        final v = p['last_value'];
+        if (v is! num) continue;
+        if (name == 'Temperature') {
+          temp ??= v.toDouble();
+        } else if (name == 'Humidity') {
+          humidity ??= v.toDouble();
+        } else if (name == 'Soil_Moisture') {
+          soil ??= v.toDouble();
+        } else if (name == 'CO') {
+          co ??= v.toDouble();
+        } else if (name == 'Alcohol') {
+          alcohol ??= v.toDouble();
+        } else if (name == 'CO2') {
+          co2 ??= v.toDouble();
+        }
+      }
+
+      // Everything this node can report is on that single Sensors device, so
+      // once we have the primary climate pair we are done with this node.
       if (temp != null && humidity != null) break;
     }
-    return (temp: temp, humidity: humidity);
+    return (
+      temp: temp,
+      humidity: humidity,
+      soil: soil,
+      co: co,
+      alcohol: alcohol,
+      co2: co2,
+    );
   },
 );
 
@@ -157,6 +219,11 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   // TODO: load real homes list. For now use default B2C tenant home.
   String _homeId = '00000000-0000-0000-0000-000000000001';
+
+  // Sensors card is collapsed by default (only the Climate card shows on the
+  // dashboard). The "View all" button in the "My Devices" header toggles this
+  // to expand the full environmental readout in its usual spot below Climate.
+  bool _showSensors = false;
 
   @override
   void initState() {
@@ -320,16 +387,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         // ---- devices section ----
         // No per-device list on the home page (user request 2026-10-10): the
         // dashboard shows GROUPS instead, and the Groups section below is where
-        // you act on devices. This header links to the Devices tab, which is the
-        // one place that lists and toggles individual devices.
+        // you act on devices. The "View all" action used to navigate to the
+        // Devices tab; it now TOGGLES the Sensors card below (user request
+        // 2026-10-28) so the dashboard defaults to only the Climate card, with
+        // "Hide" to collapse it again.
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
                 V3Spacing.md, V3Spacing.lg, V3Spacing.md, 10),
             child: SHESectionHeader(
               title: 'My Devices',
-              action: 'View all',
-              onAction: () => context.push('/devices?homeId=$_homeId'),
+              // Toggles the Sensors card (no navigation). The action must stay
+              // visible in BOTH states — otherwise there is no way to collapse
+              // the card again after expanding it.
+              action: _showSensors ? 'Hide' : 'View all',
+              onAction: () => setState(() => _showSensors = !_showSensors),
             ),
           ),
         ),
@@ -350,6 +422,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: V3Spacing.md),
               child: _ClimateCard(homeId: _homeId),
+            ),
+          ),
+
+        if (_showSensors)
+          // Full environmental readout: DHT22 (temp/humidity), soil moisture and
+          // the MQ-135 gases. Collapsed by default — revealed when the user taps
+          // "View all" in the "My Devices" header, appearing here just below the
+          // Climate card (its original position).
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  V3Spacing.md, V3Spacing.sm, V3Spacing.md, 0),
+              child: _SensorsCard(homeId: _homeId),
             ),
           ),
 
@@ -899,7 +984,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 // -----------------------------------------------------------------------------
 // Header — avatar, greeting, home name, bell.
 // -----------------------------------------------------------------------------
-class _Header extends StatelessWidget {
+
+/// Circular avatar that shows the uploaded profile picture when set, otherwise
+/// falls back to the SHE monogram.
+class _ProfileOrb extends StatelessWidget {
+  final Uint8List? image;
+  final double size;
+  final String fallbackName;
+
+  const _ProfileOrb({
+    required this.image,
+    required this.size,
+    this.fallbackName = 'SHE',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (image != null) {
+      return ClipOval(
+        child: Image.memory(
+          image!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    return SHEAvatar(name: fallbackName, size: size);
+  }
+}
+
+class _Header extends ConsumerWidget {
   const _Header({
     required this.online,
     required this.total,
@@ -918,7 +1033,7 @@ class _Header extends StatelessWidget {
   final bool hasUnread;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : 'Good evening';
 
@@ -927,7 +1042,7 @@ class _Header extends StatelessWidget {
           V3Spacing.md, V3Spacing.md, V3Spacing.md, 12),
       child: Row(
         children: [
-          const SHEAvatar(name: 'SHE', size: 42),
+          _ProfileOrb(image: ref.watch(profileImageProvider), size: 42),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -967,11 +1082,6 @@ class _Header extends StatelessWidget {
             ),
           ),
           _BellButton(onTap: onNotifications, hasUnread: hasUnread),
-          const SizedBox(width: V3Spacing.sm),
-          GestureDetector(
-            onTap: onProfile,
-            child: const SHEAvatar(name: 'S', size: 34),
-          ),
         ],
       ),
     );
@@ -1185,6 +1295,168 @@ class _ClimateCard extends ConsumerWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Environmental sensor readout — DHT22 (temperature/humidity), soil moisture
+/// and the MQ-135 gases (CO / Alcohol / CO2). Every tile shows "—" until that
+/// sensor reports, so they can be connected and tested one at a time.
+class _SensorsCard extends ConsumerWidget {
+  const _SensorsCard({required this.homeId});
+
+  final String homeId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(homeClimateProvider(homeId)).valueOrNull;
+    if (s == null) return const SizedBox.shrink();
+    final any = s.temp != null ||
+        s.humidity != null ||
+        s.soil != null ||
+        s.co != null ||
+        s.alcohol != null ||
+        s.co2 != null;
+    if (!any) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(V3Spacing.md),
+      decoration: BoxDecoration(
+        color: V3Colors.surface,
+        borderRadius: BorderRadius.circular(V3Radius.xl),
+        border: Border.all(color: V3Colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.sensors, size: 18, color: V3Colors.primary),
+              const SizedBox(width: 8),
+              Text('Sensors',
+                  style: TextStyle(
+                      color: V3Colors.ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: V3Spacing.md),
+          Row(
+            children: [
+              _SensorTile(
+                icon: Icons.thermostat,
+                label: 'Temperature',
+                value:
+                    s.temp == null ? '—' : '${s.temp!.toStringAsFixed(1)} °C',
+                tint: V3Colors.warningAlt,
+              ),
+              const SizedBox(width: V3Spacing.sm),
+              _SensorTile(
+                icon: Icons.water_drop_outlined,
+                label: 'Humidity',
+                value: s.humidity == null
+                    ? '—'
+                    : '${s.humidity!.toStringAsFixed(0)} %',
+                tint: V3Colors.primary,
+              ),
+            ],
+          ),
+          const SizedBox(height: V3Spacing.sm),
+          Row(
+            children: [
+              _SensorTile(
+                icon: Icons.grass,
+                label: 'Soil moisture',
+                value: s.soil == null ? '—' : '${s.soil!.toStringAsFixed(0)} %',
+                tint: V3Colors.success,
+              ),
+              const SizedBox(width: V3Spacing.sm),
+              _SensorTile(
+                icon: Icons.cloud_outlined,
+                label: 'CO₂',
+                value:
+                    s.co2 == null ? '—' : '${s.co2!.toStringAsFixed(0)} ppm',
+                tint: V3Colors.textSecondary,
+              ),
+            ],
+          ),
+          const SizedBox(height: V3Spacing.sm),
+          Row(
+            children: [
+              _SensorTile(
+                icon: Icons.local_fire_department_outlined,
+                label: 'CO',
+                value: s.co == null ? '—' : '${s.co!.toStringAsFixed(1)} ppm',
+                tint: V3Colors.warning,
+              ),
+              const SizedBox(width: V3Spacing.sm),
+              _SensorTile(
+                icon: Icons.science_outlined,
+                label: 'Alcohol',
+                value: s.alcohol == null
+                    ? '—'
+                    : '${s.alcohol!.toStringAsFixed(1)} ppm',
+                tint: V3Colors.error,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One read-only sensor reading: icon + label + value. Null-safe ("—").
+class _SensorTile extends StatelessWidget {
+  const _SensorTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.tint,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: V3Spacing.sm, vertical: V3Spacing.sm),
+        decoration: BoxDecoration(
+          color: V3Colors.surface.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(V3Radius.lg),
+          border: Border.all(color: V3Colors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: tint),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: V3Colors.textSecondary, fontSize: 11)),
+                  Text(value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: V3Colors.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -59,6 +59,14 @@ public class AutomationService {
      */
     private static final Duration CATCHUP_WINDOW = Duration.ofHours(24);
 
+    /**
+     * A catch-up may only EXECUTE the missed action when the missed occurrence is
+     * at most this many minutes old — i.e. the server was briefly down around the
+     * scheduled time. Anything older is advanced (last_fired_at) WITHOUT running
+     * the action; see runScheduled().
+     */
+    private static final long CATCHUP_EXECUTE_LIMIT_MINUTES = 5;
+
     private final AutomationRepository automationRepository;
     private final AutomationRuleRepository ruleRepository;
     private final NodeDeviceRepository nodeDeviceRepository;
@@ -227,9 +235,16 @@ public class AutomationService {
                                  Object oldValue, Object newValue) {
         if (nodeId == null || paramName == null) return;
 
-        // Edge-triggered only: a steady value that still matches must not re-fire.
-        if (Objects.equals(normalise(oldValue), normalise(newValue))) return;
-
+        // Fire only on a TRANSITION INTO the matching region: the new value must
+        // match the trigger while the previous one did not.
+        //
+        // For a boolean (Power ON/OFF) trigger this is identical to a change guard
+        // — a boolean only "changes" at a real transition. For a NUMERIC sensor
+        // threshold (e.g. Temperature >= 30) it is essential: a sensor that stays
+        // above 30 would otherwise re-fire on every periodic report (~30 s),
+        // re-commanding the target device forever. The first report of a param is
+        // never passed here (the MQTT path seeds it instead of evaluating), so a
+        // freshly-seen value cannot spuriously fire.
         for (Automation a : automationRepository.findAllEnabled()) {
             JsonNode t = a.getTriggerConfig();
             if (t == null || !"NODE_STATE".equalsIgnoreCase(t.path("type").asText())) continue;
@@ -252,9 +267,13 @@ public class AutomationService {
                 if (trigDevice == null || !trigDevice.equals(deviceId)) continue;
             }
 
-            if (!matches(t.path("comparator").asText("=="), newValue, t.path("value"))) continue;
+            final String comparator = t.path("comparator").asText("==");
+            final boolean oldMatches = matches(comparator, oldValue, t.path("value"));
+            final boolean newMatches = matches(comparator, newValue, t.path("value"));
+            if (!newMatches || oldMatches) continue;
 
-            log.info("Automation {} fired by NODE_STATE {}.{}={}", a.getId(), deviceName, paramName, newValue);
+            log.info("Automation {} fired by NODE_STATE {}.{}={} ({} -> {})",
+                    a.getId(), deviceName, paramName, newValue, oldValue, newValue);
             execute(a);
         }
     }
@@ -340,6 +359,25 @@ public class AutomationService {
             if (lastFired != null && !lastFired.isBefore(due.atZone(zone).toInstant())) continue;
 
             boolean isCatchUp = due.isBefore(nowMinute);
+
+            // A catch-up must only EXECUTE when the missed run is genuinely recent
+            // — i.e. the server was down for a few minutes around the scheduled
+            // time. A stale occurrence (up to CATCHUP_WINDOW = 24h old) must NOT be
+            // run now: that is what made a 20:35 schedule fire at 13:09 the next
+            // day and turn a socket on with no user action (observed 2026-10-27,
+            // automation "bfgg" -> "Socket 1"). Advance the marker so the missed
+            // run is not replayed on every sweep, and wait for the next real
+            // occurrence instead.
+            if (isCatchUp
+                    && Duration.between(due, nowMinute).toMinutes() > CATCHUP_EXECUTE_LIMIT_MINUTES) {
+                log.warn("Automation {} skipping stale catch-up: due={} is {} min old "
+                                + "(execute limit {} min) — advancing last_fired_at only, not executing",
+                        a.getId(), due, Duration.between(due, nowMinute).toMinutes(),
+                        CATCHUP_EXECUTE_LIMIT_MINUTES);
+                markFired(a.getId(), now);
+                continue;
+            }
+
             log.info("Automation {} fired by SCHEDULE cron={} due={}{}",
                     a.getId(), cron, due, isCatchUp ? " (catch-up after downtime)" : "");
 

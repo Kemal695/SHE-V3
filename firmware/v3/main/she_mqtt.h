@@ -10,6 +10,7 @@
 
 #include "esp_err.h"
 #include "device_profiles.h"
+#include "sensors.h"          /* sensor_sample_t — optional climate block in telemetry */
 #include_next "mqtt_client.h"
 
 #ifdef __cplusplus
@@ -96,7 +97,8 @@ esp_err_t mqtt_publish_energy(float voltage, float current, float power_w,
  * counters — the caller supplies only the values it sampled.
  */
 esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
-                                 uint32_t min_free_heap, const char *reset_reason);
+                                 uint32_t min_free_heap, const char *reset_reason,
+                                 const sensor_sample_t *sensors);
 
 /**
  * Publish OTA status to she/.../{mac}/ota/status (QoS 1).

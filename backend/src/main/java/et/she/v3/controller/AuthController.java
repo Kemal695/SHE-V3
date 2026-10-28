@@ -136,6 +136,22 @@ public class AuthController {
     }
 
     /**
+     * POST /api/v3/auth/verify-password — confirm the signed-in user's password.
+     * Body: {"password":"..."}
+     *
+     * For local, security-sensitive confirmations (e.g. resetting the
+     * voice-command PIN). The user is taken from the JWT, and a wrong password
+     * does NOT count against the /login rate limit, so this can never lock the
+     * account out.
+     */
+    @PostMapping("/verify-password")
+    public ResponseEntity<Map<String, Object>> verifyPassword(
+            @RequestBody Map<String, String> body) {
+        authService.verifyPassword(body == null ? null : body.get("password"));
+        return ResponseEntity.ok(Map.of("data", Map.of("verified", true)));
+    }
+
+    /**
      * GET /api/v3/auth/mfa/status — is MFA enabled for the current user?
      */
     @GetMapping("/mfa/status")

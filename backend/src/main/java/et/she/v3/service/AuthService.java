@@ -39,6 +39,16 @@ public interface AuthService {
      */
     MfaStatusResponse disableMfa(String password);
 
+    /**
+     * POST /api/v3/auth/verify-password — confirm the signed-in user's password.
+     *
+     * For local, security-sensitive confirmations (e.g. resetting the
+     * voice-command PIN). The user is identified from the JWT, so no email is
+     * needed, and this deliberately does NOT touch the login-attempt counter —
+     * a wrong guess here must never be able to lock the account out of /login.
+     */
+    void verifyPassword(String password);
+
     /** True when the authenticated user has MFA enabled. */
     boolean mfaEnabled();
 

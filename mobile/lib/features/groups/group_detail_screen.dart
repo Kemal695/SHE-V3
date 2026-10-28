@@ -25,13 +25,10 @@ import '../../core/theme/v3_design_tokens.dart';
 import '../../core/widgets/she_kit.dart';
 import '../../core/widgets/she_icon_or_image.dart';
 import '../../core/widgets/she_toggle.dart';
+import '../device_detail/device_groups.dart'
+    show kGroupIconChoices, kGroupImageChoices, nodeDeviceGroupsProvider;
 import '../device_detail/device_detail_screen.dart'
-    show
-        kGroupIconChoices,
-        kGroupImageChoices,
-        nodeDeviceGroupsProvider,
-        nodeDevicesProvider,
-        nodeDeviceParamsProvider;
+    show nodeDevicesProvider, nodeDeviceParamsProvider;
 import '../device_detail/node_service.dart';
 
 class GroupDetailScreen extends ConsumerStatefulWidget {

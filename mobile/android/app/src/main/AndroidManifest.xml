@@ -4,6 +4,8 @@
     <!-- Tactile "Hey Robi was heard" cue — works even when the phone is
          silenced and the screen is locked. Normal permission, auto-granted. -->
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Profile photo upload (camera option in the picker). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Location automations (foreground geofence). Foreground-only: the app
          never asks for ACCESS_BACKGROUND_LOCATION, so the fence stops when the

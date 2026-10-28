@@ -27,8 +27,24 @@ static const char *TAG = "she_button";
  * Production SKUs with a real button pin: define SHE_USER_BUTTON_GPIO and
  * replace BOOT_BUTTON_GPIO in the task below.
  */
+/* ── BENCH TEST SWITCH ────────────────────────────────────────────────────────
+ * Set to 1 to arm this task on builds where GPIO0 is the BOOT/flash strap
+ * (ESP32-DevKit and SHE-R24). Needed to exercise BLE provisioning on the bench:
+ * a 5 s hold fires SHE_CMD_FACTORY_RESET, which erases the `nvs` partition and
+ * clears the fctry `provisioned` flag, so the next boot takes the BLE path.
+ *
+ * ⚠ WHILE THIS IS 1:
+ *   - leaning on the BOOT button for 5 s WIPES the device, and
+ *   - holding BOOT for more than 5 s while trying to enter download mode does
+ *     the same (the app is not running then, but a slip while the app IS running
+ *     is enough).
+ * Set it back to 0 before shipping. */
+#define SHE_BUTTON_ALLOW_ON_STRAP_BUILDS 1
+
 #if defined(CONFIG_SHE_DEVKIT_ESP32) || defined(CONFIG_SHE_R24)
-#define SHE_BUTTON_TASK_DISABLED 1
+#  if !SHE_BUTTON_ALLOW_ON_STRAP_BUILDS
+#    define SHE_BUTTON_TASK_DISABLED 1
+#  endif
 #endif
 
 #define BOOT_BUTTON_GPIO    0    /* GPIO 0 = BOOT button on ESP32 dev kits */
@@ -110,6 +126,11 @@ esp_err_t button_task_start(void) {
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Button task started (priority 2, 2048 stack, core 0)");
+#if (defined(CONFIG_SHE_DEVKIT_ESP32) || defined(CONFIG_SHE_R24)) && SHE_BUTTON_ALLOW_ON_STRAP_BUILDS
+    ESP_LOGW(TAG, "  ⚠ BENCH OVERRIDE: GPIO0 is the BOOT/flash strap on this SKU — a 5 s "
+                  "hold FACTORY-RESETS the device. Set SHE_BUTTON_ALLOW_ON_STRAP_BUILDS "
+                  "back to 0 before shipping (button_task.c).");
+#endif
     return ESP_OK;
 #endif
 }

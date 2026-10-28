@@ -49,6 +49,8 @@ class ApiConstants {
   static const String googleServerClientId =
       String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID', defaultValue: '');
   static const String authMe = '$apiPrefix/auth/me';
+  static const String authChangePassword =
+      '$apiPrefix/auth/change-password';
 
   // Homes + rooms + members
   static const String homes = '$apiPrefix/homes';

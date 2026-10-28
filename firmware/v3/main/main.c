@@ -33,6 +33,7 @@
 #include "relay_driver.h"
 #include "feedback_monitor.h"
 #include "input_monitor.h"
+#include "sensors.h"         /* DHT22 temperature + humidity (SHE-R24) */
 #include "energy_monitor.h"
 #include "button_task.h"
 #include "schedule_store.h"
@@ -229,8 +230,15 @@ static void sample_diagnostics(she_node_t *node) {
      * what feeds the device_telemetry hypertable and the app's trend chart. The
      * two are separate channels and are easy to conflate — the firmware used to
      * publish only the former, so the telemetry screen stayed empty forever. */
+    /* The environmental reading rides along in the same telemetry payload.
+     * Only pass it when a valid sample exists, so a board with no DHT22 never
+     * reports a temperature of 0.0 — which is a plausible reading and would look
+     * like real data on the chart. */
+    sensor_sample_t sample;
+    const sensor_sample_t *sample_ptr = sensors_get_latest(&sample) ? &sample : NULL;
     mqtt_publish_telemetry(uptime_s, rssi, (uint32_t)free_heap,
-                           (uint32_t)esp_get_minimum_free_heap_size(), reset_reason);
+                           (uint32_t)esp_get_minimum_free_heap_size(), reset_reason,
+                           sample_ptr);
 }
 
 /* ---- app_main — boot orchestration per V3-FIRMWARE §4 ---- */
@@ -340,6 +348,19 @@ void app_main(void) {
     ESP_LOGI(TAG, "Step 3c: PZEM-004T energy monitor initialized");
 #endif
 
+#if defined(CONFIG_SHE_R24)
+    /* 3d. Environmental sensor — the DHT22 on GPIO 27.
+     *
+     * Non-fatal by design: the relays are the board's primary function, so a
+     * missing or miswired probe must not stop it booting or connecting. */
+    if (sensors_init() != ESP_OK) {
+        ESP_LOGW(TAG, "Step 3d: DHT22 unavailable — no temperature/humidity "
+                      "(relay control is unaffected)");
+    } else {
+        ESP_LOGI(TAG, "Step 3d: DHT22 sensor initialized");
+    }
+#endif
+
     /* 4. Restore last relay state from NVS (persist property) */
     relay_restore_state();
     ESP_LOGI(TAG, "Step 4: Relay state restored from NVS");
@@ -389,6 +410,18 @@ void app_main(void) {
         ESP_LOGW(TAG, "Step 5b: input feedback task not started");
     } else {
         ESP_LOGI(TAG, "Step 5b: AC feedback task started (Light 1-16, 1 s poll)");
+    }
+
+    /* 5c. Start the sensor task — after the profile exists, because it writes
+     * readings into the Sensors device's params and publishes params/local when
+     * one moves. */
+    if (sensors_is_running()) {
+        ESP_LOGI(TAG, "Step 5c: sensor task already running");
+    } else if (sensors_start(node) != ESP_OK) {
+        ESP_LOGW(TAG, "Step 5c: sensor task not started — DHT22 initialised but "
+                      "will never be sampled");
+    } else {
+        ESP_LOGI(TAG, "Step 5c: sensor task started (DHT22 temperature + humidity)");
     }
 #endif
 

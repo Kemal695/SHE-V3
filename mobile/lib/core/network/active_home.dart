@@ -25,6 +25,12 @@ import 'package:hive/hive.dart';
 import '../../features/device_detail/node_service.dart';
 import '../offline/device_snapshot.dart' show deviceSnapshotBox;
 
+/// Mirrors the desktop repo's `activeHomeIdProvider` so ported screens can read
+/// the active home synchronously via `ref.watch(activeHomeIdProvider)`.
+///
+/// Seed it (e.g. in a screen's initState) from [resolveActiveHomeId].
+final activeHomeIdProvider = StateProvider<String?>((ref) => null);
+
 /// Hive key holding the home id that last resolved successfully.
 const String activeHomeIdKey = 'active_home_id';
 
