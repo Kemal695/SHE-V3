@@ -723,6 +723,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                 ),
                               ),
                             ),
+
+                            // LOCAL-FIRST escape hatch (2026-10-28): if the
+                            // backend is down this screen can never be
+                            // completed, so offer direct Wi-Fi control instead
+                            // of leaving the user stuck at a login form.
+                            Center(
+                              child: TextButton.icon(
+                                onPressed: () => context.go('/local'),
+                                icon: Icon(
+                                  Icons.wifi_tethering,
+                                  size: 14,
+                                  color: p.primary,
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: p.primary,
+                                  minimumSize: Size.zero,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                label: const Text(
+                                  'Local control (no internet)',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),

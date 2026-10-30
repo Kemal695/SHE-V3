@@ -47,6 +47,7 @@ import '../features/scenes/scene_detail_screen.dart';
 import '../features/scenes/scenes_screen.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/local_admin/local_admin_screen.dart';
+import '../features/local/local_mode_screen.dart';
 import '../features/auth/mfa_enroll_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/voice/voice_screen.dart';
@@ -82,7 +83,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           loc == '/splash' ||
           loc == '/onboarding';
 
-      if (!isLoggedIn && !isAuthRoute) return '/login';
+      // `/local` is the LOCAL-FIRST path (2026-10-28): the app must be usable
+      // with no backend at all, and local control talks straight to the board
+      // over Wi-Fi. Gating it behind a login would make it unreachable exactly
+      // when it is the only thing that still works. It is public AND stays
+      // reachable for a signed-in user (local-first), so it is deliberately not
+      // part of `isAuthRoute` — that set is also what a logged-in user gets
+      // redirected away from.
+      final isLocalMode = loc == '/local';
+      final isPublic = isAuthRoute || isLocalMode;
+
+      if (!isLoggedIn && !isPublic) return '/login';
       if (isLoggedIn && isAuthRoute) return '/dashboard';
       return null;
     },
@@ -97,6 +108,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
+      ),
+
+      // ---- Local mode (no account, no backend) ----
+      // Reached automatically from the splash when the backend is unreachable,
+      // from the login screen's "Local control" action, or by deep link. Drives
+      // the board directly over Wi-Fi (see features/local/local_mode_screen.dart).
+      GoRoute(
+        path: '/local',
+        builder: (context, state) => const LocalModeScreen(),
       ),
 
       // ---- Auth (no back to dashboard from these) ----

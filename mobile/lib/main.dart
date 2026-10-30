@@ -48,7 +48,13 @@ Future<void> main() async {
   // Restoring here (before runApp, so the first router evaluation already sees
   // the token) makes a warm relaunch land on /dashboard instead.
   final container = ProviderContainer();
-  await restoreSession(container);
+  // LOCAL-FIRST (2026-10-28): restoring against an unreachable backend used to
+  // block launch for the whole connect timeout (8 s) — a black screen on a phone
+  // that is simply not on the same Wi-Fi. Cap the wait at 3 s. The refresh keeps
+  // running in the background; if it later succeeds, `accessTokenProvider` (the
+  // router's refreshListenable) fires and the guard moves the user on its own.
+  await restoreSession(container)
+      .timeout(const Duration(seconds: 3), onTimeout: () => false);
 
   runApp(
     UncontrolledProviderScope(

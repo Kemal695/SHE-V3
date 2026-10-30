@@ -41,55 +41,182 @@ class LocalControlService {
 
   String? _host;
   int _port = _defaultPort;
+
+  /// When the expensive discovery path (mDNS + LAN sweep) last ran.
+  ///
+  /// The Devices tab polls every 20 s, and each poll calls [discoverHost]. When
+  /// the board is simply off, running a 4 s mDNS lookup plus a 5 s subnet sweep
+  /// on EVERY poll would thrash the network and stall the UI. One attempt a
+  /// minute is plenty — a board that comes back is picked up within that window.
+  DateTime? _lastDeepDiscoverAt;
+  static const Duration _deepDiscoverCooldown = Duration(seconds: 60);
   DateTime? _hostAt;
 
   /// Local control can only be attempted once a PoP has been entered.
   bool get isConfigured => SettingsStore.localPop.isNotEmpty;
+
+  /// When the board last answered. Lets a caller decide whether to try local
+  /// FIRST: on a phone that is NOT on the board's Wi-Fi, attempting local before
+  /// the cloud would burn the full connect timeout on every single toggle. With
+  /// this flag the app only goes local when the board has just proved it is
+  /// there — which is what makes the switch feel instant and invisible.
+  DateTime? _lastOkAt;
+
+  static const Duration _reachableTtl = Duration(seconds: 45);
+
+  bool get reachableRecently =>
+      _lastOkAt != null &&
+      DateTime.now().difference(_lastOkAt!) < _reachableTtl;
+
+  void _markOk() => _lastOkAt = DateTime.now();
+
+  void _markDown() {
+    _lastOkAt = null;
+    // Also drop the cached address so the NEXT discoverHost re-probes instead of
+    // handing back a host we already know is dead for another 45 s.
+    _hostAt = null;
+  }
+
+  // ---- Request serialisation ------------------------------------------------
+  // The R24 has a tiny socket pool and performs a full TLS handshake per
+  // connection. Two overlapping requests — a 20 s poll landing on a command, or
+  // two quick taps — make it answer `Connection reset by peer` (errno 104), which
+  // is exactly what the user saw on the Devices page: every toggle queued with
+  // "local control failed".
+  //
+  // Everything now goes through ONE queue, so the board only ever sees a single
+  // request at a time. The cost is that a burst of taps is applied serially; the
+  // benefit is that they are applied at all.
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> _serial<T>(Future<T> Function() op) async {
+    final previous = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    await previous;
+    // A short gap before the next request. The board closes each connection and
+    // needs a moment to free the socket; firing the next handshake immediately
+    // is what produces errno 104 under a burst (e.g. a multi-device voice scene).
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    try {
+      return await op();
+    } finally {
+      done.complete();
+    }
+  }
 
   /// Discover the board's LAN address, cached briefly. Returns null when no board
   /// answers — not on the same Wi-Fi, or mDNS disabled in the firmware build.
   Future<String?> discoverHost({bool force = false}) async {
     if (!isConfigured) return null;
 
-    // A manually-entered board address wins outright: it is the ONLY path when
-    // the firmware's mDNS advertisement is unavailable (the shipped firmware has
-    // the mDNS component disabled, so `_she_ctrl._tcp` is never published — the
-    // HTTPS server still runs, the board just does not announce itself).
     final manual = SettingsStore.localHost.trim();
-    if (manual.isNotEmpty) {
-      _host = manual;
-      _hostAt = DateTime.now();
-      return manual;
-    }
-
-    if (!force &&
+    final cacheFresh = !force &&
         _host != null &&
         _hostAt != null &&
-        DateTime.now().difference(_hostAt!) < _hostTtl) {
+        DateTime.now().difference(_hostAt!) < _hostTtl;
+
+    // 1. The saved address, but VERIFIED. The board takes a new DHCP lease on
+    //    every reboot — it has been .20, .22 and .24 within a single day — and
+    //    the old code returned the saved value unconditionally, so one reboot
+    //    stranded local control until somebody re-typed the IP by hand.
+    if (manual.isNotEmpty) {
+      if (cacheFresh && _host == manual) return manual;
+      if (await _tcpProbe(manual, port: _defaultPort)) {
+        _host = manual;
+        _hostAt = DateTime.now();
+        return manual;
+      }
+      // Saved address is dead — fall through and go looking for the board.
+    } else if (cacheFresh) {
       return _host;
     }
 
+    // Rate-limit the expensive path so a powered-off board cannot make every
+    // poll pay for an mDNS lookup plus a subnet sweep.
+    if (_lastDeepDiscoverAt != null &&
+        DateTime.now().difference(_lastDeepDiscoverAt!) < _deepDiscoverCooldown) {
+      return null;
+    }
+    _lastDeepDiscoverAt = DateTime.now();
+
+    // 2. mDNS, when the firmware advertises `_she_ctrl._tcp`.
+    final mdns = await _discoverMdns();
+    if (mdns != null) {
+      await _remember(mdns.host, mdns.port);
+      return mdns.host;
+    }
+
+    // 3. Last resort: sweep this /24 for the board. Reached only when the saved
+    //    address is dead AND mDNS found nothing — i.e. exactly after a DHCP move.
+    //
+    // Drop our own pooled socket first: the board serves ONE client at a time, so
+    // a connection we are still holding would make the sweep's verification
+    // request to the board time out and the board would never be found.
+    _resetClient();
+    final scanned = await _scanLan();
+    if (scanned != null) {
+      await _remember(scanned, _defaultPort);
+      // The caller fires its real request immediately, and the board serves one
+      // client at a time — let it drop the verification socket first.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      return scanned;
+    }
+
+    _host = null;
+    _hostAt = null;
+    return null;
+  }
+
+  /// Cheap liveness check: can we open a TCP connection to [host]?
+  ///
+  /// Deliberately NOT a full `/she/info` — this runs before discovery and a TLS
+  /// handshake on this board costs ~1 s. The request that follows validates.
+  Future<bool> _tcpProbe(String host, {int? port}) async {
+    try {
+      final socket = await Socket.connect(
+        host,
+        port ?? _port,
+        timeout: const Duration(milliseconds: 800),
+      );
+      socket.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Remember a discovered address AND persist it, so the next launch is instant
+  /// and the Board settings card shows the address that actually works.
+  Future<void> _remember(String host, int port) async {
+    _host = host;
+    _port = port;
+    _hostAt = DateTime.now();
+    if (SettingsStore.localHost.trim() != host) {
+      await SettingsStore.setLocalHost(host);
+    }
+  }
+
+  /// mDNS lookup for `_she_ctrl._tcp`.
+  Future<({String host, int port})?> _discoverMdns() async {
     MDnsClient? client;
     try {
       client = MDnsClient();
       await client.start();
 
       String? ip;
-      int port = _defaultPort;
+      var port = _defaultPort;
 
       await for (final ptr in client
           .lookup<PtrResourceRecord>(
               ResourceRecordQuery.serverPointer(_serviceType))
           .timeout(_discoveryTimeout)) {
         await for (final srv in client
-            .lookup<SrvResourceRecord>(
-                ResourceRecordQuery.service(ptr.domainName))
+            .lookup<SrvResourceRecord>(ResourceRecordQuery.service(ptr.domainName))
             .timeout(_discoveryTimeout)) {
           port = srv.port == 0 ? _defaultPort : srv.port;
-          await for (final addr in client
-              .lookup<IPAddressResourceRecord>(
-                  ResourceRecordQuery.addressIPv4(srv.target))
-              .timeout(_discoveryTimeout)) {
+          await for (final addr in client.lookup<IPAddressResourceRecord>(
+              ResourceRecordQuery.addressIPv4(srv.target)).timeout(_discoveryTimeout)) {
             ip = addr.address.address;
             break;
           }
@@ -98,14 +225,84 @@ class LocalControlService {
         if (ip != null) break;
       }
 
-      _host = ip;
-      _port = port;
-      _hostAt = ip == null ? null : DateTime.now();
-      return ip;
+      return ip == null ? null : (host: ip, port: port);
     } catch (_) {
       return null;
     } finally {
       client?.stop();
+    }
+  }
+
+  /// Sweep the phone's own /24 for a host that answers `/she/info` as a SHE node.
+  ///
+  /// A home LAN is small, so a 254-host sweep with a 48-way parallel batch and an
+  /// 800 ms connect timeout finishes in a few seconds. Only hosts with 443 open
+  /// get the real (PoP-authenticated) check, so at most a handful of TLS
+  /// handshakes are ever made.
+  Future<String?> _scanLan() async {
+    final subnets = <String>{};
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          final parts = addr.address.split('.');
+          if (parts.length == 4) {
+            subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+          }
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+
+    for (final net in subnets) {
+      const batch = 48;
+      for (var start = 1; start <= 254; start += batch) {
+        final open = <String>[];
+        final probes = <Future<void>>[];
+        for (var i = start; i < start + batch && i <= 254; i++) {
+          final host = '$net.$i';
+          probes.add(
+            _tcpProbe(host, port: _defaultPort)
+                .then((ok) { if (ok) open.add(host); }),
+          );
+        }
+        await Future.wait(probes);
+        for (final host in open) {
+          if (await _isOurBoard(host)) return host;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Is [host] a SHE board that accepts our PoP?
+  Future<bool> _isOurBoard(String host) async {
+    final dio = Dio(BaseOptions(
+      baseUrl: 'https://$host:$_defaultPort',
+      connectTimeout: const Duration(seconds: 2),
+      receiveTimeout: const Duration(seconds: 3),
+      headers: {'X-SHE-PoP': SettingsStore.localPop},
+      validateStatus: (_) => true,
+    ));
+    dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () => HttpClient()
+        ..badCertificateCallback = (_, __, ___) => true,
+    );
+    try {
+      final res = await dio.get<dynamic>('/she/info');
+      final data = res.data;
+      return data is Map && data['node_id'] != null;
+    } catch (_) {
+      return false;
+    } finally {
+      // MUST close: the board serves ONE client at a time, so leaving this
+      // keep-alive socket open makes the request that follows the sweep fail
+      // with "answered but did not return its device list".
+      dio.close(force: true);
     }
   }
 
@@ -169,6 +366,12 @@ class LocalControlService {
   Future<bool> sendCommand({
     required String deviceName,
     required Map<String, dynamic> params,
+  }) =>
+      _serial(() => _sendCommand(deviceName: deviceName, params: params));
+
+  Future<bool> _sendCommand({
+    required String deviceName,
+    required Map<String, dynamic> params,
   }) async {
     lastError = null;
     if (!isConfigured) {
@@ -195,7 +398,10 @@ class LocalControlService {
           'params': params,
         });
         final data = res.data;
-        if (data is Map && data['accepted'] == true) return true;
+        if (data is Map && data['accepted'] == true) {
+          _markOk();
+          return true;
+        }
         // A real answer from the board (401 wrong PoP / 404 unknown device) will
         // not change on a retry, so surface it and stop.
         lastError = 'board rejected it (${res.statusCode})';
@@ -212,6 +418,7 @@ class LocalControlService {
     // re-discovers rather than hammering a stale address.
     _host = null;
     _hostAt = null;
+    _markDown();
     return false;
   }
 
@@ -250,7 +457,9 @@ class LocalControlService {
   /// Used by the offline Devices tab to reflect a PHYSICAL wall-switch flip:
   /// offline there is no push channel, so without polling the app would only ever
   /// learn state from its own command feedback.
-  Future<Map<String, bool>?> readAllPower() async {
+  Future<Map<String, bool>?> readAllPower() => _serial(_readAllPower);
+
+  Future<Map<String, bool>?> _readAllPower() async {
     if (!isConfigured) return null;
     final host = await discoverHost();
     if (host == null) return null;
@@ -282,8 +491,50 @@ class LocalControlService {
     }
   }
 
+  /// The board's full `/she/info` payload, or null when it cannot be reached.
+  ///
+  /// Local-first mode needs the WHOLE device list (names, types, channels and
+  /// every param), not just Power. While the backend is down `/she/info` is the
+  /// only source for that, so it is exposed here rather than re-implemented in
+  /// the screen.
+  Future<Map<String, dynamic>?> readInfo() => _serial(_readInfo);
+
+  Future<Map<String, dynamic>?> _readInfo() async {
+    if (!isConfigured) return null;
+    final host = await discoverHost();
+    if (host == null) return null;
+    try {
+      final res = await _client(host).get<dynamic>('/she/info');
+      final data = res.data;
+      if (data is! Map) return null;
+      _markOk();
+      return data.cast<String, dynamic>();
+    } catch (_) {
+      _markDown();
+      return null;
+    }
+  }
+
+  /// Every device the board knows about, in firmware order.
+  ///
+  /// This is the offline equivalent of the backend's device list: same device
+  /// NAMES the board addresses, but no cloud ids, rooms or renames.
+  Future<List<Map<String, dynamic>>?> listDevices() async {
+    final info = await readInfo();
+    if (info == null) return null;
+    final devices = info['devices'];
+    if (devices is! List) return null;
+    return [
+      for (final d in devices)
+        if (d is Map) d.cast<String, dynamic>(),
+    ];
+  }
+
   /// One device's entry from `/she/info`, or null when it is not on this board.
-  Future<Map<String, dynamic>?> _deviceEntry(String deviceName) async {
+  Future<Map<String, dynamic>?> _deviceEntry(String deviceName) =>
+      _serial(() => _deviceEntryUnlocked(deviceName));
+
+  Future<Map<String, dynamic>?> _deviceEntryUnlocked(String deviceName) async {
     if (!isConfigured || deviceName.isEmpty) return null;
     final host = await discoverHost();
     if (host == null) return null;

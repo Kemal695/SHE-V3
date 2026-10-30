@@ -205,6 +205,15 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
               subtitle: 'Server & local Wi-Fi control',
               onTap: () => context.push('/local-admin'),
             ),
+            // Local-first control (2026-10-28). Reachable while signed in too —
+            // the whole point is that the board can be driven over Wi-Fi even
+            // when the cloud is unreachable, so this must never depend on it.
+            _tile(
+              icon: Icons.wifi_tethering,
+              title: 'Local control',
+              subtitle: 'Control the board directly over Wi-Fi',
+              onTap: () => context.push('/local'),
+            ),
             _tile(
               icon: Icons.system_update_alt,
               title: 'Firmware',

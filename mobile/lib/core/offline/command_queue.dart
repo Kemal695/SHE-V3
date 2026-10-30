@@ -34,6 +34,14 @@ class PendingCommand {
   final int attempts;
   final String? lastError;
 
+  /// The firmware's own name for the device ("Socket 5").
+  ///
+  /// Stored so a queued command can be replayed over LOCAL CONTROL — the board
+  /// has no notion of the cloud device id. Without it, a command queued while
+  /// the internet was down had to wait for the cloud even when the board was
+  /// right there on the same Wi-Fi.
+  final String? deviceName;
+
   const PendingCommand({
     required this.id,
     required this.nodeId,
@@ -43,6 +51,7 @@ class PendingCommand {
     required this.createdAt,
     this.attempts = 0,
     this.lastError,
+    this.deviceName,
   });
 
   PendingCommand copyWith({int? attempts, String? lastError}) => PendingCommand(
@@ -54,6 +63,7 @@ class PendingCommand {
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         lastError: lastError ?? this.lastError,
+        deviceName: deviceName,
       );
 
   Map<String, dynamic> toJson() => {
@@ -65,6 +75,7 @@ class PendingCommand {
         'createdAt': createdAt.toIso8601String(),
         'attempts': attempts,
         if (lastError != null) 'lastError': lastError,
+        if (deviceName != null) 'deviceName': deviceName,
       };
 
   factory PendingCommand.fromJson(Map<String, dynamic> j) => PendingCommand(
@@ -77,6 +88,7 @@ class PendingCommand {
             DateTime.tryParse(j['createdAt']?.toString() ?? '') ?? DateTime.now(),
         attempts: (j['attempts'] as num?)?.toInt() ?? 0,
         lastError: j['lastError']?.toString(),
+        deviceName: j['deviceName']?.toString(),
       );
 }
 
@@ -150,6 +162,37 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
     required String label,
     String? deviceName,
   }) async {
+    final svc = ref.read(localControlServiceProvider);
+    final canTryLocal =
+        deviceName != null && deviceName.isNotEmpty && svc.isConfigured;
+
+    // Remembered so the offline branch below does NOT hit the board a second
+    // time in the same call. Two back-to-back attempts (each with its own
+    // internal retry) is exactly what makes the R24 answer "Connection reset by
+    // peer": it has a tiny socket pool and does a full TLS handshake per
+    // connection. One attempt per tap, then queue.
+    var triedLocal = false;
+
+    // ---- LOCAL FIRST (transparent) -------------------------------------------
+    // When the board has JUST answered a request, drive it directly even though
+    // the cloud is up. This is what makes local and cloud control feel like one
+    // app: same page, same card, and the switch simply works — no mode, no
+    // notice. `reachableRecently` is the guard that keeps this cheap: on a phone
+    // that is not on the board's Wi-Fi we skip straight to the cloud instead of
+    // burning a connect timeout on every tap.
+    if (canTryLocal && svc.reachableRecently) {
+      triedLocal = true;
+      final ok = await svc.sendCommand(
+        deviceName: deviceName,
+        params: params,
+      );
+      if (ok) {
+        _mirrorLocal(deviceId, params, deviceName);
+        return SendOutcome.sent;
+      }
+      // The board dropped between polls — fall through to the cloud path below.
+    }
+
     // Offline short-circuit: if the live link is down, queue IMMEDIATELY instead
     // of firing a request that can only time out. Against a dead host the TCP
     // connect takes ~30 s before it errors (the firewall drops the SYN rather
@@ -159,35 +202,19 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
       // Before giving up, try LOCAL CONTROL: talking straight to the board over
       // Wi-Fi actually switches the device, which is the whole point of offline.
       // [deviceName] is the firmware's role name ("Socket 5") — the board has no
-      // notion of the cloud device id.
-      if (deviceName != null && deviceName.isNotEmpty) {
-        final ok = await ref.read(localControlServiceProvider).sendCommand(
-              deviceName: deviceName,
-              params: params,
-            );
+      // notion of the cloud device id. Skipped when the local-first branch above
+      // already tried and failed.
+      if (canTryLocal && !triedLocal) {
+        final ok = await svc.sendCommand(
+          deviceName: deviceName,
+          params: params,
+        );
         if (ok) {
-          // Mirror ONLINE exactly — there it is a TWO-STAGE sequence:
-          //
-          //   1. the board writes `last_value = <command>` and publishes it, so
-          //      the switch moves onto the command straight away;
-          //   2. the input monitor's 1 s poll then reads the LAMP-SIDE AC sense and
-          //      rewrites `last_value`, so the switch SETTLES onto what the lamp
-          //      actually did — a light that never lit falls back to OFF.
-          //
-          // ⚠️ Reading `/she/info` immediately returns stage 1 (the command), which
-          // is exactly why the offline switch looked like it ignored the feedback
-          // circuit. So: show the command now, then settle after a full feedback
-          // cycle. A SOCKET has no feedback circuit, so stage 2 returns the same
-          // value and nothing appears to change.
-          final power = params['Power'];
-          if (power is bool) {
-            ref.read(livePowerProvider.notifier).set(deviceId, power);
-          }
-          unawaited(_settleOnFeedback(deviceName, deviceId));
+          _mirrorLocal(deviceId, params, deviceName);
           return SendOutcome.sent;
         }
       }
-      _enqueue(nodeId, deviceId, params, label);
+      _enqueue(nodeId, deviceId, params, label, deviceName);
       return SendOutcome.queued;
     }
 
@@ -196,33 +223,79 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
       return SendOutcome.sent;
     } on DioException catch (e) {
       if (e.type == DioExceptionType.badResponse) rethrow;
-      _enqueue(nodeId, deviceId, params, label);
+      _enqueue(nodeId, deviceId, params, label, deviceName);
       return SendOutcome.queued;
     } catch (_) {
-      _enqueue(nodeId, deviceId, params, label);
+      _enqueue(nodeId, deviceId, params, label, deviceName);
       return SendOutcome.queued;
     }
   }
 
-  /// Settle the switch onto the board's FEEDBACK value after a local send.
+  /// Show the command now, then settle onto the board's feedback.
+  ///
+  /// Mirror ONLINE exactly — there it is a TWO-STAGE sequence:
+  ///
+  ///   1. the board writes `last_value = <command>` and publishes it, so the
+  ///      switch moves onto the command straight away;
+  ///   2. the input monitor's 1 s poll then reads the LAMP-SIDE AC sense and
+  ///      rewrites `last_value`, so the switch SETTLES onto what the lamp
+  ///      actually did — a light that never lit falls back to OFF.
+  ///
+  /// ⚠️ Reading `/she/info` immediately returns stage 1 (the command), which is
+  /// exactly why the offline switch looked like it ignored the feedback circuit.
+  /// So: show the command now, then settle after a full feedback cycle. A SOCKET
+  /// has no feedback circuit, so stage 2 returns the same value and nothing
+  /// appears to change.
+  void _mirrorLocal(
+    String deviceId,
+    Map<String, dynamic> params,
+    String deviceName,
+  ) {
+    final power = params['Power'];
+    if (power is bool) {
+      ref.read(livePowerProvider.notifier).set(deviceId, power);
+    }
+    _settleOnFeedback(deviceName, deviceId);
+  }
+
+  /// Settle the switches onto the board's FEEDBACK values after local sends.
   ///
   /// Deliberately waits PAST one input-monitor cycle (1 s): the firmware writes
   /// the COMMANDED value into `last_value` first and only then does the AC-sense
   /// poll correct it, so an immediate read returns the command rather than what
-  /// the lamp did. Fire-and-forget, so the tap still feels instant — the switch
-  /// has already moved onto the command by the time this runs.
-  Future<void> _settleOnFeedback(String deviceName, String deviceId) async {
-    await Future<void>.delayed(const Duration(milliseconds: 1600));
-    final reported = await ref
-        .read(localControlServiceProvider)
-        .readReportedPower(deviceName);
-    if (reported != null) {
-      ref.read(livePowerProvider.notifier).set(deviceId, reported);
+  /// the lamp did.
+  ///
+  /// BATCHED on purpose. A voice scene ("good night") sends one command per
+  /// device; doing one read-back each meant a 10-device scene made 20 board
+  /// requests, and the R24 resets under that churn — which is what surfaced as
+  /// "Queued — local control failed: Connection reset by peer". One `/she/info`
+  /// now settles the whole batch, and the timer is debounced so it runs once
+  /// after the scene has finished sending.
+  final Map<String, String> _settlePending = {};
+  Timer? _settleTimer;
+
+  void _settleOnFeedback(String deviceName, String deviceId) {
+    _settlePending[deviceId] = deviceName;
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 1600), () {
+      final batch = Map<String, String>.from(_settlePending);
+      _settlePending.clear();
+      unawaited(_settleBatch(batch));
+    });
+  }
+
+  Future<void> _settleBatch(Map<String, String> batch) async {
+    final byName = await ref.read(localControlServiceProvider).readAllPower();
+    if (byName == null || byName.isEmpty) return;
+    final notifier = ref.read(livePowerProvider.notifier);
+    for (final entry in batch.entries) {
+      final reported = byName[entry.value];
+      if (reported != null) notifier.set(entry.key, reported);
     }
   }
 
   void _enqueue(String nodeId, String deviceId, Map<String, dynamic> params,
-      String label) {
+      String label, String? deviceName) {
     // Collapse repeats for the same device: the newest intent wins, so a user
     // toggling on/off/on while offline does not replay three commands.
     final rest = state.where((c) => c.deviceId != deviceId).toList();
@@ -235,6 +308,7 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
         params: params,
         label: label,
         createdAt: DateTime.now(),
+        deviceName: deviceName,
       ),
     ];
     _persist();
@@ -260,7 +334,22 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
       final pending = [...state];
       final remaining = <PendingCommand>[];
       final service = ref.read(nodeServiceProvider);
+      final svc = ref.read(localControlServiceProvider);
       for (final c in pending) {
+        // LOCAL FIRST here too. A command queued because the internet was down
+        // must NOT wait for the cloud when the board is reachable on the same
+        // Wi-Fi — that is the whole point of the queue.
+        final name = c.deviceName;
+        if (name != null &&
+            name.isNotEmpty &&
+            svc.isConfigured &&
+            svc.reachableRecently) {
+          final ok = await svc.sendCommand(deviceName: name, params: c.params);
+          if (ok) {
+            _mirrorLocal(c.deviceId, c.params, name);
+            continue; // applied — drop it from the queue
+          }
+        }
         try {
           await service.writeParams(c.nodeId, c.deviceId, c.params);
         } catch (e) {

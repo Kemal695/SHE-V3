@@ -224,6 +224,13 @@ final _homeDevicesFlatProvider =
 typedef DeviceRow = _DeviceRow;
 final homeDevicesFlatProvider = _homeDevicesFlatProvider;
 
+/// The device CARD itself, exported for the same reason as [DeviceRow]: local
+/// mode (`features/local/local_mode_screen.dart`) must render the identical
+/// card the Devices tab uses, so the two modes do not drift into two different
+/// designs. Local mode builds [DeviceRow]s straight from the board's
+/// `/she/info`, so no cloud data is involved.
+typedef DeviceTile = _DeviceTile;
+
 /// Maps a device onto the prototype's kind vocabulary so icons and tints differ.
 ///
 /// The firmware registers EVERY relay channel as `esp.device.switch` — on the
@@ -295,15 +302,25 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   }
 
   /// Run the offline board poll ONLY while the cloud link is down.
+  /// Keep the switches honest about the PHYSICAL device.
+  ///
+  /// This used to poll only while the cloud link was down. Local control is now
+  /// the preferred path, so the board is polled whenever it is configured —
+  /// cloud or not — and its reported power wins. That is what makes the two
+  /// modes invisible: the same card shows the same truth either way.
+  ///
+  /// 20 s, NOT 5 s: the R24 does a full TLS handshake per connection and has a
+  /// tiny socket pool, so a 5 s poll saturates it and then every COMMAND fails
+  /// too (measured 2026-10-28 — it looked like the toggle was broken).
   void _syncLocalPoll() {
     if (!mounted) return;
-    if (ref.read(wsConnectedProvider)) {
+    if (!ref.read(localControlServiceProvider).isConfigured) {
       _localPoll?.cancel();
       _localPoll = null;
       return;
     }
     _localPoll ??= Timer.periodic(
-      const Duration(seconds: 5),
+      const Duration(seconds: 20),
       (_) => unawaited(_pollBoard()),
     );
     unawaited(_pollBoard()); // first read immediately
@@ -311,16 +328,24 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   /// Push every device's board-REPORTED Power into [livePowerProvider].
   ///
-  /// This is what surfaces a PHYSICAL wall-switch flip while offline: without it
-  /// the app only learns state from its OWN command feedback. Writes are skipped
-  /// when unchanged, so the list does not churn on every poll.
+  /// This is what surfaces a PHYSICAL wall-switch flip: without it the app only
+  /// learns state from its OWN command feedback. Writes are skipped when
+  /// unchanged, so the list does not churn on every poll.
+  ///
+  /// Deliberately NOT gated on the cloud link any more — the board is the
+  /// physical truth and it is polled whether or not the WebSocket is up.
   Future<void> _pollBoard() async {
-    if (!mounted || ref.read(wsConnectedProvider)) return;
+    if (!mounted) return;
     final svc = ref.read(localControlServiceProvider);
     if (!svc.isConfigured) return;
 
     final byName = await svc.readAllPower();
     if (byName == null || byName.isEmpty || !mounted) return;
+
+    // The board just answered, so anything that queued while it was unreachable
+    // can be applied NOW over Wi-Fi instead of waiting for the cloud to return.
+    // Without this a "good night" scene could sit in the queue for hours.
+    unawaited(ref.read(commandQueueProvider.notifier).flush());
 
     final rows = ref.read(_homeDevicesFlatProvider(_homeId)).valueOrNull;
     if (rows == null) return;
