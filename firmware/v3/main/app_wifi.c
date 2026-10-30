@@ -105,6 +105,21 @@ esp_err_t app_wifi_init(void) {
 esp_err_t app_wifi_connect(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    /* Disable Wi-Fi MODEM SLEEP (2026-10-30).
+     *
+     * The IDF default is WIFI_PS_MIN_MODEM, which parks the radio between
+     * beacons: measured on this board with an EXCELLENT signal (-47 dBm, zero
+     * disconnects) the LAN RTT was 209-800 ms and 1.2 KB pings lost up to 50 %.
+     * Small frames still get through, so MQTT looked perfectly healthy while
+     * local control was unusable — a TLS handshake needs several round trips
+     * plus ~1-2 KB frames, and it simply never completed ("Board not reachable",
+     * /she/info returning 200 with an empty body, errno 104).
+     *
+     * This board is mains-powered through the relay PSU, so the battery saving
+     * buys nothing and costs the whole local-control feature. WIFI_PS_NONE keeps
+     * the radio awake and brings the RTT back to single-digit ms. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
     /* Distinguish "no SSID stored at all" from "SSID stored, association
      * failed". The two need opposite handling in main.c: the first means the
      * device is not really provisioned, the second means the AP is down or the

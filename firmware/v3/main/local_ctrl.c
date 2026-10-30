@@ -673,6 +673,18 @@ static esp_err_t start_https_server(void) {
         // IDLE socket instead means a stale TLS session can never lock the app
         // out. (Sockets are also held by MQTT + DNS, so the headroom is small.)
         conf.httpd.lru_purge_enable = true;
+        // keep_alive_enable is left at the IDF default (FALSE) — deliberately.
+        //
+        // It was enabled on 2026-10-30 to avoid a TLS handshake per request, then
+        // reverted when local control appeared to break. That revert did NOT fix
+        // the problem: the real cause was Wi-Fi MODEM SLEEP (see
+        // esp_wifi_set_ps(WIFI_PS_NONE) in app_wifi.c) plus a board that had moved
+        // to a new DHCP address. So keep-alive is UNPROVEN here, not disproven.
+        //
+        // It stays off because it is untested on hardware that switches mains
+        // relays: each kept-alive session holds its ~40 KB of mbedTLS buffers
+        // longer, and this board already runs close to the heap limit. Re-test it
+        // only against a healthy link, and measure free_heap before/after.
         conf.servercert = (const uint8_t *)cert_pem;
         conf.servercert_len = strlen(cert_pem) + 1;
         conf.prvtkey_pem = (const uint8_t *)key_pem;
