@@ -1,0 +1,8 @@
+﻿=== ARP 192.168.0.x ===
+Interface: 192.168.0.5 --- 0x3
+192.168.0.1           3c-fa-d3-95-67-13     dynamic
+192.168.0.3           32-e5-c1-af-22-46     dynamic
+192.168.0.255         ff-ff-ff-ff-ff-ff     static
+
+=== ping gateway ===
+gateway 192.168.0.1 reachable: True

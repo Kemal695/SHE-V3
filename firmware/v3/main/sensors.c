@@ -1,57 +1,134 @@
 /* =============================================================================
  * SHE V3 firmware — sensors.c
  * =============================================================================
- * DHT22 (GPIO 27) + MQ-135 (ADC1 ch4 / GPIO 32) + soil moisture (ADC1 ch5 /
- * GPIO 33). Ported from the reference SHE-V3 sensors.c (RainMaker lineage).
+ * DHT22 (AM2302) (GPIO 27) + MQ-135 (ADC1 ch4 / GPIO 32) + soil moisture (ADC1 ch5 /
+ * GPIO 33). Ported from the RainMaker-era firmware in
+ * `SMTHIOT24_Firmware/HOME-DEMO/main/` — see sensors.h for the pin rationale.
  *
- * Changes vs the reference, all deliberate:
- *   1. DHT22 ENCODING (the important one). The reference used the DHT11 formula
- *      (`data[0] + data[1]/10`), which on a DHT22 yields a nonsense humidity and
- *      temperature. This uses the 16-bit DHT22 formula and the -40..+80 °C range.
- *   2. Soil/gas are PRESENCE-GATED. A board with only a DHT22 must not publish a
- *      fake soil % or PPM; soil is valid only off the ADC rails, gas only after a
- *      successful R0 calibration.
- *   3. MQ-135 attenuation is 11 dB with a 3.3 V reference (the reference used
- *      0 dB + 3.3 V reference, which clamped everything above ~1.1 V).
- *   4. `ets_delay_us()` -> `esp_rom_delay_us()` (rom/ets_sys.h is deprecated).
- *   5. The 40-bit DHT read runs in a critical section so a Wi-Fi ISR cannot
- *      stretch a bit past the decode threshold.
+ * ---- What changed in the port, and why ---------------------------------------
+ *
+ *  1. ATTENUATION BUG FIXED (the important one). The old MQ-135 code used
+ *     `ADC_ATTEN_DB_0` (~1.1 V full scale) but converted raw -> volts with a
+ *     3.3 V reference, so any sensor output above ~1.1 V clamped to 4095 and
+ *     read as exactly 3.3 V. The derived PPM was meaningless over most of the
+ *     sensor's range. Both channels now use 11 dB (~0-3.1 V), matching what the
+ *     old soil driver already did.
+ *
+ *  2. `ets_delay_us()` -> `esp_rom_delay_us()`. `rom/ets_sys.h` is deprecated in
+ *     IDF 5.x; the old header still compiles but warns.
+ *
+ *  3. 1-wire pin handling. The old `hold_low()` switched the pin to OUTPUT,
+ *     drove it high to "release", and then each read switched it back to INPUT.
+ *     That momentarily drives the bus high against the pull-up and against the
+ *     DHT11's own open-drain output. The pin is now configured once as
+ *     INPUT_OUTPUT_OD with a pull-up, which is what a 1-wire bus actually is:
+ *     driving 0 pulls low, driving 1 releases the line.
+ *
+ *  4. The 40-bit read runs inside a critical section. The old code had no
+ *     protection at all, so Wi-Fi interrupts could stretch a bit period past the
+ *     decode threshold and the frame failed its checksum — which is why it
+ *     needed a 5-attempt retry loop. Retries are kept (they are still the right
+ *     response to a genuinely absent sensor) but the common cause is gone.
+ *
+ *  5. Calibration moved into the task. The old code blocked boot for ~5 s before
+ *     Wi-Fi was up, which risks the 30 s association window. It now runs inside
+ *     the sampling task, where a 5 s stall costs nothing.
+ *
+ *  6. Division-by-zero guards on the MQ-135. The old `readSensor()` computed
+ *     `(Vc * RL / sensor_volt) - RL` with no check on `sensor_volt`; a floating
+ *     pin gave 0 V -> infinity -> NaN PPM, which then went to the cloud.
+ *
+ *  7. Toluene / NH3 / acetone are computed and logged but NOT published, which
+ *     matches what the old firmware did (those three publishes were commented
+ *     out). An MQ-135 is a single heated metal-oxide element with no gas
+ *     selectivity: all six "concentrations" are the same measurement pushed
+ *     through six different datasheet curves, so publishing all six would imply
+ *     six independent measurements. CO2, CO and alcohol are the three the
+ *     product actually shows.
  * ==========================================================================*/
 
 #include "sensors.h"
 #include "she_mqtt.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
-#include "esp_adc/adc_oneshot.h"   /* IDF 5.x ADC API (driver/adc.h is gone) */
+#include "driver/adc.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "she_sensors";
 
 /* ---- Shared state --------------------------------------------------------- */
 
-static sensor_sample_t   g_latest;            /* guarded by g_lock */
-static SemaphoreHandle_t g_lock;
-static bool              g_running;
-static int               g_soil_raw_dry = SHE_SOIL_RAW_DRY_DEFAULT;
-static int               g_soil_raw_wet = SHE_SOIL_RAW_WET_DEFAULT;
-static portMUX_TYPE      g_dht_mux = portMUX_INITIALIZER_UNLOCKED;
-static float             g_mq135_r0 = 0.0f;   /* kOhm, 0 = not calibrated */
-static adc_oneshot_unit_handle_t g_adc1 = NULL;   /* ADC1 unit (MQ-135 + soil) */
-static int               g_dht_gpio = SHE_DHT22_GPIO;  /* runtime-detected DHT pin */
-static int               g_dht_status = 2;             /* 0=ok,1=handshake-only,2=none */
+static sensor_sample_t     g_latest;            /* guarded by g_lock */
+static SemaphoreHandle_t   g_lock;
+static bool                g_running;
+static int                 g_soil_raw_dry = SHE_SOIL_RAW_DRY_DEFAULT;
+static int                 g_soil_raw_wet = SHE_SOIL_RAW_WET_DEFAULT;
+static portMUX_TYPE        g_dht_mux = portMUX_INITIALIZER_UNLOCKED;
 
 /* =============================================================================
- * DHT22 — bit-banged 1-wire, GPIO 27
+ * DHT — bit-banged 1-wire, GPIO 27
  * ==========================================================================*/
 
-static esp_err_t dht22_bus_init(void) {
+/** Which DHT part is actually on the bus, as detected from the live frame. */
+static int g_dht_detected = 0;   /* 0 = unknown yet, 11 or 22 once known */
+
+/** Runtime-selected DHT GPIO. Defaults to the configured SHE_DHT11_GPIO but is
+ * moved by dht_find_pin() if the sensor actually answers on a different terminal
+ * (the custom PCB has 4 data terminals and no published pin map). */
+static int g_dht_gpio = SHE_DHT11_GPIO;
+
+/** Cumulative read stats for the boot/log diagnostics. */
+static int g_dht_total = 0;      /* total dht_read() calls */
+static int g_dht_fails = 0;      /* calls that returned ESP_FAIL (no/garbled frame) */
+static int g_probe_cycle = 0;    /* counts sensor cycles for the periodic wiring probe */
+
+/** One decoded frame plus whether it landed inside the part's plausible range. */
+typedef struct {
+    float humidity_pct;
+    float temperature_c;
+    bool  in_range;
+} dht_decoded_t;
+
+/**
+ * Decode as a DHT11: 8-bit integer RH and T, low bytes always 0.
+ * Documented range: 0-50 °C, 20-90 % RH (widened to 0-60 / 0-100 here, because
+ * a sensor sitting in a cold room legitimately reads below 20 % RH).
+ */
+static dht_decoded_t dht_decode_dht11(const uint8_t d[5]) {
+    dht_decoded_t r;
+    r.humidity_pct  = (float)d[0] + (float)d[1] / 10.0f;
+    r.temperature_c = (float)d[2] + (float)d[3] / 10.0f;
+    r.in_range = (r.temperature_c >= 0.0f && r.temperature_c <= 60.0f &&
+                  r.humidity_pct  >= 0.0f && r.humidity_pct  <= 100.0f);
+    return r;
+}
+
+/**
+ * Decode as a DHT22: 16-bit RH and T in 1/10 units, temperature sign in bit15
+ * of the temperature word. Documented range: -40-80 °C, 0-100 % RH.
+ */
+static dht_decoded_t dht_decode_dht22(const uint8_t d[5]) {
+    const uint16_t rh_raw = ((uint16_t)d[0] << 8) | d[1];
+    const uint16_t t_raw  = ((uint16_t)d[2] << 8) | d[3];
+
+    dht_decoded_t r;
+    r.humidity_pct  = (float)rh_raw / 10.0f;
+    r.temperature_c = (t_raw & 0x8000) ? -((float)(t_raw & 0x7FFF)) / 10.0f
+                                       :  (float)t_raw / 10.0f;
+    r.in_range = (r.temperature_c >= -40.0f && r.temperature_c <= 80.0f &&
+                  r.humidity_pct  >= 0.0f && r.humidity_pct  <= 100.0f);
+    return r;
+}
+
+static esp_err_t dht_bus_init(int gpio) {
     gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << g_dht_gpio),
+        .pin_bit_mask = (1ULL << gpio),
         /* Open-drain + pull-up IS the 1-wire bus: 0 pulls the line down, 1
          * releases it and the pull-up (plus the sensor's own drive) takes it
          * back high. Never push-pull — that would fight the sensor. */
@@ -62,17 +139,142 @@ static esp_err_t dht22_bus_init(void) {
     };
     esp_err_t err = gpio_config(&cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "DHT GPIO %d config failed: %s", g_dht_gpio, esp_err_to_name(err));
+        ESP_LOGE(TAG, "DHT GPIO %d config failed: %s", gpio, esp_err_to_name(err));
         return err;
     }
-    gpio_set_level(g_dht_gpio, 1);   /* release the bus */
+    gpio_set_level(gpio, 1);   /* release the bus */
     return ESP_OK;
 }
 
+/**
+ * Boot-time pin survey — read every sensor GPIO as a plain input (internal
+ * pull-up OFF) and report which ones have an external pull-up present.
+ *
+ * With the DHT being the ONLY device on the sensor header (the gas/soil pins
+ * are empty), exactly ONE pin should read HIGH: that pin is the DHT's GPIO. If
+ * it is 27, the wiring is correct and the module itself is at fault; if it is
+ * 32 or 33, the DHT is on the wrong GPIO and SHE_DHT11_GPIO must move. A floating
+ * empty pin reads LOW/noisy, not a clean HIGH, so a solid HIGH is unambiguous.
+ *
+ * Runs BEFORE dht_bus_init()/mq135_init()/soil_init() so those calls reconfigure
+ * the pins to their real functions afterwards.
+ */
+static void sensor_pin_survey(void) {
+    const int pins[] = { SHE_DHT11_GPIO, SHE_MQ135_GPIO, SHE_SOIL_GPIO };
+    ESP_LOGI(TAG, "Pin survey (idle, internal PU OFF): a pin reading HIGH has an external pull-up");
+    for (int i = 0; i < (int)(sizeof(pins) / sizeof(pins[0])); i++) {
+        gpio_config_t c = {
+            .pin_bit_mask = (1ULL << pins[i]),
+            .mode         = GPIO_MODE_INPUT,
+            .pull_up_en   = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&c);
+        const int lvl = gpio_get_level(pins[i]);
+        ESP_LOGI(TAG, "  GPIO%d = %s", pins[i],
+                 lvl ? "HIGH (external pull-up PRESENT -> a module is on this pin)"
+                     : "LOW  (no pull-up seen)");
+    }
+}
+
+/**
+ * Boot-time diagnostic for the "wired but never reads" case.
+ *
+ * Two checks, run once at sensors_init():
+ *
+ *  1. PRESENCE — reconfigure the pin as a plain input with the ESP32's own
+ *     pull-up DISABLED, then read it. The DHT module (if it carries a pull-up,
+ *     as every DHT22 breakout does) would pull this line HIGH. Reading HIGH
+ *     therefore proves the module's pull-up is electrically present on this
+ *     very pin. Reading LOW means nothing is pulling the line up here:
+ *     either the DATA wire is not connected to GPIO 27 (wrong header pin,
+ *     broken trace) or the module has no pull-up and none was added.
+ *
+ *  2. IDENTITY — if SHE_DHT_PROBE is set, toggle the pin for ~3 s. Measure the
+ *     DHT DATA pin with a DC voltmeter: the correct pin reads ~1.6 V (the
+ *     average of 0 / 3.3 V), a wrong pin reads a steady 3.3 V (module pull-up)
+ *     or 0 V (grounded). This locates which physical pad/header actually IS
+ *     GPIO 27 when no schematic is available.
+ *
+ * Neither check talks to the sensor; both restore the 1-wire bus afterwards.
+ */
+static void dht_self_test(void) {
+    ESP_LOGI(TAG, "DHT self-test: running on GPIO %d (configured GPIO %d, model %d)",
+             g_dht_gpio, SHE_DHT11_GPIO, SHE_DHT_MODEL);
+
+    /* ---- 1. Presence: pull-down vs pull-up comparison ----
+     *
+     * The old check read the line with the internal pull-up OFF and trusted a
+     * HIGH as "external pull-up present". That was a FALSE POSITIVE: dht_bus_init()
+     * enables the ESP's own internal pull-up, and the immediate read caught its
+     * residual charge before the line discharged, so a line with no external
+     * pull-up still read HIGH. (The clean pin survey read the same pin LOW.)
+     *
+     * The decisive method is to fight the external pull-up with the internal
+     * PULL-DOWN: a real module pull-up (typ. 4.7-10k) easily beats the ESP's
+     * ~45k pull-down and the line stays HIGH; with no external pull-up the
+     * internal pull-down wins and the line reads LOW. We then confirm with the
+     * internal PULL-UP as a sanity check (a line that follows both is truly
+     * floating/empty, not connected to a module). */
+    gpio_config_t pd = {
+        .pin_bit_mask = (1ULL << g_dht_gpio),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&pd);
+    esp_rom_delay_us(2000);   /* let the line settle against the ~45k pull-down */
+    const int pd_level = gpio_get_level(g_dht_gpio);
+
+    gpio_config_t pu = {
+        .pin_bit_mask = (1ULL << g_dht_gpio),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&pu);
+    esp_rom_delay_us(2000);
+    const int pu_level = gpio_get_level(g_dht_gpio);
+
+    ESP_LOGI(TAG, "  presence: internal-pulldown=%d internal-pullup=%d",
+             pd_level, pu_level);
+    if (pd_level == 1) {
+        ESP_LOGI(TAG, "  => STRONG external pull-up PRESENT on GPIO%d: a module is wired to this pin",
+                 g_dht_gpio);
+    } else if (pu_level == 1) {
+        ESP_LOGW(TAG, "  => NO strong external pull-up on GPIO%d: the line follows the internal "
+                      "pull (pulldown=LOW, pullup=HIGH), so either the DATA wire is not on this pin, "
+                      "the trace is open, or the module has only a weak ~45k pull-up",
+                 g_dht_gpio);
+    } else {
+        ESP_LOGW(TAG, "  => line stuck LOW on GPIO%d even with the internal pull-up: shorted to GND "
+                      "or driven low by something else", g_dht_gpio);
+    }
+
+    /* Restore the 1-wire bus before any further use. */
+    dht_bus_init(g_dht_gpio);
+
+#if SHE_DHT_PROBE
+    ESP_LOGI(TAG, "  PROBE: toggling GPIO%d for ~3s — measure your DHT DATA pin with a DC voltmeter; "
+                  "it should read ~1.6V average if that pin is GPIO%d", g_dht_gpio, g_dht_gpio);
+    for (int i = 0; i < 8; i++) {
+        gpio_set_level(g_dht_gpio, 0);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        gpio_set_level(g_dht_gpio, 1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    ESP_LOGI(TAG, "  PROBE done — restoring 1-wire bus");
+    dht_bus_init(g_dht_gpio);
+#endif
+}
+
 /** Wait until the line reads `level`. Returns microseconds waited, or -1. */
-static int dht22_wait_for_level(int level, int timeout_us) {
+static int dht_wait_for_level(int gpio, int level, int timeout_us) {
     int waited = 0;
-    while (gpio_get_level(g_dht_gpio) != level) {
+    while (gpio_get_level(gpio) != level) {
         if (waited >= timeout_us) return -1;
         esp_rom_delay_us(1);
         waited++;
@@ -80,115 +282,64 @@ static int dht22_wait_for_level(int level, int timeout_us) {
     return waited;
 }
 
-/* Forward declaration — dht22_detect() below uses this before its definition. */
-static esp_err_t dht22_read_once(float *temperature_c, float *humidity_pct);
-
 /**
- * Probe one GPIO for a DHT-style sensor: send the start pulse and see whether
- * the line is pulled LOW (the sensor's response) within ~150 µs. An idle line
- * stays HIGH because of the pull-up.
- */
-static bool dht22_probe_pin(int gpio) {
-    gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << gpio),
-        .mode         = GPIO_MODE_INPUT_OUTPUT_OD,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    if (gpio_config(&cfg) != ESP_OK) return false;
-    gpio_set_level(gpio, 1);          /* release the bus */
-    esp_rom_delay_us(2000);           /* settle */
-    /* A real DHT data line idles HIGH (pull-up). A pin that idles LOW has an
-     * external pull-down (strapping / LED) and is not a sensor — skip it. */
-    if (gpio_get_level(gpio) != 1) return false;
-    /* Start pulse: >=18 ms for DHT11, >=1 ms for DHT22. 20 ms satisfies both. */
-    gpio_set_level(gpio, 0);
-    esp_rom_delay_us(20000);
-    gpio_set_level(gpio, 1);
-    esp_rom_delay_us(30);
-    int w = 0;
-    while (gpio_get_level(gpio) != 0) {
-        if (w >= 150) return false;       /* nothing pulled it low */
-        esp_rom_delay_us(1);
-        w++;
-    }
-    return true;
-}
-
-/** Find the GPIO the DHT is wired to. Returns -1 if none responded. */
-static int dht22_detect(void) {
-    /* Documented-free pins first (27/32/33), then the direct-relay pins
-     * (21/22/18/19 — unused in PCF8574 mode) and the rest of the free set. */
-    static const int cand[] = { 27, 32, 33, 21, 22, 18, 19, 14, 25, 26, 2, 23,
-                                12, 16, 17 };
-    int weak = -1;   /* handshake worked but no valid frame */
-    float t, h;
-
-    for (size_t i = 0; i < sizeof(cand) / sizeof(cand[0]); i++) {
-        if (!dht22_probe_pin(cand[i])) continue;   /* nothing pulled the line low */
-
-        /* A pin with an external pull-down also reads "low" after release, so
-         * a handshake alone is not proof. Require a full valid frame. */
-        g_dht_gpio = cand[i];
-        if (dht22_bus_init() != ESP_OK) continue;
-        for (int attempt = 0; attempt < 2; attempt++) {
-            if (dht22_read_once(&t, &h) == ESP_OK) {
-                ESP_LOGI(TAG, "DHT valid frame on GPIO %d (T=%.1f H=%.1f)",
-                         cand[i], t, h);
-                g_dht_status = 0;
-                return cand[i];
-            }
-        }
-        if (weak < 0) weak = cand[i];   /* handshake-only candidate */
-    }
-
-    if (weak >= 0) {
-        ESP_LOGW(TAG, "DHT handshake on GPIO %d but no valid frame — check pull-up",
-                 weak);
-        g_dht_status = 1;
-        return weak;
-    }
-    g_dht_status = 2;
-    return -1;
-}
-
-/**
- * One read attempt. Returns ESP_OK and fills t/h, or ESP_FAIL.
+ * Read one frame. Returns ESP_OK and fills t/h, or ESP_FAIL.
  *
- * Bits are decoded by RELATIVE pulse width (high period longer than the low
- * period => 1). Absolute thresholds break as soon as the CPU clock or interrupt
- * latency changes — which is exactly what happens when Wi-Fi comes up.
+ * Decoding is by RELATIVE pulse width rather than absolute: a bit is 0 or 1
+ * according to whether the high period is longer than the preceding low period.
+ * That is the same trick the original driver used, and it is the right one —
+ * absolute thresholds break the moment the CPU clock or interrupt latency
+ * changes, which is exactly what happens when Wi-Fi comes up.
+ *
+ * Timeouts below are the original values, converted from the old 2 µs count
+ * units to microseconds.
  */
-static esp_err_t dht22_read_once(float *temperature_c, float *humidity_pct) {
+static esp_err_t dht_read_on_gpio(int gpio, float *temperature_c, float *humidity_pct) {
     if (!temperature_c || !humidity_pct) return ESP_FAIL;
+    g_dht_total++;
 
     uint8_t data[5] = {0, 0, 0, 0, 0};
 
-    /* ---- Start signal ----
-     * 20 ms: the DHT11 datasheet requires >= 18 ms; the DHT22 needs >= 1 ms, so
-     * 20 ms satisfies both. (2 ms was too short for a DHT11 — it could handshake
-     * but never deliver a valid frame.) */
-    gpio_set_level(g_dht_gpio, 0);
-    esp_rom_delay_us(20000);
-    gpio_set_level(g_dht_gpio, 1);        /* release */
+    /* ---- Start signal ---- */
+    gpio_set_level(gpio, 0);
+    esp_rom_delay_us(18000);              /* datasheet: >= 18 ms */
+    gpio_set_level(gpio, 1);    /* release */
     esp_rom_delay_us(30);                 /* sensor pulls low within 20-40 µs */
 
-    /* ---- Handshake: low 80 µs, high 80 µs, then the first low ---- */
-    if (dht22_wait_for_level(0, 150) < 0 ||
-        dht22_wait_for_level(1, 150) < 0 ||
-        dht22_wait_for_level(0, 150) < 0) {
+    /* ---- Handshake: low 80 µs, high 80 µs, then the first low ----
+     * Each stage is checked separately so the periodic log can report WHERE the
+     * bus died: 'start' timing out means the sensor never pulled the line low
+     * in response to our start pulse (not electrically connected / wrong pin /
+     * dead sensor); 'handHi'/'handLo' timing out means it began responding but
+     * stalled. */
+    const int w_start = dht_wait_for_level(gpio, 0, 80);
+    const int w_hi    = (w_start >= 0) ? dht_wait_for_level(gpio, 1, 180) : -1;
+    const int w_lo    = (w_hi    >= 0) ? dht_wait_for_level(gpio, 0, 180) : -1;
+    if (w_start < 0 || w_hi < 0 || w_lo < 0) {
+        g_dht_fails++;
+        if ((g_dht_total % 5) == 0) {
+            ESP_LOGW(TAG, "DHT no response on GPIO%d (start=%s handHi=%s handLo=%s) after %d attempts",
+                     gpio,
+                     w_start < 0 ? "TIMEOUT" : "ok",
+                     w_hi    < 0 ? "TIMEOUT" : "ok",
+                     w_lo    < 0 ? "TIMEOUT" : "ok",
+                     g_dht_total);
+        }
         return ESP_FAIL;                  /* no sensor, or it did not respond */
     }
 
-    /* ---- 40 bits ---- */
+    /* ---- 40 bits ----
+     * Interrupts off for ~3 ms. Without this a Wi-Fi ISR can stretch a bit past
+     * the decode threshold and the checksum fails; the old driver worked around
+     * that with five retries, which is a symptom, not a fix. */
     portENTER_CRITICAL(&g_dht_mux);
     for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 8; j++) {
-            const int low_us  = dht22_wait_for_level(1, 120);  /* ~50 µs */
-            const int high_us = dht22_wait_for_level(0, 120);  /* 27 µs = 0, 70 µs = 1 */
+            const int low_us  = dht_wait_for_level(gpio, 1, 116);
+            const int high_us = dht_wait_for_level(gpio, 0, 148);
             if (low_us < 0 || high_us < 0) {
                 portEXIT_CRITICAL(&g_dht_mux);
+                g_dht_fails++;
                 return ESP_FAIL;
             }
             data[i] |= (uint8_t)((high_us > low_us) << (7 - j));
@@ -198,55 +349,241 @@ static esp_err_t dht22_read_once(float *temperature_c, float *humidity_pct) {
 
     const uint8_t checksum = (uint8_t)(data[0] + data[1] + data[2] + data[3]);
     if (checksum != data[4]) {
-        ESP_LOGW(TAG, "DHT checksum mismatch (got 0x%02X, computed 0x%02X)",
+        ESP_LOGW(TAG, "DHT%d checksum mismatch (got 0x%02X, computed 0x%02X)", SHE_DHT_MODEL,
                  data[4], checksum);
         return ESP_FAIL;
     }
 
-    /* ---- Try the DHT22 16-bit encoding first ---- */
-    float rh = (float)(((uint16_t)data[0] << 8) | data[1]) / 10.0f;
-    int16_t raw_t = (int16_t)(((uint16_t)(data[2] & 0x7F) << 8) | data[3]);
-    float tc = (float)raw_t / 10.0f;
-    if (data[2] & 0x80) tc = -tc;         /* sign bit */
-
-    if (tc >= -40.0f && tc <= 80.0f && rh >= 0.0f && rh <= 100.0f) {
-        *temperature_c = tc;
-        *humidity_pct  = rh;
-        return ESP_OK;
+    /* ---- Decode the 40-bit payload ----
+     *
+     * Both parts send 5 bytes (RH hi, RH lo, T hi, T lo, checksum) and the
+     * framing is identical. Only the ENCODING differs:
+     *
+     *   DHT11: RH and T are 8-bit integers; the low bytes (data[1], data[3])
+     *          are always 0.
+     *   DHT22: RH and T are 16-bit values in 1/10 units — RH 60 % arrives as
+     *          raw 600 = 0x0258 and T 25.0 °C as raw 250 = 0x00FA. The sign of
+     *          a negative temperature is bit15 of the temperature word.
+     *
+     * The two are told apart by decoding BOTH and keeping whichever lands in
+     * range. That is unambiguous in practice:
+     *
+     *   - A DHT11 frame [60, 0, 25, 0] read as DHT22 gives RH = (60 << 8) / 10
+     *     = 1536 % — out of range, so the DHT11 reading is kept.
+     *   - A DHT22 frame [2, 88, 0, 250] read as DHT11 gives RH = 2 + 8.8 =
+     *     10.8 % with a plausible-looking T = 25.0 °C — the temperature looks
+     *     right but the humidity is wrong, and the DHT22 reading (60.0 %,
+     *     25.0 °C) is the correct one.
+     *
+     * So the rule is: decode with the configured model first; if that result is
+     * out of range, decode with the other model and log the mismatch. A board
+     * built for one part therefore still reads the other when it is dropped into
+     * the socket, instead of showing a frozen 0.0 — which is the symptom this
+     * exists to fix. Both RH AND T must be in range for a decode to be
+     * accepted, and for a DHT11 frame either one being >= 4 is enough to rule
+     * the DHT22 interpretation out, so misdetection needs BOTH below 4.
+     */
+    dht_decoded_t dec;
+    if (SHE_DHT_MODEL == 22) {
+        dec = dht_decode_dht22(data);
+        if (!dec.in_range) {
+            const dht_decoded_t alt = dht_decode_dht11(data);
+            if (alt.in_range) {
+                ESP_LOGW(TAG, "Frame decoded as DHT11 but DHT22 is configured "
+                              "(DHT22 gave T=%.1fC H=%.1f%%, out of range) — using DHT11",
+                         dec.temperature_c, dec.humidity_pct);
+                dec = alt;
+                g_dht_detected = 11;
+            }
+        } else {
+            g_dht_detected = 22;
+        }
+    } else {
+        dec = dht_decode_dht11(data);
+        if (!dec.in_range) {
+            const dht_decoded_t alt = dht_decode_dht22(data);
+            if (alt.in_range) {
+                ESP_LOGW(TAG, "Frame decoded as DHT22 but DHT11 is configured "
+                              "(DHT11 gave T=%.1fC H=%.1f%%, out of range) — using DHT22",
+                         dec.temperature_c, dec.humidity_pct);
+                dec = alt;
+                g_dht_detected = 22;
+            }
+        } else {
+            g_dht_detected = 11;
+        }
     }
 
-    /* ---- Fall back to the DHT11 8-bit encoding ----
-     * A DHT11 frame read with the DHT22 formula lands far outside the range
-     * (e.g. 45% / 23 °C -> 1152% / 588 °C) and would otherwise read as 0. */
-    const float rh11 = (float)data[0] + (float)data[1] / 10.0f;
-    const float tc11 = (float)data[2] + (float)data[3] / 10.0f;
-    if (tc11 >= -40.0f && tc11 <= 80.0f && rh11 >= 0.0f && rh11 <= 100.0f) {
-        *temperature_c = tc11;
-        *humidity_pct  = rh11;
-        return ESP_OK;
+    /* A frame that checksums but still lands outside the part's range is a
+     * misread, not a real measurement — publishing it would put a fake spike on
+     * the trend chart. */
+    if (!dec.in_range) {
+        ESP_LOGW(TAG, "DHT out of range (T=%.1f H=%.1f) — discarding",
+                 dec.temperature_c, dec.humidity_pct);
+        return ESP_FAIL;
     }
 
-    ESP_LOGW(TAG, "DHT out of range (T22=%.1f H22=%.1f / T11=%.1f H11=%.1f) — discarding",
-             tc, rh, tc11, rh11);
-    return ESP_FAIL;
+    *humidity_pct  = dec.humidity_pct;
+    *temperature_c = dec.temperature_c;
+    return ESP_OK;
 }
 
-/** Read with a few spaced retries (a single checksum failure is normal). */
-static esp_err_t dht22_read(float *temperature_c, float *humidity_pct) {
-    for (int attempt = 0; attempt < SHE_DHT22_ATTEMPTS; attempt++) {
-        if (dht22_read_once(temperature_c, humidity_pct) == ESP_OK) {
-            return ESP_OK;
+/* Read the DHT on the currently-selected runtime pin (set by dht_find_pin()). */
+static esp_err_t dht_read(float *temperature_c, float *humidity_pct) {
+    return dht_read_on_gpio(g_dht_gpio, temperature_c, humidity_pct);
+}
+
+/* =============================================================================
+ * DHT pin auto-detect
+ * =============================================================================
+ *
+ * The custom PCB exposes four data terminals whose GPIO mapping is unknown, and
+ * the passive pull-up survey proved unreliable (floating pins read HIGH/LOW
+ * inconsistently). The unambiguous test is to actually drive a start pulse on
+ * each candidate GPIO and see which one the sensor answers: a real DHT pulls the
+ * line LOW in response, so a valid (checksum-OK) frame can only come from the
+ * pin it is truly on. No voltmeter required.
+ *
+ * Tries the three known sensor GPIOs (27/32/33) first, then every other
+ * output-capable GPIO that is free on this board. The relays are driven by I2C
+ * expanders (not ESP32 GPIOs), so these free GPIOs are the only plausible
+ * sensor-header pins. Excluded: the flash group (6-11), I2C (4/5/13/15), the
+ * BOOT button (0), the strapping pin (12), and the PZEM UART (17/18). If the
+ * DHT sits on a 4th terminal mapped to one of these, we find it.
+ *
+ * Returns the GPIO the sensor answered on, or -1 if none did.
+ */
+static int dht_find_pin(void) {
+    static const int candidates[] = {
+        SHE_DHT11_GPIO, SHE_MQ135_GPIO, SHE_SOIL_GPIO,
+        2, 14, 16, 19, 21, 22, 23, 25, 26
+    };
+    const int n = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    int found = -1;
+
+    ESP_LOGI(TAG, "DHT pin auto-detect: probing %d GPIOs for a live DHT%d", n, SHE_DHT_MODEL);
+
+    for (int i = 0; i < n; i++) {
+        const int gpio = candidates[i];
+        /* Configure this pin as the 1-wire bus and try a few handshakes. A real
+         * DHT answers on the very first clean start; we allow 3 attempts to ride
+         * out a single missed low period. */
+        dht_bus_init(gpio);
+        bool answered = false;
+        for (int attempt = 0; attempt < 3 && !answered; attempt++) {
+            float t = 0.0f, h = 0.0f;
+            if (dht_read_on_gpio(gpio, &t, &h) == ESP_OK) {
+                answered = true;
+                ESP_LOGI(TAG, "  GPIO%d: DHT ANSWERED (T=%.1fC H=%.1f%%)", gpio, t, h);
+            }
+            esp_rom_delay_us(1500);
         }
-        if (attempt + 1 < SHE_DHT22_ATTEMPTS) {
-            vTaskDelay(pdMS_TO_TICKS(SHE_DHT22_RETRY_MS));
+        if (answered) {
+            found = gpio;
+            break;
         }
+        ESP_LOGI(TAG, "  GPIO%d: no DHT answer", gpio);
+        /* Leave non-matching pins as plain inputs so we do not hold any other
+         * circuit's line in an unexpected state for the rest of the session. */
+        gpio_config_t cfg = {
+            .pin_bit_mask = (1ULL << gpio),
+            .mode         = GPIO_MODE_INPUT,
+            .pull_up_en   = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&cfg);
     }
-    return ESP_FAIL;
+
+    if (found < 0) {
+        ESP_LOGW(TAG, "DHT pin auto-detect: no DHT answered on ANY candidate GPIO "
+                      "(27/32/33 + 2/14/16/19/21-23/25/26). The module is dead, "
+                      "unpowered, or missing its GND/VCC/pull-up. Falling back to GPIO%d.",
+                 SHE_DHT11_GPIO);
+    }
+    return found;
+}
+
+/* =============================================================================
+ * DHT raw-edge scan — the decisive "is the sensor alive" test
+ * =============================================================================
+ *
+ * dht_find_pin() only reports whether a *valid, checksum-OK* frame was decoded;
+ * it cannot distinguish "no sensor" from "sensor present but timing/decoding
+ * off". This scan records the RAW line transitions after a start pulse on every
+ * candidate GPIO. A live DHT always drives the 80/80 us handshake and then 40
+ * bits, so its pin shows many edges. A pin with ZERO edges after the start
+ * pulse has nothing driving it (dead sensor, DATA not connected, or unpowered).
+ *
+ * Only pins that actually show edges are logged, so the output stays short.
+ */
+static void dht_edge_scan(void) {
+    static const int candidates[] = {
+        SHE_DHT11_GPIO, SHE_MQ135_GPIO, SHE_SOIL_GPIO,
+        2, 14, 16, 19, 21, 22, 23, 25, 26
+    };
+    const int n = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    ESP_LOGW(TAG, "DHT edge-scan: capturing raw line edges on %d GPIOs "
+                  "(a live sensor shows edges; a dead/unwired one shows none)", n);
+
+    int pins_with_edges = 0;
+    for (int i = 0; i < n; i++) {
+        const int gpio = candidates[i];
+        dht_bus_init(gpio);
+        gpio_set_level(gpio, 0);          /* start pulse */
+        esp_rom_delay_us(18000);
+        gpio_set_level(gpio, 1);          /* release, then watch */
+
+        /* ~1 us/iteration; 5000 iterations ~ 8-10 ms real, which covers the
+         * 80/80 us handshake plus the ~3-4 ms of 40 data bits. */
+        uint8_t  lvl[96];
+        uint16_t t_us[96];
+        int      ne   = 0;
+        int      last = gpio_get_level(gpio);
+        int      t    = 0;
+        while (t < 5000 && ne < 96) {
+            int cur = gpio_get_level(gpio);
+            if (cur != last) {
+                lvl[ne]  = (uint8_t)cur;
+                t_us[ne] = (uint16_t)t;
+                ne++;
+                last = cur;
+            }
+            esp_rom_delay_us(1);
+            t++;
+        }
+
+        if (ne >= 2) {
+            /* Two or more edges = the line actually toggled after release, i.e.
+             * something is driving it (a real DHT gives ~80). */
+            pins_with_edges++;
+            ESP_LOGW(TAG, "  GPIO%d: %d edges in %d us -> SENSOR RESPONDS", gpio, ne, t);
+            char buf[128];
+            int pos = 0;
+            for (int e = 0; e < ne; e++) {
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "%d@%u ", lvl[e], t_us[e]);
+                if ((e + 1) % 8 == 0 || e == ne - 1) {
+                    ESP_LOGW(TAG, "     %s", buf);
+                    pos = 0;
+                }
+            }
+        } else if (gpio == SHE_DHT11_GPIO) {
+            /* ne==1 is just our own start-pulse release (LOW->HIGH); ne==0 means
+             * the line was already HIGH. Neither is a sensor response. */
+            ESP_LOGW(TAG, "  GPIO%d: no sensor edges in 5 ms (only the release edge; line ended %s) "
+                          "-> nothing drives this pin", gpio, last ? "HIGH" : "LOW");
+        }
+        dht_bus_init(gpio);
+    }
+    if (pins_with_edges == 0) {
+        ESP_LOGW(TAG, "DHT edge-scan: NO GPIO showed any line activity. The sensor is dead, its "
+                      "DATA pin is not connected to any header pin, or it is unpowered.");
+    }
 }
 
 /* =============================================================================
  * MQ-135 — air quality, ADC1 channel 4 (GPIO 32)
- * ==========================================================================*/
+ * =============================================================================*/
 
 typedef struct {
     const char *name;
@@ -255,7 +592,8 @@ typedef struct {
     float offset;   /* added after the curve (CO2 is referenced to fresh air) */
 } mq135_curve_t;
 
-/* Datasheet curves: PPM = a * ratio^b + offset, where ratio = RS / R0. */
+/* Datasheet curves, verbatim from the old firmware. PPM = a * ratio^b, where
+ * ratio = RS / R0. */
 static const mq135_curve_t k_curves[] = {
     { "CO",      605.18f, -3.937f,   0.0f },
     { "Alcohol",  77.255f, -3.18f,   0.0f },
@@ -265,68 +603,58 @@ static const mq135_curve_t k_curves[] = {
     { "Acetone",  34.668f, -3.369f,  0.0f },
 };
 
-/** Create the ADC1 oneshot unit once (shared by MQ-135 and soil). */
-static esp_err_t adc1_setup(void) {
-    if (g_adc1) return ESP_OK;
-    adc_oneshot_unit_init_cfg_t init_cfg = { .unit_id = ADC_UNIT_1 };
-    esp_err_t err = adc_oneshot_new_unit(&init_cfg, &g_adc1);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ADC1 unit init failed: %s", esp_err_to_name(err));
-        g_adc1 = NULL;
-    }
-    return err;
-}
-
-/** 11 dB attenuation (~0-3.1 V) + 12-bit, per channel. */
-static esp_err_t adc1_config_ch(adc_channel_t ch) {
-    adc_oneshot_chan_cfg_t cfg = {
-        .atten    = ADC_ATTEN_DB_11,
-        .bitwidth = ADC_BITWIDTH_12,
-    };
-    esp_err_t err = adc_oneshot_config_channel(g_adc1, ch, &cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "ADC1 channel %d config failed: %s", (int)ch, esp_err_to_name(err));
-    }
-    return err;
-}
-
-/** Mean of 8 raw reads — one ADC sample on this part is noisy by ~2%. */
-static int adc1_read_mean(adc_channel_t ch) {
-    if (!g_adc1) return 0;
-    int32_t sum = 0;
-    int ok = 0;
-    for (int i = 0; i < 8; i++) {
-        int raw = 0;
-        if (adc_oneshot_read(g_adc1, ch, &raw) == ESP_OK) {
-            sum += raw;
-            ok++;
-        }
-    }
-    return ok > 0 ? (int)(sum / ok) : 0;
-}
+static float g_mq135_r0 = 0.0f;      /* kOhm, 0 = not calibrated */
 
 static esp_err_t mq135_init(void) {
-    esp_err_t err = adc1_setup();
-    if (err != ESP_OK) return err;
-    return adc1_config_ch((adc_channel_t)SHE_MQ135_ADC_CHANNEL);
+    /* ⚠ ADC_WIDTH_BIT_12, never the literal 12. `adc_bits_width_t` is an enum
+     * whose members are 0-3 (ADC_WIDTH_BIT_12 == 3), so passing 12 is out of
+     * range and adc1_config_width() rejects it. The old firmware's soil driver
+     * used the named constant and was fine; this is only a hazard for code that
+     * thinks of the width as "the number twelve". */
+    esp_err_t err = adc1_config_width(ADC_WIDTH_BIT_12);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ADC width config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    /* 11 dB, NOT the old DB_0 — see the header comment. ~0-3.1 V full scale. */
+    err = adc1_config_channel_atten((adc1_channel_t)SHE_MQ135_ADC_CHANNEL, ADC_ATTEN_DB_11);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MQ-135 ADC atten config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
 }
 
+/** Mean of a few raw reads — one ADC sample on this part is noisy by ~2%. */
 static float mq135_read_voltage(void) {
-    const int raw = adc1_read_mean((adc_channel_t)SHE_MQ135_ADC_CHANNEL);
-    return (float)raw * SHE_ADC_VREF_MV / SHE_ADC_FULL_SCALE / 1000.0f;   /* volts */
+    int32_t sum = 0;
+    const int n = 8;
+    for (int i = 0; i < n; i++) {
+        sum += adc1_get_raw((adc1_channel_t)SHE_MQ135_ADC_CHANNEL);
+    }
+    const float raw = (float)sum / (float)n;
+    return raw * SHE_ADC_VREF_MV / SHE_ADC_FULL_SCALE / 1000.0f;   /* volts */
 }
 
-/** RS at the current voltage, in kOhm, or -1 if the reading is unusable. */
+/**
+ * RS at the current voltage, in kOhm, or -1 if the reading is unusable.
+ *
+ * RS = (Vc * RL / Vout) - RL. Guarded: the old code divided by `sensor_volt`
+ * with no check, so a disconnected sensor (0 V) produced infinity and every
+ * derived PPM became NaN.
+ */
 static float mq135_rs_kohm(float voltage, float vc, float rl) {
     if (voltage < 0.01f) return -1.0f;      /* open circuit / floating pin */
-    if (voltage > vc - 0.01f) return -1.0f; /* saturated — no headroom */
+    if (voltage > vc - 0.01f) return -1.0f; /* saturated — RL divider has no headroom */
     const float rs = (vc * rl / voltage) - rl;
     return rs > 0.0f ? rs : 0.0f;
 }
 
 /**
  * R0 = RS_in_clean_air / RATIO_CLEAN_AIR, averaged over N samples.
- * Blocks for N * interval (5 s) — called from the sensor TASK, never from boot.
+ *
+ * Returns the averaged R0, or -1 if no sample was usable. Blocks for
+ * N * interval (5 s by default) — called from the sensor TASK, never from boot.
  */
 static float mq135_calibrate(void) {
     float sum = 0.0f;
@@ -343,8 +671,8 @@ static float mq135_calibrate(void) {
     }
 
     if (good == 0) {
-        ESP_LOGE(TAG, "MQ-135 calibration failed: no usable sample. Check the "
-                      "analog wiring and that the module has 5 V (heater).");
+        ESP_LOGE(TAG, "MQ-135 calibration failed: no usable sample. Check the analog "
+                      "wiring and that the module has 5 V (the heater needs it).");
         return -1.0f;
     }
     return sum / (float)good;
@@ -355,16 +683,35 @@ static float mq135_calibrate(void) {
  * ==========================================================================*/
 
 static esp_err_t soil_init(void) {
-    esp_err_t err = adc1_setup();
-    if (err != ESP_OK) return err;
-    return adc1_config_ch((adc_channel_t)SHE_SOIL_ADC_CHANNEL);
+    /* adc1_config_width() is already set by mq135_init(); setting it twice is
+     * harmless but the attenuation is per-channel and must be set here too. */
+    esp_err_t err = adc1_config_channel_atten((adc1_channel_t)SHE_SOIL_ADC_CHANNEL,
+                                              ADC_ATTEN_DB_11);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Soil ADC atten config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
 }
 
 static int soil_read_raw(void) {
-    return adc1_read_mean((adc_channel_t)SHE_SOIL_ADC_CHANNEL);
+    int32_t sum = 0;
+    const int n = 8;
+    for (int i = 0; i < n; i++) {
+        sum += adc1_get_raw((adc1_channel_t)SHE_SOIL_ADC_CHANNEL);
+    }
+    return (int)(sum / n);
 }
 
-/** Raw counts -> percentage between the two calibrated endpoints. */
+/**
+ * Raw counts -> percentage, between two measured endpoints.
+ *
+ * With the default endpoints (4095 dry, 0 wet) this is algebraically identical
+ * to the old firmware's `100 - (raw * 100 / 4095)`, so flashing this build does
+ * not make the readings jump. It differs in using the endpoints as a real
+ * calibration, so a capacitive probe can be corrected by changing two numbers
+ * instead of editing the formula.
+ */
 static int soil_raw_to_pct(int raw) {
     const int span = g_soil_raw_dry - g_soil_raw_wet;
     if (span == 0) return 0;
@@ -389,8 +736,10 @@ static bool sensor_set_param(she_node_t *node, const char *param_name, float val
             node_param_t *p = &d->params[j];
             if (strcmp(p->name, param_name) != 0) continue;
 
-            /* Only publish on a real move — a DHT22 dithers by a tenth of a
-             * degree and the ADC by a few counts. */
+            /* Only publish on a real move. A DHT dithers by a tenth of a
+             * degree between reads and the ADC by a few counts; publishing
+             * every 30 s for noise would make the cloud log useless and burn
+             * radio time for nothing. */
             if (p->last_value.type == DATA_FLOAT &&
                 fabsf(p->last_value.val.f - value) < epsilon) {
                 return false;
@@ -408,52 +757,22 @@ static bool sensor_set_param(she_node_t *node, const char *param_name, float val
  * ==========================================================================*/
 
 /**
- * A FreeRTOS task body must never return. This is a task body (not a helper
- * called from app_main), and sensors_start() returns as soon as it exists.
+ * ⚠ This `while (true)` is CORRECT and must stay.
+ *
+ * A FreeRTOS task function must never return — returning from one panics. The
+ * project rule about `while(true)` is about HELPERS CALLED FROM app_main: a
+ * helper that never returns silently kills the caller's error handling, which
+ * is what once made the physical button dead on the provisioning path. This is
+ * a task body, not a helper, and sensors_start() returns as soon as the task
+ * exists.
  */
 static void sensor_task(void *arg) {
     she_node_t *node = (she_node_t *)arg;
 
-    /* ---- Detect which GPIO the DHT is wired to ----
-     * This board's "port 1" is not documented and the sensor may have been
-     * plugged into any of the free pins, so probe once at startup instead of
-     * trusting the compile-time default. */
-    {
-        vTaskDelay(pdMS_TO_TICKS(800));   /* let the sensor power up / settle */
-        const int found = dht22_detect();
-        if (found >= 0) {
-            g_dht_gpio = found;
-            ESP_LOGI(TAG, "DHT detected on GPIO %d", g_dht_gpio);
-        } else {
-            ESP_LOGW(TAG, "No DHT response on any probed GPIO — keeping fallback GPIO %d",
-                     g_dht_gpio);
-        }
-        dht22_bus_init();   /* (re)configure whichever pin we settled on */
-        /* Publish the detected pin (-1 = none) so it is visible in /she/info
-         * without a serial console. */
-        sensor_set_param(node, "DHT_GPIO", (float)(found >= 0 ? found : -1), 0.5f);
-        sensor_set_param(node, "DHT_Status", (float)g_dht_status, 0.5f);
-        /* Idle level of the detected pin: 1 = pulled up (real data line),
-         * 0 = pulled down (strapping/LED pin -> false positive). */
-        {
-            gpio_config_t icfg = {
-                .pin_bit_mask = (1ULL << g_dht_gpio),
-                .mode         = GPIO_MODE_INPUT,
-                .pull_up_en   = GPIO_PULLUP_ENABLE,
-                .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                .intr_type    = GPIO_INTR_DISABLE,
-            };
-            gpio_config(&icfg);
-            vTaskDelay(pdMS_TO_TICKS(5));
-            sensor_set_param(node, "DHT_Idle", (float)gpio_get_level(g_dht_gpio), 0.5f);
-            dht22_bus_init();   /* restore open-drain for reads */
-        }
-        mqtt_publish_params_local(node);
-    }
-
     /* ---- Calibrate the MQ-135 once, in here rather than at boot ---- */
     ESP_LOGI(TAG, "MQ-135 calibrating (%d samples, ~%d ms) — keep the sensor in clean air",
-             SHE_MQ135_CAL_SAMPLES, SHE_MQ135_CAL_SAMPLES * SHE_MQ135_CAL_INTERVAL_MS);
+             SHE_MQ135_CAL_SAMPLES,
+             SHE_MQ135_CAL_SAMPLES * SHE_MQ135_CAL_INTERVAL_MS);
     g_mq135_r0 = mq135_calibrate();
     if (g_mq135_r0 > 0.0f) {
         ESP_LOGI(TAG, "MQ-135 R0 = %.2f kOhm", g_mq135_r0);
@@ -465,19 +784,42 @@ static void sensor_task(void *arg) {
         sensor_sample_t s;
         memset(&s, 0, sizeof(s));
 
-        /* ---- DHT22 ---- */
-        if (dht22_read(&s.temperature_c, &s.humidity_pct) == ESP_OK) {
+        /* ---- Wiring probe (every 5th cycle) ----
+         * Briefly read GPIO 27 as a plain input with the ESP32's internal
+         * pull-up OFF and report the level. If the DHT module (with its own
+         * pull-up) is electrically on this pin, the line is pulled HIGH; if we
+         * read LOW, nothing pulls it up here (wrong terminal / open trace / no
+         * module pull-up). Printed every 5th cycle (~2.5 min) so a serial
+         * capture of any window shows it WITHOUT needing to catch the one-time
+         * boot self-test. The 1-wire bus is restored immediately afterwards. */
+        if ((++g_probe_cycle % 5) == 0) {
+            gpio_config_t pc = {
+                .pin_bit_mask = (1ULL << g_dht_gpio),
+                .mode         = GPIO_MODE_INPUT,
+                .pull_up_en   = GPIO_PULLUP_DISABLE,
+                .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                .intr_type    = GPIO_INTR_DISABLE,
+            };
+            gpio_config(&pc);
+            const int lvl = gpio_get_level(g_dht_gpio);
+            dht_bus_init(g_dht_gpio);   /* restore 1-wire bus (OD + pull-up) */
+            ESP_LOGI(TAG, "[probe] GPIO%d idle (PU off) = %s -> %s", g_dht_gpio,
+                     lvl ? "HIGH/3.3V" : "LOW/0V",
+                     lvl ? "external pull-up PRESENT (DHT module on this pin)"
+                         : "NO pull-up on GPIO%d (wrong terminal / open trace / no module PU)");
+        }
+
+        /* ---- DHT (DHT22 / AM2302) ---- */
+        if (dht_read(&s.temperature_c, &s.humidity_pct) == ESP_OK) {
             s.dht_valid = true;
         } else {
             s.dht_failures++;
         }
 
-        /* ---- Soil (only when off the ADC rails = a probe is present) ---- */
-        s.soil_raw = soil_read_raw();
-        if (s.soil_raw > SHE_SOIL_RAW_MIN_VALID && s.soil_raw < SHE_SOIL_RAW_MAX_VALID) {
-            s.soil_pct   = soil_raw_to_pct(s.soil_raw);
-            s.soil_valid = true;
-        }
+        /* ---- Soil ---- */
+        s.soil_raw   = soil_read_raw();
+        s.soil_pct   = soil_raw_to_pct(s.soil_raw);
+        s.soil_valid = true;
 
         /* ---- MQ-135 ---- */
         s.r0_kohm = g_mq135_r0;
@@ -505,17 +847,20 @@ static void sensor_task(void *arg) {
 
         if (xSemaphoreTake(g_lock, pdMS_TO_TICKS(200)) == pdTRUE) {
             s.samples = g_latest.samples + 1;
-            s.dht_failures += g_latest.dht_failures;
             g_latest = s;
             xSemaphoreGive(g_lock);
         }
 
-        ESP_LOGI(TAG, "T=%.1fC H=%.1f%%%s  soil=%d%%%s (raw %d)  CO2=%.0f CO=%.1f Alc=%.1f ppm%s  "
-                      "[Tol=%.1f NH3=%.1f Ace=%.1f not published]",
-                 s.temperature_c, s.humidity_pct, s.dht_valid ? "" : "(DHT fail)",
-                 s.soil_valid ? s.soil_pct : -1, s.soil_valid ? "" : "(no probe)", s.soil_raw,
-                 s.co2_ppm, s.co_ppm, s.alcohol_ppm, s.air_valid ? "" : "(no gas)",
-                 s.toluene_ppm, s.nh3_ppm, s.acetone_ppm);
+        ESP_LOGI(TAG, "T=%.1fC H=%.1f%%  soil=%d%% (raw %d)  CO2=%.0fppm CO=%.1fppm Alc=%.1fppm  "
+                      "(raw %.2fV, R0 %.2fk)  [Tol=%.1f NH3=%.1f Ace=%.1f not published]  "
+                      "(DHT gpio=%d tries=%d fails=%d%s)%s",
+                 s.temperature_c, s.humidity_pct, s.soil_pct, s.soil_raw,
+                 s.co2_ppm, s.co_ppm, s.alcohol_ppm,
+                 s.air_voltage, s.r0_kohm,
+                 s.toluene_ppm, s.nh3_ppm, s.acetone_ppm,
+                 g_dht_gpio, g_dht_total, g_dht_fails,
+                 g_dht_detected ? " DHT22" : "",
+                 g_dht_detected ? " [detected]" : "");
 
         /* ---- Mirror into the Sensors device params ---- */
         bool changed = false;
@@ -523,14 +868,16 @@ static void sensor_task(void *arg) {
             changed |= sensor_set_param(node, "Temperature", s.temperature_c, 0.5f);
             changed |= sensor_set_param(node, "Humidity",    s.humidity_pct,   1.0f);
         }
-        if (s.soil_valid) {
-            changed |= sensor_set_param(node, "Soil_Moisture", (float)s.soil_pct, 1.0f);
-        }
+        changed |= sensor_set_param(node, "Soil_Moisture", (float)s.soil_pct, 1.0f);
         if (s.air_valid) {
             changed |= sensor_set_param(node, "CO",      s.co_ppm,      1.0f);
             changed |= sensor_set_param(node, "Alcohol", s.alcohol_ppm, 1.0f);
             changed |= sensor_set_param(node, "CO2",     s.co2_ppm,     5.0f);
         }
+
+        /* Publish immediately when something moved, rather than waiting up to a
+         * minute for the main loop — the same reasoning as the AC feedback path
+         * in input_monitor.c. */
         if (changed) {
             mqtt_publish_params_local(node);
         }
@@ -543,7 +890,72 @@ static void sensor_task(void *arg) {
  * Public API
  * ==========================================================================*/
 
+#if SHE_PINMAP_MODE
+/* =============================================================================
+ * Terminal → GPIO pin mapper (diagnostic build)
+ * =============================================================================
+ *
+ * Drives each candidate GPIO in turn as a push-pull output at 2 Hz for 6 s,
+ * logging which GPIO is active. Watch a DC voltmeter (or an LED) on one screw
+ * terminal: the terminal that toggles 0 <-> 3.3 V during the "GPIOxx" window is
+ * wired to that GPIO. Repeat per terminal to build the full map, then set the
+ * SHE_*_GPIO macros and rebuild with SHE_PINMAP_MODE=0.
+ */
+static void pinmap_run(void) {
+    static const int pins[] = {
+        SHE_DHT11_GPIO, SHE_MQ135_GPIO, SHE_SOIL_GPIO,
+        2, 14, 16, 19, 21, 22, 23, 25, 26
+    };
+    const int n = (int)(sizeof(pins) / sizeof(pins[0]));
+
+    ESP_LOGW(TAG, "================= PINMAP MODE =================");
+    ESP_LOGW(TAG, "Each GPIO blinks 2 Hz for 6 s, one at a time, in this order:");
+    for (int i = 0; i < n; i++) {
+        ESP_LOGW(TAG, "  %2d) GPIO%d", i + 1, pins[i]);
+    }
+    ESP_LOGW(TAG, "Put a DC voltmeter on ONE terminal; note WHICH window makes it");
+    ESP_LOGW(TAG, "toggle 0<->3.3V. That window's GPIO is that terminal's GPIO.");
+    ESP_LOGW(TAG, "===============================================");
+
+    for (int i = 0; i < n; i++) {
+        const int g = pins[i];
+        gpio_config_t out = {
+            .pin_bit_mask = (1ULL << g),
+            .mode         = GPIO_MODE_INPUT_OUTPUT,   /* push-pull: strong drive */
+            .pull_up_en   = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&out);
+        ESP_LOGW(TAG, ">>> [%d/%d] NOW DRIVING GPIO%d for 6 s <<<", i + 1, n, g);
+        for (int k = 0; k < 6; k++) {
+            gpio_set_level(g, 1);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            gpio_set_level(g, 0);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        gpio_set_level(g, 0);
+        /* Release the pin back to a plain input so the next one is clean. */
+        gpio_config_t in = {
+            .pin_bit_mask = (1ULL << g),
+            .mode         = GPIO_MODE_INPUT,
+            .pull_up_en   = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&in);
+        vTaskDelay(pdMS_TO_TICKS(1500));   /* pause so you can note the result */
+    }
+    ESP_LOGW(TAG, "================= PINMAP DONE =================");
+}
+#endif /* SHE_PINMAP_MODE */
+
 esp_err_t sensors_init(void) {
+#if SHE_PINMAP_MODE
+    /* Dedicated mapping session: run the mapper first, then continue to normal
+     * init so the board still boots (relays/Wi-Fi). Boot is ~90 s slower. */
+    pinmap_run();
+#endif
     if (!g_lock) {
         g_lock = xSemaphoreCreateMutex();
         if (!g_lock) {
@@ -553,22 +965,75 @@ esp_err_t sensors_init(void) {
     }
     memset(&g_latest, 0, sizeof(g_latest));
 
-    /* Every failure below is logged and tolerated. The relays are the board's
-     * primary function; a missing sensor must never stop it booting. */
-    esp_err_t dht_err  = dht22_bus_init();
-    esp_err_t air_err  = mq135_init();
-    esp_err_t soil_err = soil_init();
+    /* Reset the runtime DHT pin to the configured default before auto-detect. */
+    g_dht_gpio = SHE_DHT11_GPIO;
 
-    if (dht_err != ESP_OK)  ESP_LOGW(TAG, "DHT22 unavailable — no temperature/humidity");
+    /* Survey which sensor pins carry an external pull-up, BEFORE configuring them
+     * for their real functions. INFORMATIONAL ONLY — floating empty pins read
+     * HIGH/LOW inconsistently, so this is NOT a reliable pin locator (that is
+     * what dht_find_pin() below is for). */
+    sensor_pin_survey();
+
+    /* Auto-detect which terminal the DHT is really on. The custom PCB has four
+     * data terminals and no published pin map, so the firmware assumes GPIO 27;
+     * if the sensor is on a different terminal it would otherwise never answer. */
+    const int found = dht_find_pin();
+    if (found >= 0) {
+        g_dht_gpio = found;
+        if (found == SHE_DHT11_GPIO) {
+            ESP_LOGI(TAG, "DHT auto-detect: confirmed on GPIO%d (matches config)", found);
+        } else {
+            ESP_LOGW(TAG, "DHT auto-detect: sensor is on GPIO%d, NOT the configured GPIO%d. "
+                          "Using GPIO%d. NOTE: this collides with the %s pin — that sensor will "
+                          "be disabled so the two do not fight for the same line.",
+                     found, SHE_DHT11_GPIO, found,
+                     found == SHE_MQ135_GPIO ? "MQ-135" : "soil");
+        }
+    } else {
+        ESP_LOGW(TAG, "DHT auto-detect found nothing; keeping configured GPIO%d", SHE_DHT11_GPIO);
+    }
+
+    /* Decisive hardware check: record the raw line edges on every candidate GPIO
+     * after a start pulse. This distinguishes a dead/unwired sensor (no edges
+     * anywhere) from a live one the decoder is mishandling (edges on one pin). */
+    dht_edge_scan();
+
+    /* Configure the DHT bus on the detected pin. */
+    esp_err_t dht_err  = dht_bus_init(g_dht_gpio);
+
+    /* Analogue sensors — skip any that share the DHT's pin (hardware conflict).
+     * The DHT is open-drain 1-wire and would be reconfigured as ADC, breaking it. */
+    esp_err_t air_err  = ESP_OK;
+    esp_err_t soil_err = ESP_OK;
+    if (g_dht_gpio == SHE_MQ135_GPIO) {
+        ESP_LOGW(TAG, "MQ-135 disabled: shares GPIO%d with the DHT", SHE_MQ135_GPIO);
+        air_err = ESP_FAIL;
+    } else {
+        air_err = mq135_init();
+    }
+    if (g_dht_gpio == SHE_SOIL_GPIO) {
+        ESP_LOGW(TAG, "Soil sensor disabled: shares GPIO%d with the DHT", SHE_SOIL_GPIO);
+        soil_err = ESP_FAIL;
+    } else {
+        soil_err = soil_init();
+    }
+
+    /* Boot-time wiring check — only meaningful if the pin configured at all. */
+    if (dht_err == ESP_OK) {
+        dht_self_test();
+    }
+
+    if (dht_err != ESP_OK)  ESP_LOGW(TAG, "DHT%d unavailable — no temperature/humidity", SHE_DHT_MODEL);
     if (air_err != ESP_OK)  ESP_LOGW(TAG, "MQ-135 ADC unavailable — no air quality");
     if (soil_err != ESP_OK) ESP_LOGW(TAG, "Soil ADC unavailable — no soil moisture");
 
     if (dht_err != ESP_OK && air_err != ESP_OK && soil_err != ESP_OK) {
-        return ESP_FAIL;
+        return ESP_FAIL;   /* nothing usable — do not start a task that logs nothing */
     }
-    ESP_LOGI(TAG, "Sensors initialised: DHT22=GPIO%d, MQ-135=ADC1_CH%d(GPIO%d), "
-                  "soil=ADC1_CH%d(GPIO%d)",
-             SHE_DHT22_GPIO, SHE_MQ135_ADC_CHANNEL, SHE_MQ135_GPIO,
+    ESP_LOGI(TAG, "Sensors initialised: DHT%d=GPIO%d (auto-detected from configured %d), "
+                  "MQ-135=ADC1_CH%d(GPIO%d), soil=ADC1_CH%d(GPIO%d)",
+             SHE_DHT_MODEL, g_dht_gpio, SHE_DHT11_GPIO,
+             SHE_MQ135_ADC_CHANNEL, SHE_MQ135_GPIO,
              SHE_SOIL_ADC_CHANNEL, SHE_SOIL_GPIO);
     return ESP_OK;
 }
@@ -579,8 +1044,9 @@ esp_err_t sensors_start(she_node_t *node) {
         ESP_LOGE(TAG, "sensors_start() before sensors_init()");
         return ESP_ERR_INVALID_STATE;
     }
-    /* 4096 bytes: the log line formats nine floats, and ESP_LOG with floats is
-     * stack-hungry. */
+    /* 4096 bytes: the log line alone formats nine floats, and ESP_LOG with
+     * floats is stack-hungry. The old firmware used 2048 for the DHT task and
+     * never formatted this much. */
     if (xTaskCreate(sensor_task, "sensors", 4096, node, 4, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Could not create the sensor task");
         return ESP_ERR_NO_MEM;

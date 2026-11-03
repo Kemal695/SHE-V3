@@ -1,0 +1,2 @@
+﻿=== ping another client 192.168.0.3 (isolation test) ===
+192.168.0.3 reachable: True

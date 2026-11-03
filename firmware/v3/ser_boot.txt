@@ -1,0 +1,359 @@
+Listening on COM3 @ 115200 for 60s
+Press EN on the board now. Hold BOOT + tap EN for download mode.
+========================================================================
+[   0.45s] D (285845) mqtt_client: esp_mqtt
+[   0.47s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   0.47s] D (285850) mqtt_client: Sent PING successful[0m\r
+[   0.47s] D (285861) mqtt_client: mqtt_message_receive: first byte: 0xd0[0m\r
+[   0.47s] D (285862) transport_base: r
+[   0.50s] emain data in cache, need to read again[0m\r
+[   0.50s] D (285864) mqtt_client: mqtt_message_receive: read "remaining length" byte: 0x0[0m\r
+[   0.50s] D (285871) mqtt_client: mqtt_message_receive: total message length: 2 (already read: 2)[0m\r
+[   0.50s] D (285879) mqtt_client: mqtt_mess
+[   0.52s] age_receive: transport_read():2 2[0m\r
+[   0.52s] D (285885) mqtt_client: msg_type=13, msg_id=0[0m\r
+[   0.52s] D (285890) mqtt_client: MQTT_MSG_TYPE_PINGRESP[0m\r
+[   1.52s] D (286897) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   2.51s] D (287900) mqtt_client: esp_mqtt
+[   2.53s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   3.53s] D (288903) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   4.53s] D (289906) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   5.52s] D (290909) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[   5.54s] ansport_read(): call timed out before data was ready![0m\r
+[   6.53s] D (291912) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[   6.55s] efore data was ready![0m\r
+[   7.53s] D (292915) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   8.54s] D (293918) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[   9.53s] D (294921) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[   9.55s] ansport_read(): call timed out before data was ready![0m\r
+[        ] ... 1774 bytes so far, still listening
+[  10.54s] D (295924) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  10.56s] efore data was ready![0m\r
+[  11.30s] D (296691) httpd: httpd_server: processing listen socket 55[0m\r
+[  11.30s] D (296693) httpd: httpd_accept_
+[  11.32s] conn: newfd = 58[0m\r
+[  11.32s] D (296694) httpd_sess: httpd_sess_new: fd = 58[0m\r
+[  11.32s] [0;32mI (296696) esp_https_server: performing session handshake[0m\r
+[  11.55s] D (296927) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  12.54s] D (297932) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  12.56s] ansport_read(): call timed out before data was ready![0m\r
+[  13.53s] D (298922) esp_https_server: Secure socket open[0m\r
+[  13.53s] D (298923) httpd_sess: httpd_sess_new: acti
+[  13.55s] ve sockets: 1[0m\r
+[  13.55s] D (298923) httpd: httpd_accept_conn: complete[0m\r
+[  13.55s] D (298926) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:2 posted to loop 0x3ffbdb04[0m\r
+[  13.55s] D (298926) httpd: httpd_server: doing 
+[  13.57s] select maxfd+1 = 59[0m\r
+[  13.57s] D (298936) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  14.38s] D (299755) httpd: httpd_process_session: processing socket 58[0m\r
+[  14.38s] D (299755) httpd_sess: httpd_sess_process: httpd_req_new[0m\r
+[  14.38s] D (299756) httpd_txrx: httpd_recv_with_opt: requested length = 
+[  14.40s] 128[0m\r
+[  14.40s] D (299764) httpd_txrx: httpd_recv_with_opt: received length = 123[0m\r
+[  14.40s] D (299768) httpd_parse: read_block: received HTTP request block size = 123[0m\r
+[  14.40s] D (299775) httpd_parse: cb_url: message begin[0m\r
+[  14.40s] D (299779) httpd_parse: cb_url: processing ur
+[  14.42s] l = /she/info[0m\r
+[  14.42s] D (299785) httpd_parse: verify_url: received URI = /she/info[0m\r
+[  14.42s] D (299790) httpd_parse: cb_header_field: headers begin[0m\r
+[  14.42s] D (299796) httpd_txrx: httpd_unrecv: length = 99[0m\r
+[  14.42s] D (299800) httpd_parse: p
+[  14.44s] ause_parsing: paused[0m\r
+[  14.44s] D (299805) httpd_parse: cb_header_field: processing field = user-agent[0m\r
+[  14.44s] D (299811) httpd_txrx: httpd_recv_with_opt: requested length = 128[0m\r
+[  14.44s] D (299818) httpd_txrx: httpd_recv_with_opt: pending length = 99[0m\r
+[  14.44s] D (299824) ht
+[  14.46s] tpd_parse: read_block: received HTTP request block size = 99[0m\r
+[  14.46s] D (299830) httpd_parse: continue_parsing: skip pre-parsed data of size = 11[0m\r
+[  14.46s] D (299837) httpd_parse: continue_parsing: un-paused[0m\r
+[  14.46s] D (299842) httpd_par
+[  14.48s] se: cb_header_value: processing value = Dart/3.13 (dart:io)[0m\r
+[  14.48s] D (299850) httpd_parse: cb_header_field: processing field = accept-encoding[0m\r
+[  14.48s] D (299857) httpd_parse: cb_header_value: processing value = gzip[0m\r
+[  14.48s] D (299863) httpd_parse: cb_header_field:
+[  14.50s]  processing field = x-she-pop[0m\r
+[  14.50s] D (299869) httpd_parse: cb_header_value: processing value = 123456789[0m\r
+[  14.50s] D (299876) httpd_parse: cb_header_field: processing field = host[0m\r
+[  14.50s] D (299882) httpd_parse: cb_header_value: pro
+[  14.52s] cessing value = 192.168.0.3[0m\r
+[  14.52s] D (299889) httpd_parse: cb_headers_complete: bytes read     = 123[0m\r
+[  14.52s] D (299895) httpd_parse: cb_headers_complete: content length = 0[0m\r
+[  14.52s] D (299901) httpd_parse: pause_parsing: paused[0m\r
+[  14.54s] D (299905) httpd_parse: cb_no_body: message complete[0m\r
+[  14.54s] D (299901) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:3 posted to loop 0x3ffbdb04[0m\r
+[  14.54s] D (299910) httpd_parse: httpd_parse_req: parsing complete[0m\r
+[  14.54s] D (299926) httpd_ur
+[  14.56s] i: httpd_uri: request for /she/info with type 1[0m\r
+[  14.56s] D (299932) httpd_uri: httpd_find_uri_handler: [0] = /she/info[0m\r
+[  14.56s] D (299938) nvs: nvs_open_from_partition she_fctry 0[0m\r
+[  14.56s] D (299943) nvs: nvs_get_str_or_blob device_pop
+[  14.58s] [0m\r
+[  14.58s] D (299948) nvs: nvs_close 23[0m\r
+[  14.58s] D (299955) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  14.58s] D (299971) httpd_txrx: httpd_send_all: sent = 71[0m\r
+[  14.58s] D (299974)
+[  14.60s]  httpd_txrx: httpd_send_all: sent = 2[0m\r
+[  14.60s] D (299975) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:4 posted to loop 0x3ffbdb04[0m\r
+[  14.60s] D (299979) httpd_txrx: httpd_send_all: sent = 2729[0m\r
+[  14.60s] D (299987) event: no handlers have been r
+[  14.62s] egistered for event ESP_HTTP_SERVER_EVENT:6 posted to loop 0x3ffbdb04[0m\r
+[  14.62s] D (299990) httpd_sess: httpd_sess_process: httpd_req_delete[0m\r
+[  14.62s] D (300003) httpd_sess: httpd_sess_process: success[0m\r
+[  14.62s] D (300008) httpd: httpd_serv
+[  14.65s] er: doing select maxfd+1 = 59[0m\r
+[  15.59s] D (300964) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  15.59s] D (300968) mqtt_client: Sent PING successful[0m\r
+[  15.59s] D (300981) mqtt_client: mqtt_mes
+[  15.61s] sage_receive: first byte: 0xd0[0m\r
+[  15.61s] D (300982) transport_base: remain data in cache, need to read again[0m\r
+[  15.61s] D (300983) mqtt_client: mqtt_message_receive: read "remaining length" byte: 0x0[0m\r
+[  15.61s] D (300990) mqtt_client: mqtt_message_receive: total message le
+[  15.63s] ngth: 2 (already read: 2)[0m\r
+[  15.63s] D (300998) mqtt_client: mqtt_message_receive: transport_read():2 2[0m\r
+[  15.63s] D (301005) mqtt_client: msg_type=13, msg_id=0[0m\r
+[  15.63s] D (301009) mqtt_client: MQTT_MSG_TYPE_PINGRESP[0m\r
+[  16.64s] D (302017) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  17.64s] D (303020) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  18.63s] D (304023) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  18.65s] ansport_read(): call timed out before data was ready![0m\r
+[  19.64s] D (305026) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  19.66s] efore data was ready![0m\r
+[        ] ... 7087 bytes so far, still listening
+[  20.52s] D (305900) httpd: httpd_process_session: processing socket 58[0m\r
+[  20.52s] D (305901) httpd_sess: httpd_sess_process: httpd_req_new[0m\r
+[  20.52s] D (305902) httpd_txrx: httpd_recv_with_opt: requested length = 
+[  20.54s] 128[0m\r
+[  20.54s] D (305908) httpd_txrx: httpd_recv_with_opt: received length = 0[0m\r
+[  20.54s] D (305914) httpd_parse: read_block: connection closed[0m\r
+[  20.54s] D (305919) httpd_sess: httpd_sess_delete: fd = 58[0m\r
+[  20.54s] D (305925) event: no handlers have been registered for event ESP
+[  20.56s] _HTTP_SERVER_EVENT:7 posted to loop 0x3ffbdb04[0m\r
+[  20.56s] D (305927) esp_https_server: Secure socket closed[0m\r
+[  20.56s] D (305938) httpd_sess: httpd_sess_delete: active sockets: 0[0m\r
+[  20.56s] D (305944) httpd: httpd_server: doing select maxfd+1
+[  20.56s]  = 57[0m\r
+[  20.65s] D (306029) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  21.65s] D (307032) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  22.65s] D (308035) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  22.65s] ansport_read(): call timed out b
+[  22.67s] efore data was ready![0m\r
+[  23.66s] D (309038) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  24.18s] D (309556) mqtt_client: mqtt_enqueue id: 59140, type=3 successful[0m\r
+[  24.18s] D (309557) outbox: ENQUEUE msgid=59140, msg_type=3, len=77, size=77[0m\r
+[  24.20s] D (309575) mqtt_client: mqtt_message_receive: first byte: 0x40[0m\r
+[  24.20s] D (309575) transport_base: remain data in cache, need to read again[0m\r
+[  24.20s] D (309576) mqtt_client: mqtt_message_receive: read "remaining length" byte: 0x2[0m
+[  24.22s] \r
+[  24.22s] D (309584) mqtt_client: mqtt_message_receive: total message length: 4 (already read: 2)[0m\r
+[  24.22s] D (309592) transport_base: remain data in cache, need to read again[0m\r
+[  24.22s] D (309598) mqtt_client: mqtt_message_receive: read_len=2
+[  24.24s] [0m\r
+[  24.24s] D (309603) mqtt_client: mqtt_message_receive: transport_read():4 4[0m\r
+[  24.24s] D (309610) mqtt_client: msg_type=4, msg_id=59140[0m\r
+[  24.24s] D (309614) outbox: DELETED msgid=59140, msg_type=3, remain size=0[0m\r
+[  24.24s] D (309620) mqtt_client: Removed pending_id=59140[0m\r
+[  24.26s] D (309625) mqtt_client: received MQTT_MSG_TYPE_PUBACK, finish QoS1 publish[0m\r
+[  24.26s] D (309632) event: running post MQTT_EVENTS:5 with handler 0x400dba40 and context 0x3ffdf0bc on loop 0x3ffdefbc[0m\r
+[  25.25s] D (310645) mqtt_client: esp_mqtt
+[  25.27s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  26.26s] D (311648) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  26.26s] ansport_read(): call timed out b
+[  26.28s] efore data was ready![0m\r
+[  26.59s] [0;33mW (311967) she_sensors: DHT no response on GPIO27 (start=TIMEOUT handHi=TIMEOUT handLo=TIMEOUT) after 20 attempts[0m\r
+[  26.59s] [0;32mI (311968) she_sensors: T=0.0C H=0.0%  soil=0% (raw 4095)  
+[  26.61s] CO2=0ppm CO=0.0ppm Alc=0.0ppm  (raw 0.00V, R0 -1.00k)  [Tol=0.0 NH3=0.0 Ace=0.0 not published]  (DHT gpio=27 tries=20 fails=20)[0m\r
+[  27.27s] D (312651) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  28.28s] D (313654) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  29.27s] D (314657) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  29.29s] efore data was ready![0m\r
+[        ] ... 10247 bytes so far, still listening
+[  30.28s] D (315660) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  31.27s] D (316663) mqtt_client: esp_mqtt
+[  31.29s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  31.29s] D (316668) mqtt_client: Sent PING successful[0m\r
+[  31.29s] D (316678) mqtt_client: mqtt_message_receive: first byte: 0xd0[0m\r
+[  31.29s] D (316678) tran
+[  31.31s] sport_base: remain data in cache, need to read again[0m\r
+[  31.31s] D (316679) mqtt_client: mqtt_message_receive: read "remaining length" byte: 0x0[0m\r
+[  31.31s] D (316687) mqtt_client: mqtt_message_receive: total message length: 2 (already re
+[  31.31s] ad: 2)[0m\r
+[  31.31s] D (316695) mqtt_c
+[  31.31s] lie
+[  31.33s] nt: mqtt_message_receive: transport_read():2 2[0m\r
+[  31.33s] D (316701) mqtt_client: msg_type=13, msg_id=0[0m\r
+[  31.33s] D (316706) mqtt_client: MQTT_MSG_TYPE_PINGRESP[0m\r
+[  31.48s] D (316856) httpd: httpd_server: processing listen socket 55[0m\r
+[  31.48s] D (316860) httpd: httpd_accept_conn: newfd = 58[0m\r
+[  31.48s] D (316861) httpd_sess: httpd_sess_new: fd 
+[  31.48s] = 58[0m\r
+[  31.48s] [0;32mI (316862) esp_
+[  31.50s] https_server: performing session handshake[0m\r
+[  31.50s] [0;31mE (316877) esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x7280[0m\r
+[  31.50s] [0;32mI (316877) esp-tls-mbedtls: (FFFF8D80): SSL - The connection indicated an EOF[0m\r
+[  31.50s] [0;31mE (316881) esp_https_server: esp
+[  31.52s] _tls_create_server_session failed[0m\r
+[  31.52s] D (316888) httpd_sess: httpd_sess_delete: fd = 58[0m\r
+[  31.52s] D (316894) httpd_sess: httpd_sess_delete: active sockets: 0[0m\r
+[  31.52s] D (316895) event: no handlers have been registered for event ESP_
+[  31.54s] HTTP_SERVER_EVENT:7 posted to loop 0x3ffbdb04[0m\r
+[  31.54s] D (316898) httpd_sess: httpd_sess_new: open_fn failed for fd = 58[0m\r
+[  31.54s] [0;31mE (316914) httpd: httpd_accept_conn: session creation failed[0m\r
+[  31.54s] [0;33mW (316920) httpd: http
+[  31.56s] d_server: error accepting new connection[0m\r
+[  31.56s] D (316927) httpd: httpd_server: doing select maxfd+1 = 57[0m\r
+[  31.56s] D (316933) httpd: httpd_server: processing listen socket 55[0m\r
+[  31.56s] D (316938) httpd: httpd_accept_conn: newfd = 58[0m\r
+[  31.56s] D (316943) httpd_sess: httpd_
+[  31.58s] sess_new: fd = 58[0m\r
+[  31.58s] [0;32mI (316947) esp_https_server: performing session handshake[0m\r
+[  32.32s] D (317713) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  32.34s] ansport_read(): call timed out before data was ready![0m\r
+[  32.86s] D (318247) esp_https_server: Secure socket open[0m\r
+[  32.86s] D (318248) 
+[  32.88s] httpd_sess: httpd_sess_new: active sockets: 1[0m\r
+[  32.88s] D (318248) httpd: httpd_accept_conn: complete[0m\r
+[  32.88s] D (318251) httpd: httpd_server: doing select maxfd+1 = 59[0m\r
+[  32.88s] D (318251) event: no handlers have been registered for even
+[  32.90s] t ESP_HTTP_SERVER_EVENT:2 posted to loop 0x3ffbdb04[0m\r
+[  33.33s] D (318716) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  33.35s] efore data was ready![0m\r
+[  33.43s] D (318823) httpd: httpd_process_
+[  33.45s] session: processing socket 58[0m\r
+[  33.45s] D (318824) httpd_sess: httpd_sess_process: httpd_req_new[0m\r
+[  33.45s] D (318824) httpd_txrx: httpd_recv_with_opt: requested length = 128[0m\r
+[  33.45s] D (318832) httpd_txrx: httpd_recv_with_opt: received length = 123[0m\r
+[  33.45s] D (318836) httpd
+[  33.47s] _parse: read_block: received HTTP request block size = 123[0m\r
+[  33.47s] D (318843) httpd_parse: cb_url: message begin[0m\r
+[  33.47s] D (318848) httpd_parse: cb_url: processing url = /she/info[0m\r
+[  33.47s] D (318854) httpd_parse: verify_url: received 
+[  33.49s] URI = /she/info[0m\r
+[  33.49s] D (318859) httpd_parse: cb_header_field: headers begin[0m\r
+[  33.49s] D (318864) httpd_txrx: httpd_unrecv: length = 99[0m\r
+[  33.49s] D (318869) httpd_parse: pause_parsing: paused[0m\r
+[  33.49s] D (318873) httpd_parse: cb_header_field: processing field = user-agent
+[  33.51s] [0m\r
+[  33.51s] D (318880) httpd_txrx: httpd_recv_with_opt: requested length = 128[0m\r
+[  33.51s] D (318886) httpd_txrx: httpd_recv_with_opt: pending length = 99[0m\r
+[  33.51s] D (318892) httpd_parse: read_block: received HTTP request block size = 99[0m
+[  33.54s] \r
+[  33.54s] D (318899) httpd_parse: continue_parsing: skip pre-parsed data of size = 11[0m\r
+[  33.54s] D (318906) httpd_parse: continue_parsing: un-paused[0m\r
+[  33.54s] D (318911) httpd_parse: cb_header_value: processing value = Dart/3.13 (dart:io)[0m\r
+[  33.54s] D (318918) httpd_parse: cb_head
+[  33.56s] er_field: processing field = accept-encoding[0m\r
+[  33.56s] D (318925) httpd_parse: cb_header_value: processing value = gzip[0m\r
+[  33.56s] D (318931) httpd_parse: cb_header_field: processing field = x-she-pop[0m\r
+[  33.56s] D (318938) httpd_parse: cb_he
+[  33.58s] ader_value: processing value = 123456789[0m\r
+[  33.58s] D (318944) httpd_parse: cb_header_field: processing field = host[0m\r
+[  33.58s] D (318950) httpd_parse: cb_header_value: processing value = 192.168.0.3[0m\r
+[  33.58s] D (318957) httpd_parse: cb_head
+[  33.58s] ers_complete: bytes read     = 1
+[  33.60s] 23[0m\r
+[  33.60s] D (318963) httpd_parse: cb_headers_complete: content length = 0[0m\r
+[  33.60s] D (318970) httpd_parse: pause_parsing: paused[0m\r
+[  33.60s] D (318969) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:3 posted to l
+[  33.62s] oop 0x3ffbdb04[0m\r
+[  33.62s] D (318974) httpd_parse: cb_no_body: message complete[0m\r
+[  33.62s] D (318989) httpd_parse: httpd_parse_req: parsing complete[0m\r
+[  33.62s] D (318994) httpd_uri: httpd_uri: request for /she/info with type 1[0m\r
+[  33.62s] D (319001) httpd_uri: httpd_find_uri_handle
+[  33.64s] r: [0] = /she/info[0m\r
+[  33.64s] D (319007) nvs: nvs_open_from_partition she_fctry 0[0m\r
+[  33.64s] D (319011) nvs: nvs_get_str_or_blob device_pop[0m\r
+[  33.64s] D (319017) nvs: nvs_close 24[0m\r
+[  33.66s] D (319040) httpd_txrx: httpd_send_all: sent = 71[0m\r
+[  33.66s] D (319042) httpd_txrx: httpd_send_all: sent = 2[0m\r
+[  33.66s] D (319043) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:4 
+[  33.68s] posted to loop 0x3ffbdb04[0m\r
+[  33.68s] D (319047) httpd_txrx: httpd_send_all: sent = 2729[0m\r
+[  33.68s] D (319054) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:6 posted to loop 0x3ffbdb04[0m\r
+[  33.68s] D (319056) httpd_sess
+[  33.70s] : httpd_sess_process: httpd_req_delete[0m\r
+[  33.70s] D (319069) httpd_sess: httpd_sess_process: success[0m\r
+[  33.70s] D (319074) httpd: httpd_server: doing select maxfd+1 = 59[0m\r
+[  34.34s] D (319719) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  35.33s] D (320723) mqtt_client: esp_mqtt
+[  35.35s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  36.34s] D (321726) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  37.35s] D (322729) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  38.36s] D (323732) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  38.95s] D (324331) httpd: httpd_process_session: processing socket 58[0m\r
+[  38.95s] D (324332) httpd_sess: httpd_sess_process: httpd_req_new[0m\r
+[  38.95s] D (324332) httpd_txrx: httpd_re
+[  38.95s] cv_with_opt: requested length = 
+[  38.97s] 128[0m\r
+[  38.97s] D (324339) httpd_txrx: httpd_recv_with_opt: received length = 0[0m\r
+[  38.97s] D (324344) httpd_parse: read_block: connection closed[0m\r
+[  38.97s] D (324349) httpd_sess: httpd_sess_delete: fd = 58[0m\r
+[  38.97s] D (324356) event: no handlers ha
+[  38.99s] ve been registered for event ESP_HTTP_SERVER_EVENT:7 posted to loop 0x3ffbdb04[0m\r
+[  38.99s] D (324357) esp_https_server: Secure socket closed[0m\r
+[  38.99s] D (324369) httpd_sess: httpd_sess_delete: active sockets: 0[0m\r
+[  38.99s] D (324374) httpd: ht
+[  39.01s] tpd_server: doing select maxfd+1 = 57[0m\r
+[  39.34s] D (324735) mqtt_client: esp_mqtt
+[  39.36s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[        ] ... 17248 bytes so far, still listening
+[  40.35s] D (325738) mqtt_client: esp_mqtt
+[  40.37s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  41.35s] D (326741) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  41.35s] ansport_read(): call timed out b
+[  41.37s] efore data was ready![0m\r
+[  42.36s] D (327744) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  42.38s] efore data was ready![0m\r
+[  43.37s] D (328747) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  44.37s] D (329750) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  45.36s] D (330753) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  45.38s] efore data was ready![0m\r
+[  46.37s] D (331756) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  46.37s] D (331760) mqtt_client: Sent PING suc
+[  46.39s] cessful[0m\r
+[  46.39s] D (331776) mqtt_client: mqtt_message_receive: first byte: 0xd0[0m\r
+[  46.39s] D (331776) transport_base: remain data in cache, need to read again[0m\r
+[  46.39s] D (331777) mqtt_cli
+[  46.42s] ent: mqtt_message_receive: read "remaining length" byte: 0x0[0m\r
+[  46.42s] D (331785) mqtt_client: mqtt_message_receive: total message length: 2 (already read: 2)[0m\r
+[  46.42s] D (331793) mqtt_client: mqtt_message_receive: transport_read():2 2[0m\r
+[  46.42s] D (331799) mqtt_client: m
+[  46.44s] sg_type=13, msg_id=0[0m\r
+[  46.44s] D (331804) mqtt_client: MQTT_MSG_TYPE_PINGRESP[0m\r
+[  47.43s] D (332811) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  47.45s] efore data was ready![0m\r
+[  48.44s] D (333814) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  49.42s] D (334817) mqtt_client: esp_mqtt
+[  49.42s] _handle_transport_read_error: tr
+[  49.45s] ansport_read(): call timed out before data was ready![0m\r
+[        ] ... 19022 bytes so far, still listening
+[  50.44s] D (335820) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  51.45s] D (336823) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  51.89s] D (337233) httpd: httpd_server: processing listen socket 55[0m\r
+[  51.89s] D (337235) httpd: httpd_accept_conn: newfd = 58[0m\r
+[  51.89s] D (337236) httpd_sess: httpd_sess_new: fd = 58[0m\r
+[  51.89s] [0;32mI (337238) esp_https_server: performing session handshake[0m\r
+[  52.43s] D (337826) mqtt_client: esp_mqtt
+[  52.45s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  53.44s] D (338830) mqtt_client: esp_mqtt_handle_transport_read_error: tr
+[  53.46s] ansport_read(): call timed out before data was ready![0m\r
+[  54.39s] D (339770) esp_https_server: Secure socket open[0m\r
+[  54.39s] D (339771) httpd_sess: httpd_sess_new: active sockets: 1[0m\r
+[  54.39s] D (339771) httpd: httpd_accept_conn: complete
+[  54.41s] [0m\r
+[  54.41s] D (339774) httpd: httpd_server: doing select maxfd+1 = 59[0m\r
+[  54.41s] D (339774) event: no handlers have been registered for event ESP_HTTP_SERVER_EVENT:2 posted to loop 0x3ffbdb04[0m\r
+[  54.45s] D (339833) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  55.01s] [0;32mI (340389) she_sched: tick 13:53 wday=2 bit=0x04 enabled=0 min_key=29895053[0m\r
+[  55.44s] D (340836) mqtt_client: esp_mqtt
+[  55.46s] _handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  56.45s] D (341840) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out b
+[  56.47s] efore data was ready![0m\r
+[  56.62s] [0;32mI (342003) she_sensors: T=0.0C H=0.0%  soil=0% (raw 4095)
+[  56.64s]   CO2=0ppm CO=0.0ppm Alc=0.0ppm  (raw 0.00V, R0 -1.00k)  [Tol=0.0 NH3=0.0 Ace=0.0 not published]  (DHT gpio=27 tries=21 fails=21)[0m\r
+[  57.46s] D (342843) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  58.47s] D (343846) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+[  59.47s] D (344849) mqtt_client: esp_mqtt_handle_transport_read_error: transport_read(): call timed out before data was ready![0m\r
+========================================================================
+RESULT: 21124 bytes received. ESP->PC link WORKS.
+        If esptool cannot sync, the PC->ESP32 direction is broken,
+        or you must enter download mode manually (hold BOOT, tap EN).

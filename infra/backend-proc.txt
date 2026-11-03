@@ -1,0 +1,7 @@
+﻿=== PID 8044 ===
+Name: java.exe
+CmdLine: "C:\Program Files\Zulu\zulu-21\bin\java.exe" -XX:TieredStopAtLevel=1 -cp @C:\Users\hp\AppData\Local\Temp\spring-boot-9299447373780374513.argfile et.she.v3.SheBackendApplication
+WorkingDir: C:\Program Files\Zulu\zulu-21\bin\java.exe
+
+=== java processes on 8080 ===
+port8080 PID=8044 Name=java.exe

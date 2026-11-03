@@ -23,6 +23,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* ---- AC feedback front-end present & terminated? -------------------------
+ * The AC sense lines are read through the PCF8574 input expanders. They only
+ * mean anything if the feedback front-end is actually fitted AND each input has
+ * a defined idle level (a pull-up, so "no AC" reads HIGH = OFF). With
+ * unterminated / floating sense lines the chip reads noise and the firmware
+ * would publish phantom ON states for lights that are not energised.
+ *
+ *   1 = front-end fitted & terminated: a light's Power is driven by the
+ *       lamp-side AC sense; the relay position is ignored (2-way switch design).
+ *   0 = not fitted: lights fall back to the RELAY state (same as sockets), so
+ *       the app toggle is always a working, deterministic switch.
+ *
+ * Default 1 (the intended 2-way behaviour). Set to 0 ONLY on a board whose AC
+ * sense front-end is not yet fitted/terminated, otherwise the floating inputs
+ * produce phantom ON states.
+ */
+#ifndef SHE_AC_FEEDBACK
+#define SHE_AC_FEEDBACK 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -68,6 +88,13 @@ esp_err_t input_monitor_poll(void);
  * channel 16 (see the R24 channel map in device_profiles.c).
  */
 bool input_monitor_ac(uint8_t light_index);
+
+/**
+ * AC load feedback for a RELAY CHANNEL (0-23). Lights occupy channels 0-7 and
+ * 16-23; sockets (8-15) have no sense line and return false. Used to seed a
+ * light's Power from the lamp at boot instead of from the relay.
+ */
+bool input_monitor_ac_channel(uint8_t channel);
 
 /** DC sense line, indexed 0-15. */
 bool input_monitor_dc(uint8_t index);

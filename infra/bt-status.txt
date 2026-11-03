@@ -1,0 +1,8 @@
+﻿=== Bluetooth devices ===
+OK : Intel(R) Wireless Bluetooth(R)
+OK : Microsoft Bluetooth LE Enumerator
+OK : Microsoft Bluetooth Enumerator
+OK : Bluetooth Device (RFCOMM Protocol TDI)
+
+=== bthserv ===
+bthserv: Running

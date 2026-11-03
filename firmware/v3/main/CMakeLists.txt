@@ -27,9 +27,7 @@ idf_component_register(
         "third_party/tweetnacl.c"
         "third_party/tweetnacl_port.c"
         # Vendored QR generator (Espressif esp_qrcode + Nayuki qrcodegen) — prints
-        # the provisioning QR to the console. ble_provisioning.c includes
-        # "qrcode.h", which lives in third_party/qrcode (added to INCLUDE_DIRS
-        # below) — without both, the build fails with "qrcode.h: No such file".
+        # the provisioning QR payload on the console. See third_party/README.md.
         "third_party/qrcode/qrcodegen.c"
         "third_party/qrcode/esp_qrcode_main.c"
         "third_party/qrcode/esp_qrcode_wrapper.c"
@@ -37,7 +35,7 @@ idf_component_register(
         "."
         "third_party"
         # Holds qrcode.h, and the esp_rmaker_utils.h shim that esp_qrcode_main.c
-        # needs in place of the RainMaker component.
+        # includes by name (angle brackets, so it resolves from here).
         "third_party/qrcode"
     REQUIRES
         nvs_flash
@@ -54,16 +52,33 @@ idf_component_register(
         wifi_provisioning
         json
         driver
-        esp_adc
         app_update
         bt
         # esp_random.h for tweetnacl_port.c (hardware RNG backing randombytes)
         esp_hw_support
         # esp_efuse.h for the OTA anti-rollback SECURE_VERSION read
         efuse
-        # mdns moved to espressif/mdns component manager (v5.2) — handled via idf_component.yml
-        # fallback: if mdns not found, local_ctrl will stub mDNS (see local_ctrl.c)
 )
+
+# ---- mDNS (local control discovery) -----------------------------------------
+# local_ctrl.c advertises _she_ctrl._tcp so the app can find the device by name.
+#
+# OPTIONAL on purpose. `idf_component.yml` declares espressif/mdns, but the
+# component only lands in managed_components/ after a reconfigure — and a hard
+# `REQUIRES mdns` would turn "the registry component has not been fetched yet"
+# into a configure error that stops the whole build. This helper adds the
+# dependency only when the component is actually part of the build, which is the
+# same thing esp_local_ctrl does:
+#     idf_component_optional_requires(PRIVATE espressif__mdns mdns)
+#
+# When it is absent, local_ctrl.c falls back to its `__has_include("mdns.h")`
+# stub: no advertisement, but the HTTPS endpoint still works by IP.
+#
+# ⚠ The old guard in local_ctrl.c was `#ifdef CONFIG_MDNS`, which is a phantom
+# symbol — the component defines only MDNS_* options and has no bare enable flag.
+# Both spellings are listed below because the component answers to `espressif__mdns`
+# (registry name) and `mdns` (the historical IDF name).
+idf_component_optional_requires(PRIVATE espressif__mdns mdns)
 
 # R16-only: voice_control.c is a Phase-1 stub with no third-party SDK includes
 # (full Picovoice integration lands in Phase 4C). Link no external SDK here —

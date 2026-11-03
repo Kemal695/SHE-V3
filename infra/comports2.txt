@@ -1,0 +1,6 @@
+﻿=== SerialPort.GetPortNames ===
+COM3
+
+=== Get-PnpDevice -Class Ports ===
+OK : USB-SERIAL CH340 (COM3)
+Unknown : USB-SERIAL CH340 (COM6)

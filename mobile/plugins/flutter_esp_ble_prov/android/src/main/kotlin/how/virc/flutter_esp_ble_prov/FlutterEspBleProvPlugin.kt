@@ -29,6 +29,7 @@ import io.flutter.plugin.common.PluginRegistry
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 /**
@@ -321,24 +322,49 @@ class BleScanManager(boss: Boss) : ActionManager(boss) {
     boss.networks.clear()
     val prefix = ctx.arg("prefix") ?: return
 
+    // The Espressif library can report more than one outcome for the same scan, and its
+    // callbacks arrive on a library thread. `ctx.result` may only be completed once, so the
+    // first outcome wins. These callbacks used to be `TODO("Not yet implemented")`, which
+    // throws `NotImplementedError` — an uncaught throwable on a native callback thread, i.e.
+    // an immediate process crash the moment a scan failed (Bluetooth off, permission denied,
+    // adapter busy). That is the "app crashes on the provisioning screen" bug.
+    val settled = AtomicBoolean(false)
+
+    val fail: (String, String, String?) -> Unit = { code, message, detail ->
+      if (settled.compareAndSet(false, true)) {
+        boss.e("searchBleEspDevices: $message ($detail)")
+        Handler(Looper.getMainLooper()).post { ctx.result.error(code, message, detail) }
+      }
+    }
+
     boss.espManager.searchBleEspDevices(prefix, object : BleScanListener {
       override fun scanStartFailed() {
-        TODO("Not yet implemented")
+        fail(
+          "E3",
+          "Bluetooth scan could not start",
+          "Make sure Bluetooth is switched on and that the Nearby devices permission is granted."
+        )
       }
 
       override fun onPeripheralFound(device: BluetoothDevice?, scanResult: ScanResult?) {
         device ?: return
         scanResult ?: return
-        boss.devices.put(device.name, BleConnector(device, scanResult))
+        // A device that advertises no name cannot be provisioned later (the plugin looks the
+        // device up by name), and a null map key would reach Dart as a null element inside a
+        // List<String> — which throws a TypeError in `raw.cast<String>()`.
+        val name = device.name ?: return
+        boss.devices[name] = BleConnector(device, scanResult)
       }
 
       override fun scanCompleted() {
-        ctx.result.success(ArrayList<String>(boss.devices.keys))
-        boss.d("searchBleEspDevices: scanComplete")
+        if (!settled.compareAndSet(false, true)) return
+        val names = ArrayList<String>(boss.devices.keys)
+        boss.d("searchBleEspDevices: scanComplete $names")
+        Handler(Looper.getMainLooper()).post { ctx.result.success(names) }
       }
 
       override fun onFailure(e: java.lang.Exception?) {
-        TODO("Not yet implemented")
+        fail("E3", "Bluetooth scan failed", e?.toString())
       }
 
     })

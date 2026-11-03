@@ -43,6 +43,10 @@ IDF_PY = os.path.join(IDF_PATH, "tools", "idf.py")
 # Required toolchain on PATH (Windows-style, as the native tools expect).
 TOOL_BINS = [
     r"C:\Espressif\tools\xtensa-esp32-elf\esp-12.2.0_20230208\xtensa-esp32-elf\bin",
+    # ESP32-S2 / ESP32-S3 toolchains — this firmware targets ESP32-S3 ("SUK"), so the
+    # S3 toolchain MUST be on PATH or CMake fails finding xtensa-esp32s3-elf-g++/gcc.
+    r"C:\Espressif\tools\xtensa-esp32s2-elf\esp-12.2.0_20230208\xtensa-esp32s2-elf\bin",
+    r"C:\Espressif\tools\xtensa-esp32s3-elf\esp-12.2.0_20230208\xtensa-esp32s3-elf\bin",
     # 3.30.2, NOT 3.24.0: the older bundled cmake segfaults (exit 139 / 0xC0000005)
     # when spawned from this environment, which makes idf.py report
     # '"cmake" must be available on the PATH'.

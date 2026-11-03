@@ -86,6 +86,12 @@ DEFAULT_BAUD = 460800
 # rate and is the one that succeeded here when 115200 would not.
 BAUD_FALLBACKS = (460800, 115200, 74880)
 DEFAULT_ATTEMPTS = 10
+# Baud used for the actual bulk write, INDEPENDENT of which rate linked.
+# Learned on this CH340: the link often syncs at 74880 (the ROM default) when the
+# board is slow to enter download mode, but a 1.8 MB write at 74880 takes ~148 s
+# and reliably aborts with "chip stopped responding"; at 115200 the same write
+# takes ~96 s and completes. So we always write at 115200 once linked.
+WRITE_BAUD = 115200
 
 
 def load_flash_args(build_dir):
@@ -228,7 +234,7 @@ def main():
     else:
         print("\n[2/3] Skipping erase (--erase to force)")
 
-    cmd = ["--chip", "esp32", "--port", args.port, "--baud", str(good_baud),
+    cmd = ["--chip", "esp32", "--port", args.port, "--baud", str(WRITE_BAUD),
            "--before", "no_reset", "--after", "hard_reset",
            "write_flash", "--flash_size", args.flash_size]
     for off in sorted(files, key=lambda o: int(o, 16)):

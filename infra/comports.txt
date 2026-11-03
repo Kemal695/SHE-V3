@@ -1,0 +1,2 @@
+﻿=== COM ports ===
+(no serial ports via CIM)

@@ -1,0 +1,42 @@
+## =============================================================================
+## SHE V3 firmware — `main` component manifest
+## =============================================================================
+## ⚠ DEPENDENCIES MUST BE DECLARED HERE, not only in the project-root
+## `firmware/v3/idf_component.yml`.
+##
+## In ESP-IDF 5.0.x the component manager only loads manifests from *local
+## components*, and a directory counts as one only if it holds BOTH files:
+##
+##     # idf_component_manager/core.py :: prepare_dep_dirs()
+##     local_components = [
+##         component for component in local_components
+##         if os.path.isfile(os.path.join(component['path'], 'CMakeLists.txt'))
+##         and os.path.isfile(os.path.join(component['path'], MANIFEST_FILENAME))
+##     ]
+##
+## The PROJECT-ROOT manifest is never read on that path. A dependency listed only
+## there is therefore ignored **silently** — no `managed_components/`, no
+## `dependencies.lock`, and no error message. `main/` had a CMakeLists.txt but no
+## idf_component.yml, so it was filtered out and nothing was ever fetched.
+##
+## That is the reason no board ever advertised `_she_ctrl._tcp`: fixing the
+## `#ifdef CONFIG_MDNS` guard in local_ctrl.c was necessary but not sufficient,
+## because mdns.h still never made it onto the include path, so
+## `__has_include("mdns.h")` stayed false.
+##
+## The root `firmware/v3/idf_component.yml` is kept for its `idf` version
+## constraint; the actual dependencies live here.
+## =============================================================================
+
+dependencies:
+  ## mDNS — used by main/local_ctrl.c to advertise `_she_ctrl._tcp` so the app
+  ## can find the board on the LAN without the backend.
+  ##
+  ## Registry-only: this ESP-IDF has no built-in `mdns` component
+  ## (there is no $IDF_PATH/components/mdns), so this line is what puts mdns.h
+  ## on the include path and makes SHE_HAVE_MDNS true in local_ctrl.c.
+  ##
+  ## `^1.2.0` resolves to 1.14.0 today; that version declares `idf: ">=5.0"`, so
+  ## it is compatible with the 5.0.2 toolchain, and it still exports the API
+  ## local_ctrl.c calls (mdns_init / mdns_hostname_set / mdns_service_add).
+  espressif/mdns: "^1.2.0"

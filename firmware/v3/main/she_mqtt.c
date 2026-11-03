@@ -9,9 +9,9 @@
 #include "nvs_keys.h"
 #include "relay_driver.h"    /* relay_set()/relay_save_state() for params/remote commands */
 #include "input_monitor.h"   /* absolute light set over a 2-way wall switch (SHE-R24) */
+#include "sensors.h"         /* environmental readings folded into the telemetry payload */
 #include "schedule_store.h"  /* device-local schedules (schedule_add/clear via cmd topic) */
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
-#include "sensors.h"         /* sensor_sample_t — optional climate block in telemetry */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
 #include "system_service.h"  /* system_service_execute() for the command direction */
 #include "freertos/FreeRTOS.h"
@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <math.h>            /* isfinite() for the telemetry sensor block */
+#include <math.h>   /* isfinite() — a NaN sensor value is not valid JSON */
 #include <time.h>
 
 static const char *TAG = "she_mqtt";
@@ -180,6 +180,9 @@ static esp_err_t load_provisioning_info(void) {
 
 /* ---- Load device cert + key from fctry NVS partition ---- */
 static esp_err_t load_device_cert(char **cert_pem, char **key_pem) {
+    *cert_pem = NULL;
+    *key_pem  = NULL;
+
     nvs_handle_t h;
     /* fctry partition — V3-FACTORY-OPS §3.2 */
     esp_err_t err = nvs_flash_init_partition("fctry");
@@ -193,17 +196,68 @@ static esp_err_t load_device_cert(char **cert_pem, char **key_pem) {
         return err;
     }
 
-    /* Get cert size + read */
+    /* Get cert size + read.
+     *
+     * Both nvs_get_str calls used to have their return value ignored. A blank
+     * fctry partition therefore produced `cert_len = 0`, `malloc(0)` and a
+     * cheerful "Loaded device cert (0 bytes) + key (0 bytes) from fctry NVS",
+     * and the function still returned ESP_OK. The caller's
+     * `if (err != ESP_OK) { ... factory provisioning incomplete }` guard could
+     * never fire, so the device went on to build an mTLS client with NULL cert
+     * material and failed much later with an opaque -0x2700 handshake error.
+     * Report the missing key here, where the cause is still obvious. */
     size_t cert_len = 0;
-    nvs_get_str(h, SHE_FCTRY_KEY_CERT, NULL, &cert_len);
+    err = nvs_get_str(h, SHE_FCTRY_KEY_CERT, NULL, &cert_len);
+    if (err != ESP_OK || cert_len == 0) {
+        ESP_LOGE(TAG, "fctry NVS has no '%s' (%s) — this board carries no client identity",
+                 SHE_FCTRY_KEY_CERT, esp_err_to_name(err));
+        nvs_close(h);
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
     *cert_pem = malloc(cert_len);
-    nvs_get_str(h, SHE_FCTRY_KEY_CERT, *cert_pem, &cert_len);
+    if (!*cert_pem) {
+        ESP_LOGE(TAG, "Out of memory for device cert (%u bytes)", (unsigned)cert_len);
+        nvs_close(h);
+        return ESP_ERR_NO_MEM;
+    }
+    err = nvs_get_str(h, SHE_FCTRY_KEY_CERT, *cert_pem, &cert_len);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read '%s': %s", SHE_FCTRY_KEY_CERT, esp_err_to_name(err));
+        free(*cert_pem);
+        *cert_pem = NULL;
+        nvs_close(h);
+        return err;
+    }
 
     /* Get key size + read */
     size_t key_len = 0;
-    nvs_get_str(h, SHE_FCTRY_KEY_KEY, NULL, &key_len);
+    err = nvs_get_str(h, SHE_FCTRY_KEY_KEY, NULL, &key_len);
+    if (err != ESP_OK || key_len == 0) {
+        ESP_LOGE(TAG, "fctry NVS has no '%s' (%s) — cert present but the private key is not",
+                 SHE_FCTRY_KEY_KEY, esp_err_to_name(err));
+        free(*cert_pem);
+        *cert_pem = NULL;
+        nvs_close(h);
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
     *key_pem = malloc(key_len);
-    nvs_get_str(h, SHE_FCTRY_KEY_KEY, *key_pem, &key_len);
+    if (!*key_pem) {
+        ESP_LOGE(TAG, "Out of memory for device key (%u bytes)", (unsigned)key_len);
+        free(*cert_pem);
+        *cert_pem = NULL;
+        nvs_close(h);
+        return ESP_ERR_NO_MEM;
+    }
+    err = nvs_get_str(h, SHE_FCTRY_KEY_KEY, *key_pem, &key_len);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read '%s': %s", SHE_FCTRY_KEY_KEY, esp_err_to_name(err));
+        free(*cert_pem);
+        free(*key_pem);
+        *cert_pem = NULL;
+        *key_pem  = NULL;
+        nvs_close(h);
+        return err;
+    }
 
     nvs_close(h);
     ESP_LOGI(TAG, "Loaded device cert (%d bytes) + key (%d bytes) from fctry NVS", cert_len, key_len);
@@ -258,11 +312,8 @@ static void handle_params_remote(const char *data, size_t len) {
 
             if (p->data_type == DATA_BOOL && cJSON_IsBool(v)) {
                 const bool on = cJSON_IsTrue(v);
-                p->last_value.type = DATA_BOOL;
-                p->last_value.val.b = on;
-                p->dirty = true;
 
-#if defined(CONFIG_SHE_R24)
+#if defined(CONFIG_SHE_R24) && SHE_AC_FEEDBACK
                 /* 2-way wall switch: the relay is a TOGGLE (lamp = wall XOR
                  * relay), so a blind relay_set() flips the lamp RELATIVE to the
                  * wall switch — that is why the app's "ON" could turn a lamp OFF
@@ -274,6 +325,10 @@ static void handle_params_remote(const char *data, size_t len) {
                 } else
 #endif
                 {
+                    /* Sockets (no AC sense line): Power follows the relay command. */
+                    p->last_value.type = DATA_BOOL;
+                    p->last_value.val.b = on;
+                    p->dirty = true;
                     esp_err_t err = relay_set(d->channel, on);
                     if (err != ESP_OK) {
                         ESP_LOGW(TAG, "relay_set(ch=%d, %s) failed: %s",
@@ -312,6 +367,11 @@ static void sync_group_params(she_node_t *node, uint32_t mask, bool on) {
     for (int i = 0; i < node->device_count; i++) {
         node_device_t *d = &node->devices[i];
         if (!(mask & (1u << d->channel))) continue;
+#if defined(CONFIG_SHE_R24) && SHE_AC_FEEDBACK
+        /* Lights: Power is owned by the lamp-side AC feedback, not the group
+         * command — do not stamp the commanded value onto their cached param. */
+        if (input_monitor_is_light_channel(d->channel)) continue;
+#endif
         for (int j = 0; j < d->param_count; j++) {
             node_param_t *p = &d->params[j];
             if (strcmp(p->name, "Power") != 0) continue;
@@ -459,7 +519,7 @@ static void handle_command(const char *data, size_t len) {
                 const bool on = cJSON_IsTrue(j_on);
                 ESP_LOGW(TAG, "command: group_set %s -> %s (reason=%s)",
                          g, on ? "ON" : "OFF", reason_str ? reason_str : "none");
-#if defined(CONFIG_SHE_R24)
+#if defined(CONFIG_SHE_R24) && SHE_AC_FEEDBACK
                 /* 2-way wall switches: relay_apply_group() sets the RELAY
                  * positions, which flips each lamp RELATIVE to its wall switch —
                  * the same trap the per-device write had, and the reason a master
@@ -530,6 +590,90 @@ static void ota_task(void *arg) {
     vTaskDelete(NULL);
 }
 
+/* ---- Inbound dispatch ----------------------------------------------------
+ *
+ * Split out of MQTT_EVENT_DATA so it can be called either for a whole message
+ * or, once reassembled, for one that arrived in fragments.
+ */
+static void dispatch_incoming(const char *topic_buf, int topic_len,
+                              const char *data, int data_len) {
+    /* Extract the direction segment — the 6th path element, i.e. what follows
+     * she/{tenant}/{home}/{room}/{mac}/ */
+    char topic[256];
+    snprintf(topic, sizeof(topic), "%.*s", topic_len, topic_buf);
+
+    char *direction = NULL;
+    char *p = topic;
+    int slash_count = 0;
+    while (*p) {
+        if (*p == '/') slash_count++;
+        if (slash_count == 5) {
+            direction = p + 1;
+            break;
+        }
+        p++;
+    }
+    if (!direction) {
+        ESP_LOGW(TAG, "Inbound topic has no direction segment: %s", topic);
+        return;
+    }
+
+    if (strcmp(direction, "params/remote") == 0) {
+        /* User command — toggle relay(s).
+         * V3-MQTT-STANDARDS §3.4 payload: {"Relay 1":{"Power":true},"seq":12345,"ts":"..."} */
+        ESP_LOGI(TAG, "Received params/remote command (%d bytes)", data_len);
+        handle_params_remote(data, data_len);
+    } else if (strcmp(direction, "ota/url") == 0) {
+        /* OTA trigger (V3-MQTT-STANDARDS §3.8). Dispatched to its own task — see
+         * ota_task() above for why it must not run on the MQTT event task. */
+        ESP_LOGI(TAG, "Received ota/url — dispatching OTA task");
+        char *ota_payload = malloc(data_len + 1);
+        if (ota_payload) {
+            memcpy(ota_payload, data, data_len);
+            ota_payload[data_len] = '\0';
+            if (xTaskCreate(ota_task, "she_ota", 8192, ota_payload, 5, NULL) != pdPASS) {
+                ESP_LOGE(TAG, "Failed to create OTA task — OTA not started");
+                free(ota_payload);
+            }
+        } else {
+            ESP_LOGE(TAG, "Failed to allocate OTA payload (%d bytes)", data_len);
+        }
+    } else if (strcmp(direction, "command") == 0) {
+        /* Out-of-band system command — see handle_command(). Called inline rather
+         * than in a task: reboot/factory_reset end in esp_restart(), and blocking
+         * the MQTT task for their 1 s delay is irrelevant when the device is
+         * about to reboot anyway. */
+        handle_command(data, data_len);
+    } else {
+        ESP_LOGD(TAG, "Inbound direction '%s' ignored", direction);
+    }
+}
+
+/* ---- Large-message reassembly --------------------------------------------
+ *
+ * esp-mqtt SPLITS an inbound PUBLISH whose total length exceeds the client
+ * buffer (mqtt_client.c:1179-1215): it reads the fixed header + topic, then
+ * hands the payload over as SEVERAL MQTT_EVENT_DATA events, each carrying its
+ * own current_data_offset / total_data_len. mqtt_client.h says so outright:
+ * "Multiple MQTT_EVENT_DATA could be fired for one message".
+ *
+ * `buffer.size` is 4096 here, so any inbound message larger than that arrives
+ * split. This handler used to ignore both fields and run every fragment through
+ * cJSON as though it were a complete message — a truncated payload fails to
+ * parse at best, and at worst a fragment that happens to be valid JSON is
+ * applied as a whole command. Reassemble first, dispatch exactly once.
+ */
+static char  *s_rx_buf   = NULL;   /* reassembly buffer, owned here */
+static size_t s_rx_cap   = 0;      /* allocated capacity (bytes incl. NUL) */
+static size_t s_rx_total = 0;      /* total_data_len of the message in flight */
+
+static void rx_reassembly_reset(void) {
+    free(s_rx_buf);
+    s_rx_buf   = NULL;
+    s_rx_cap   = 0;
+    s_rx_total = 0;
+}
+
 /* ---- MQTT event handler ---- */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                                 int32_t event_id, void *event_data) {
@@ -538,6 +682,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED: {
         g_mqtt_connected = true;
+        rx_reassembly_reset();   /* a new session cannot continue an old message */
         ESP_LOGI(TAG, "MQTT connected — publishing status=online + config");
         mqtt_publish_status(true);
         if (g_node) mqtt_publish_config(g_node);
@@ -562,6 +707,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
     case MQTT_EVENT_DISCONNECTED:
         g_mqtt_connected = false;
+        rx_reassembly_reset();   /* the rest of a split message will never arrive */
         /* Each drop is followed by a reconnect, so counting disconnects is a
          * faithful proxy for `mqtt_reconnects`. */
         g_mqtt_reconnects++;
@@ -569,56 +715,55 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
                  (unsigned)g_mqtt_reconnects);
         break;
     case MQTT_EVENT_DATA: {
-        /* Received a message — parse topic + dispatch */
-        ESP_LOGD(TAG, "MQTT msg: topic=%.*s payload=%.*s",
+        const int total  = event->total_data_len;
+        const int offset = event->current_data_offset;
+
+        ESP_LOGD(TAG, "MQTT msg: topic=%.*s payload=%.*s (%d/%d @%d)",
                  event->topic_len, event->topic,
-                 event->data_len, event->data);
+                 event->data_len, event->data,
+                 event->data_len, total, offset);
 
-        /* Extract direction from topic (last segment after /mac/) */
-        char topic[256];
-        snprintf(topic, sizeof(topic), "%.*s", event->topic_len, event->topic);
+        if (total > 0 && event->data_len < total) {
+            /* Fragmented — accumulate and dispatch only on the last piece. */
+            if (offset == 0) {
+                rx_reassembly_reset();
+                s_rx_cap = (size_t)total + 1;      /* room for the NUL */
+                s_rx_buf = malloc(s_rx_cap);
+                if (!s_rx_buf) {
+                    ESP_LOGE(TAG, "No memory to reassemble a %d-byte message — dropping", total);
+                    s_rx_cap = s_rx_total = 0;
+                    break;
+                }
+                s_rx_total = (size_t)total;
+            }
 
-        /* Find the direction segment */
-        char *direction = NULL;
-        char *p = topic;
-        int slash_count = 0;
-        while (*p) {
-            if (*p == '/') slash_count++;
-            if (slash_count == 5) {
-                direction = p + 1;
+            if (!s_rx_buf || s_rx_total != (size_t)total ||
+                (size_t)offset + (size_t)event->data_len > s_rx_cap - 1) {
+                ESP_LOGW(TAG, "Reassembly out of step (offset=%d len=%d total=%d) — resetting",
+                         offset, event->data_len, total);
+                rx_reassembly_reset();
                 break;
             }
-            p++;
-        }
-        if (!direction) break;
 
-        if (strcmp(direction, "params/remote") == 0) {
-            /* User command — toggle relay(s) */
-            /* V3-MQTT-STANDARDS §3.4 payload: {"Relay 1":{"Power":true},"seq":12345,"ts":"..."} */
-            ESP_LOGI(TAG, "Received params/remote command: %.*s", event->data_len, event->data);
-            handle_params_remote(event->data, event->data_len);
-        } else if (strcmp(direction, "ota/url") == 0) {
-            /* OTA trigger (V3-MQTT-STANDARDS §3.8). Dispatched to its own task — see
-             * ota_task() above for why it must not run on the MQTT event task. */
-            ESP_LOGI(TAG, "Received ota/url — dispatching OTA task");
-            char *ota_payload = malloc(event->data_len + 1);
-            if (ota_payload) {
-                memcpy(ota_payload, event->data, event->data_len);
-                ota_payload[event->data_len] = '\0';
-                if (xTaskCreate(ota_task, "she_ota", 8192, ota_payload, 5, NULL) != pdPASS) {
-                    ESP_LOGE(TAG, "Failed to create OTA task — OTA not started");
-                    free(ota_payload);
-                }
-            } else {
-                ESP_LOGE(TAG, "Failed to allocate OTA payload (%d bytes)", event->data_len);
+            memcpy(s_rx_buf + offset, event->data, event->data_len);
+            size_t got = (size_t)offset + (size_t)event->data_len;
+            if (got < s_rx_total) {
+                ESP_LOGD(TAG, "Reassembling: %u/%u bytes",
+                         (unsigned)got, (unsigned)s_rx_total);
+                break;                              /* more fragments to come */
             }
-        } else if (strcmp(direction, "command") == 0) {
-            /* Out-of-band system command — see handle_command(). Called inline rather
-             * than in a task: reboot/factory_reset end in esp_restart(), and blocking
-             * the MQTT task for their 1 s delay is irrelevant when the device is
-             * about to reboot anyway. */
-            handle_command(event->data, event->data_len);
+
+            s_rx_buf[got] = '\0';
+            ESP_LOGI(TAG, "Reassembled a %u-byte message from fragments", (unsigned)got);
+            dispatch_incoming(event->topic, event->topic_len, s_rx_buf, (int)got);
+            rx_reassembly_reset();
+            break;
         }
+
+        /* Whole message in a single event — the normal path. Drop any half-built
+         * message first: a truncated one can only be stale by now. */
+        rx_reassembly_reset();
+        dispatch_incoming(event->topic, event->topic_len, event->data, event->data_len);
         break;
     }
     case MQTT_EVENT_ERROR:
@@ -854,6 +999,19 @@ esp_err_t mqtt_publish_params_local(she_node_t *node) {
     cJSON *root = cJSON_CreateObject();
     for (int i = 0; i < node->device_count; i++) {
         const node_device_t *d = &node->devices[i];
+
+        /* ⚠ The Local Control service is deliberately NOT echoed here.
+         *
+         * Its only real content is the POP — this board's LAN credential — which
+         * is published ONCE in the retained `config` payload so the mobile app
+         * can arm local control without prompting the user (the ESP RainMaker
+         * behaviour). params/local is QoS 0, is republished every 60 s, and is
+         * fanned out to every connected client through the backend's WebSocket,
+         * so echoing it here would turn a one-time disclosure into a continuous
+         * broadcast of a device credential. `Type` is static too, so the whole
+         * device is skipped rather than filtered param by param. */
+        if (strcmp(d->type, "esp.service.local_control") == 0) continue;
+
         cJSON *device_obj = cJSON_CreateObject();
         for (int j = 0; j < d->param_count; j++) {
             const node_param_t *p = &d->params[j];
@@ -868,15 +1026,7 @@ esp_err_t mqtt_publish_params_local(she_node_t *node) {
     }
     char *payload = cJSON_PrintUnformatted(root);
 
-    /* QoS 1, not retained.
-     *
-     * This carries the WALL-SWITCH feedback (input_monitor syncs a light's
-     * Power from the AC line and republishes here). At QoS 0 a dropped publish
-     * meant the cloud — and therefore the app's switch — kept showing the old
-     * state until the 60 s main-loop republish, which is the "the wall-switch
-     * update sometimes takes too long" symptom. QoS 1 makes the broker ack and
-     * retry, so a state change always lands. */
-    esp_err_t err = mqtt_publish(topic, payload, 1, false);
+    esp_err_t err = mqtt_publish(topic, payload, 0, false);   /* QoS 0, not retained */
     free(topic);
     free(payload);
     cJSON_Delete(root);
@@ -898,12 +1048,17 @@ esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
      * The payload's `ts` is advisory only: the backend stamps each row with its
      * own Instant.now(), so an unsynced device clock cannot corrupt the series.
      *
-     * Assembled in pieces because the environmental block is OPTIONAL: a board
-     * with no DHT22 must not publish a temperature of 0.0 — that is a plausible
-     * reading and would look like real data on the chart. The buffer is 768 (the
-     * old 320 barely fit the diagnostics) and every append is bounds-checked, so
-     * a truncation becomes a loud ESP_LOGE instead of malformed JSON that the
-     * backend silently drops. */
+     * ---- Why this is assembled in pieces -----------------------------------
+     * The sensor block is optional (a board with no DHT must not publish a
+     * temperature of 0.0 — that is a plausible reading and would look real on
+     * the chart). So the base is written first and the sensor fields are
+     * appended only when they are actually valid.
+     *
+     * ⚠ The buffer is 768, not the original 320. The old size was already only
+     * just enough for the diagnostics block, and snprintf SILENTLY TRUNCATES —
+     * which here would emit malformed JSON that the backend drops without a
+     * word, the same failure mode as the {ts, params} wrapper above. The
+     * offset tracking below turns any truncation into a loud ESP_LOGE instead. */
     char payload[768];
     int off = snprintf(payload, sizeof(payload),
                        "{\"uptime_s\":%d,\"rssi_dbm\":%d,\"free_heap_bytes\":%u,"
@@ -919,47 +1074,57 @@ esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
         return ESP_FAIL;
     }
 
-    if (sensors && sensors->dht_valid &&
-        isfinite(sensors->temperature_c) && isfinite(sensors->humidity_pct)) {
-        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
-                               ",\"temp_c\":%.1f,\"humidity_pct\":%.1f",
-                               (double)sensors->temperature_c,
-                               (double)sensors->humidity_pct);
-        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
-            ESP_LOGE(TAG, "Telemetry payload overflow at the climate block");
-            free(topic);
-            return ESP_FAIL;
+    if (sensors) {
+        /* isfinite() on every float: a NaN or inf would serialise as `nan`/`inf`,
+         * which is NOT valid JSON and makes the whole message unparseable — one
+         * bad sensor reading would take the entire telemetry row set down with
+         * it, not just its own field. */
+        if (sensors->dht_valid &&
+            isfinite(sensors->temperature_c) && isfinite(sensors->humidity_pct)) {
+            const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                                   ",\"temp_c\":%.1f,\"humidity_pct\":%.1f",
+                                   (double)sensors->temperature_c,
+                                   (double)sensors->humidity_pct);
+            if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+                ESP_LOGE(TAG, "Telemetry payload overflow at the climate block");
+                free(topic);
+                return ESP_FAIL;
+            }
+            off += n;
         }
-        off += n;
+        if (sensors->soil_valid) {
+            const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                                   ",\"soil_pct\":%d", sensors->soil_pct);
+            if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+                ESP_LOGE(TAG, "Telemetry payload overflow at the soil block");
+                free(topic);
+                return ESP_FAIL;
+            }
+            off += n;
+        }
+        if (sensors->air_valid &&
+            isfinite(sensors->co_ppm) && isfinite(sensors->alcohol_ppm) &&
+            isfinite(sensors->co2_ppm)) {
+            const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
+                                   ",\"co_ppm\":%.1f,\"alcohol_ppm\":%.1f,\"co2_ppm\":%.1f",
+                                   (double)sensors->co_ppm,
+                                   (double)sensors->alcohol_ppm,
+                                   (double)sensors->co2_ppm);
+            if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
+                ESP_LOGE(TAG, "Telemetry payload overflow at the air-quality block");
+                free(topic);
+                return ESP_FAIL;
+            }
+            off += n;
+        }
     }
 
-    if (sensors && sensors->soil_valid) {
-        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
-                               ",\"soil_pct\":%d", sensors->soil_pct);
-        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
-            ESP_LOGE(TAG, "Telemetry payload overflow at the soil block");
-            free(topic);
-            return ESP_FAIL;
-        }
-        off += n;
-    }
-
-    if (sensors && sensors->air_valid &&
-        isfinite(sensors->co_ppm) && isfinite(sensors->alcohol_ppm) &&
-        isfinite(sensors->co2_ppm)) {
-        const int n = snprintf(payload + off, sizeof(payload) - (size_t)off,
-                               ",\"co_ppm\":%.1f,\"alcohol_ppm\":%.1f,\"co2_ppm\":%.1f",
-                               (double)sensors->co_ppm,
-                               (double)sensors->alcohol_ppm,
-                               (double)sensors->co2_ppm);
-        if (n < 0 || n >= (int)(sizeof(payload) - (size_t)off)) {
-            ESP_LOGE(TAG, "Telemetry payload overflow at the air-quality block");
-            free(topic);
-            return ESP_FAIL;
-        }
-        off += n;
-    }
-
+    /* The closing brace AND its terminator need two bytes, but each guard above
+     * only reserves one: it accepts a block that lands exactly on the last valid
+     * index (n <= 767 - off), leaving `off == 767`. Writing '}' at 767 then '\0'
+     * at 768 would step one byte past this array. Check, do not trust the
+     * arithmetic. (Unreachable at the current payload size, but the whole point
+     * of this block is to make truncation loud rather than silent.) */
     if (off > (int)sizeof(payload) - 2) {
         ESP_LOGE(TAG, "Telemetry payload full before the closing brace");
         free(topic);

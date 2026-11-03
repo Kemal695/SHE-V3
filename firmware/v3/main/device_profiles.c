@@ -101,92 +101,161 @@ static node_device_t build_diagnostics_service(void) {
     };
 }
 
+/* ---- Build the Local Control service (esp.service.local_control) ----
+ *
+ * This is ESP RainMaker's own mechanism, reproduced.
+ *
+ * RainMaker never asks the user for a proof of possession in order to use local
+ * control. The NODE publishes a `Local Control` service whose POP param carries
+ * the credential, and a client that has the node associated simply reads it out
+ * of the node description:
+ *
+ *   "Whenever a node gets associated with a user, clients such as mobile apps can
+ *    check if the node supports secure local control by searching for the local
+ *    control service in the node configuration. If available, it gets the PoP
+ *    from the node parameters."
+ *
+ * The value is this board's factory PoP — the same 9 digits the physical label
+ * and the QR code carry, and the same one local_ctrl.c's verify_pop() compares
+ * the `X-SHE-PoP` header against. Advertising it here is what lets the app arm
+ * the LAN path with NO prompt, and what lets a second phone (or a fresh install)
+ * command the board without the label.
+ *
+ * Consequences worth knowing:
+ *  - The PoP now travels with the node's cloud description, so anyone who can
+ *    read this node's params can command the board over the LAN. That is
+ *    RainMaker's own trade-off, and the description is reachable only through the
+ *    account's authenticated REST API (and the broker's per-device mTLS topic).
+ *  - It is published ONCE, in the retained `config` payload. It is deliberately
+ *    excluded from `params/local` (see mqtt_publish_params_local) so the
+ *    credential is not re-broadcast every 60 s.
+ *  - local_ctrl.c's /she/info skips `esp.service.*` devices, so the PoP is not
+ *    readable over the LAN by someone who does not already have it.
+ *
+ * ⚠ Static params, NOT calloc'd. profile_free() frees `.params` only for devices
+ * whose type is not `esp.service.*` (the F5 note), and this one IS a service —
+ * so the array must be static, exactly the opposite of build_sensor_device(). */
+static char s_local_control_pop[16];
+
+static void load_local_control_pop(void) {
+    if (s_local_control_pop[0] != '\0') return;
+    nvs_handle_t h;
+    if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "Local Control: fctry NVS unreadable — POP not advertised");
+        return;
+    }
+    size_t len = sizeof(s_local_control_pop);
+    esp_err_t err = nvs_get_str(h, SHE_FCTRY_KEY_POP, s_local_control_pop, &len);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        /* An unprovisioned board has an empty fctry partition. Advertising an
+         * empty POP would make the app think local control is armed and then
+         * fail every LAN command with 401 — say nothing instead, and the app
+         * falls back to whatever it captured at provisioning. */
+        s_local_control_pop[0] = '\0';
+        ESP_LOGW(TAG, "Local Control: no %s in fctry NVS — POP not advertised",
+                 SHE_FCTRY_KEY_POP);
+    }
+}
+
+static node_device_t build_local_control_service(void) {
+    /* Fills s_local_control_pop BEFORE the value below is ever serialized. The
+     * pointer in the static initializer is resolved at load time, so the order
+     * here does not matter — the string is read at publish time, not now. */
+    load_local_control_pop();
+
+    static node_param_t lc_params[2];
+    lc_params[0] = (node_param_t){
+        .name = "POP", .type = "esp.param.local_control_pop", .data_type = DATA_STRING,
+        .properties = PROP_READ,
+        .last_value = {.type = DATA_STRING, .val.s = s_local_control_pop},
+    };
+    /* Type 1 = "secure local control with a PoP", the only scheme this firmware
+     * implements. RainMaker's clients read it to decide how to open the session;
+     * ours only checks that the service is present, but the param is part of the
+     * contract and costs two bytes. */
+    lc_params[1] = (node_param_t){
+        .name = "Type", .type = "esp.param.local_control_type", .data_type = DATA_INT,
+        .properties = PROP_READ,
+        .last_value = {.type = DATA_INT, .val.i = 1},
+    };
+    return (node_device_t){
+        .name = "Local Control", .type = "esp.service.local_control", .channel = 0,
+        .params = lc_params, .param_count = 2,
+        .attributes = cJSON_CreateObject(),
+    };
+}
+
 /* ---- Build the Sensors device (esp.device.sensor) ----
  *
- * Environmental sensors ported from the reference firmware: DHT22 (temperature +
- * humidity), MQ-135 (air quality) and a soil-moisture probe. See sensors.c/h.
+ * The environmental sensors ported from the RainMaker-era firmware: DHT22 (AM2302)
+ * (temperature + humidity), an MQ-135 (air quality) and a soil-moisture probe.
+ * See sensors.c / sensors.h.
  *
  * ⚠ This is NOT a service. It goes in the `devices` array, so the backend stores
- * it with `is_service = false` — the same as a relay. It is a read-only sensor
- * device, so the mobile app must filter it out of any "relay" list by TYPE, not
- * by `is_service`. (The dashboard's Climate card reads its Temperature /
- * Humidity params directly.)
+ * it with `is_service = false` — the same as a relay. The mobile app's front
+ * page used to decide "is this a relay?" from `is_service` alone, which would
+ * have rendered this device as a 25th relay button on the R24 grid; it now
+ * checks the device TYPE (see relaysOf() in node_service.dart). Any new
+ * non-switch device type must be filtered there too.
  *
- * Params are heap-allocated with calloc: profile_free() frees .params for every
- * device whose type is not `esp.service.*`, and this one is `esp.device.*`, so a
- * static array would be freed -> undefined behaviour.
+ * Every param is read-only and PROP_TIME_SERIES, so the backend derives a
+ * "read_only" UI hint and the values flow into the device_telemetry hypertable
+ * as well as into node_params.
  *
- * Every param is read-only + PROP_TIME_SERIES, so the values flow into the
- * device_telemetry hypertable as well as node_params. Only the three gases the
- * product shows (CO, Alcohol, CO2) are modelled — Toluene/NH3/Acetone are the
- * same single MQ-135 measurement through other curves and are not published. */
+ * Names are snake_case to match this firmware's existing convention ("Free_Heap",
+ * "Reset_Reason"). The old RainMaker build used a space ("Soil Moisture"); that
+ * is deliberately not carried over, because a space in a param name has to be
+ * URL-encoded in every API path that addresses it by name. */
 static node_device_t build_sensor_device(void) {
-    node_param_t *sensor_params = calloc(9, sizeof(node_param_t));
+    /* Heap, not static: profile_free() frees .params for every device whose type
+     * is not `esp.service.*`, and this one is an `esp.device.*`. Handing it a
+     * static array would make that free() undefined behaviour — the same trap
+     * the F5 fix documented for service devices, in the opposite direction. */
+    node_param_t *sensor_params = calloc(6, sizeof(node_param_t));
     sensor_params[0] = (node_param_t){
         .name = "Temperature", .type = "esp.param.temperature", .data_type = DATA_FLOAT,
-        .properties = PROP_READ | PROP_TIME_SERIES,
-        .min_val = -40.0f, .max_val = 80.0f,
-        .last_value = param_float(0.0f),
+        .properties = PROP_READ | PROP_TIME_SERIES, .min_val = -10.0f, .max_val = 60.0f,
     };
     sensor_params[1] = (node_param_t){
         .name = "Humidity", .type = "esp.param.humidity", .data_type = DATA_FLOAT,
-        .properties = PROP_READ | PROP_TIME_SERIES,
-        .min_val = 0.0f, .max_val = 100.0f,
-        .last_value = param_float(0.0f),
+        .properties = PROP_READ | PROP_TIME_SERIES, .min_val = 0.0f, .max_val = 100.0f,
     };
     sensor_params[2] = (node_param_t){
         .name = "Soil_Moisture", .type = "esp.param.soil_moisture", .data_type = DATA_FLOAT,
-        .properties = PROP_READ | PROP_TIME_SERIES,
-        .min_val = 0.0f, .max_val = 100.0f,
-        .last_value = param_float(0.0f),
+        .properties = PROP_READ | PROP_TIME_SERIES, .min_val = 0.0f, .max_val = 100.0f,
     };
+    /* The three gases the product actually reports. The MQ-135's Toluene / NH3 /
+     * acetone curves are computed and logged on the device but not published:
+     * they are the same single measurement pushed through three more datasheet
+     * curves, and publishing them would imply four independent gas sensors. */
     sensor_params[3] = (node_param_t){
         .name = "CO", .type = "esp.param.co", .data_type = DATA_FLOAT,
         .properties = PROP_READ | PROP_TIME_SERIES,
-        .last_value = param_float(0.0f),
     };
     sensor_params[4] = (node_param_t){
         .name = "Alcohol", .type = "esp.param.alcohol", .data_type = DATA_FLOAT,
         .properties = PROP_READ | PROP_TIME_SERIES,
-        .last_value = param_float(0.0f),
     };
     sensor_params[5] = (node_param_t){
         .name = "CO2", .type = "esp.param.co2", .data_type = DATA_FLOAT,
         .properties = PROP_READ | PROP_TIME_SERIES,
-        .last_value = param_float(0.0f),
-    };
-    /* Diagnostic: which GPIO the DHT auto-detect found (-1 = none). Lets the
-     * operator confirm the sensor's data line without a serial console. */
-    sensor_params[6] = (node_param_t){
-        .name = "DHT_GPIO", .type = "esp.param.dht_gpio", .data_type = DATA_FLOAT,
-        .properties = PROP_READ,
-        .last_value = param_float(-1.0f),
-    };
-    /* 0 = valid frame, 1 = handshake only (no frame — check pull-up),
-     * 2 = no response on any probed GPIO. */
-    sensor_params[7] = (node_param_t){
-        .name = "DHT_Status", .type = "esp.param.dht_status", .data_type = DATA_FLOAT,
-        .properties = PROP_READ,
-        .last_value = param_float(2.0f),
-    };
-    /* Idle level of the detected DHT pin: 1 = pulled up (real data line),
-     * 0 = pulled down (a strapping/LED pin -> false positive). */
-    sensor_params[8] = (node_param_t){
-        .name = "DHT_Idle", .type = "esp.param.dht_idle", .data_type = DATA_FLOAT,
-        .properties = PROP_READ,
-        .last_value = param_float(-1.0f),
     };
 
     cJSON *attrs = cJSON_CreateObject();
+    /* Plain English keys, like the relay devices' Label/Channel. The old
+     * RainMaker build put bilingual strings here because RainMaker rendered
+     * attributes directly; in V3 the app owns presentation and localises itself,
+     * so attributes stay machine-readable metadata. */
     cJSON_AddStringToObject(attrs, "Sensor Type",
                             "Temperature, Humidity, Air Quality, Soil Moisture");
     cJSON_AddStringToObject(attrs, "Measurement", "Celsius, Percent, PPM");
     cJSON_AddStringToObject(attrs, "Hardware",
-                            "DHT22 (GPIO27), MQ-135 (ADC1_CH4/GPIO32), Soil (ADC1_CH5/GPIO33)");
+                            "DHT22/AM2302 (GPIO27), MQ-135 (ADC1_CH4/GPIO32), Soil (ADC1_CH5/GPIO33)");
 
     return (node_device_t){
         .name = "Sensors", .type = "esp.device.sensor", .channel = 0,
-        .params = sensor_params, .param_count = 9,
+        .params = sensor_params, .param_count = 6,
         .attributes = attrs,
     };
 }
@@ -213,19 +282,18 @@ static node_device_t build_relay_device(const char *name, uint8_t channel) {
  * ==========================================================================*/
 
 she_node_t* profile_build_r4(void) {
-    static node_device_t devices[6];   /* 4 relays + OTA + Diagnostics */
-    static node_param_t relay_params[4];
+    static node_device_t devices[7];   /* 4 relays + OTA + Diagnostics + Local Control */
 
+    /* NOTE: there is deliberately no `relay_params` array here. Each relay gets
+     * its own heap-allocated param array from build_relay_device() — which is
+     * what profile_free() expects to free(). A static array assigned to
+     * `.params` would make profile_free() call free() on static storage. */
     for (int i = 0; i < 4; i++) {
-        relay_params[i] = (node_param_t){
-            .name = "Power", .type = "esp.param.power", .data_type = DATA_BOOL,
-            .properties = PROP_READ | PROP_WRITE | PROP_PERSIST,
-            .last_value = param_bool(false),
-        };
         devices[i] = build_relay_device(relay_names_r4[i], i);
     }
     devices[4] = build_ota_service();
     devices[5] = build_diagnostics_service();
+    devices[6] = build_local_control_service();
 
     static she_node_t node = {
         .node_id = "SHE-R4-PLACEHOLDER",
@@ -235,19 +303,20 @@ she_node_t* profile_build_r4(void) {
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
-        .device_count = 6,
+        .device_count = 7,
     };
     return &node;
 }
 
 she_node_t* profile_build_r8(void) {
-    static node_device_t devices[10];   /* 8 relays + OTA + Diagnostics */
+    static node_device_t devices[11];   /* 8 relays + OTA + Diagnostics + Local Control */
 
     for (int i = 0; i < 8; i++) {
         devices[i] = build_relay_device(relay_names_r8[i], i);
     }
     devices[8] = build_ota_service();
     devices[9] = build_diagnostics_service();
+    devices[10] = build_local_control_service();
 
     static she_node_t node = {
         .node_id = "SHE-R8-PLACEHOLDER",
@@ -257,13 +326,13 @@ she_node_t* profile_build_r8(void) {
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
-        .device_count = 10,
+        .device_count = 11,
     };
     return &node;
 }
 
 she_node_t* profile_build_r16(void) {
-    static node_device_t devices[19];   /* 16 relays + OTA + Diagnostics + Voice */
+    static node_device_t devices[20];   /* 16 relays + OTA + Diagnostics + Voice + Local Control */
 
     for (int i = 0; i < 16; i++) {
         devices[i] = build_relay_device(relay_names_r16[i], i);
@@ -290,6 +359,7 @@ she_node_t* profile_build_r16(void) {
         .params = voice_params, .param_count = 3,
         .attributes = cJSON_CreateObject(),
     };
+    devices[19] = build_local_control_service();
 
     static she_node_t node = {
         .node_id = "SHE-R16-PLACEHOLDER",
@@ -299,7 +369,7 @@ she_node_t* profile_build_r16(void) {
         .hw_rev = "rev-c",
         .secure_version = 1,
         .devices = devices,
-        .device_count = 19,
+        .device_count = 20,
     };
     return &node;
 }
@@ -311,14 +381,20 @@ she_node_t* profile_build_r16(void) {
  * of its own — it is served by relay_apply_group() with the RELAY_GROUP_* masks
  * from relay_driver.h. Modelling it as a device would imply it has a pin. */
 she_node_t* profile_build_r24(void) {
-    static node_device_t devices[27];   /* 24 relays + OTA + Diagnostics + Sensors */
+    static node_device_t devices[28];   /* 24 relays + OTA + Diagnostics + Sensors + Local Control */
 
     for (int i = 0; i < 24; i++) {
         devices[i] = build_relay_device(relay_names_r24[i], i);
     }
     devices[24] = build_ota_service();
     devices[25] = build_diagnostics_service();
-    devices[26] = build_sensor_device();   /* DHT22 temperature + humidity */
+    /* Sensors are wired on THIS board (DHT22/AM2302 GPIO27, MQ-135 GPIO32, soil GPIO33).
+     * Only the R24 profile declares them — a bare DevKit has nothing on those
+     * pins, and advertising a Sensors device it cannot read would put six dead
+     * params in the app. Add the same call to another profile when that board
+     * actually carries the parts. */
+    devices[26] = build_sensor_device();
+    devices[27] = build_local_control_service();
 
     static she_node_t node = {
         .node_id = "SHE-R24-PLACEHOLDER",
@@ -328,7 +404,7 @@ she_node_t* profile_build_r24(void) {
         .hw_rev = "rev-a",
         .secure_version = 1,
         .devices = devices,
-        .device_count = 27,
+        .device_count = 28,
     };
     return &node;
 }

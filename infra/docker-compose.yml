@@ -120,6 +120,9 @@ services:
     image: emqx/emqx:5.8.4
     container_name: she-emqx-1
     restart: unless-stopped
+    # Let EMQX reach the host-run Spring Boot backend (http://she-backend:8080)
+    extra_hosts:
+      - "she-backend:host-gateway"
     networks:
       she-mqtt:
         aliases: [emqx-1]
@@ -177,6 +180,8 @@ services:
     image: emqx/emqx:5.8.4
     container_name: she-emqx-2
     restart: unless-stopped
+    extra_hosts:
+      - "she-backend:host-gateway"
     networks:
       she-mqtt:
         aliases: [emqx-2]
@@ -225,6 +230,8 @@ services:
     image: emqx/emqx:5.8.4
     container_name: she-emqx-3
     restart: unless-stopped
+    extra_hosts:
+      - "she-backend:host-gateway"
     networks:
       she-mqtt:
         aliases: [emqx-3]

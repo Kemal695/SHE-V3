@@ -16,7 +16,7 @@ menu "SHE V3 Configuration"
             SHE-R4: ESP32-C3, 4 relays, no PZEM
             SHE-R8: ESP32-S3, 8 relays + PZEM (volume SKU)
             SHE-R16: ESP32-S3, 16 relays + PZEM + mic
-            SHE-R24: ESP32-S3, 24 relays via 3x PCF8574 (0x20/0x21/0x22), no PZEM
+            SHE-R24: classic ESP32-D0WD, 24 relays via 3x PCF8574 (0x24/0x26/0x25), no PZEM
             ESP32 DevKit: classic ESP32 baseline, no attached SHE peripherals
 
     config SHE_R4
@@ -26,7 +26,7 @@ menu "SHE V3 Configuration"
     config SHE_R16
         bool "SHE-R16 (ESP32-S3, 16-channel + voice)"
     config SHE_R24
-        bool "SHE-R24 (ESP32-S3, 24-channel, 3x PCF8574)"
+        bool "SHE-R24 (classic ESP32-D0WD, 24-channel, 3x PCF8574)"
     config SHE_DEVKIT_ESP32
         bool "Classic ESP32 DevKit baseline (no attached SHE peripherals)"
     endchoice
@@ -128,5 +128,28 @@ menu "SHE V3 Configuration"
         int "Voice task stack size"
         default 8192
         depends on SHE_HAS_VOICE
+
+    config SHE_REQUIRE_FACTORY_POP
+        bool "Require a factory-programmed PoP before starting BLE provisioning"
+        default n
+        help
+            P1-1 specifies the PoP as a 9-digit CSPRNG value programmed at the
+            factory. With this OFF (the default) a board whose fctry partition
+            holds no device_pop key generates a PoP, persists it to fctry and
+            prints it on the console, so a board that was never factory
+            provisioned is still bring-up-able over BLE.
+
+            Turn this ON for production. A board that should have been
+            provisioned at the factory but was not will then refuse to
+            advertise, which makes a factory-process failure loud instead of
+            quietly papered over.
+
+            This never affects a correctly provisioned board: if fctry already
+            holds device_pop, the fallback is not reached at all.
+
+            NOTE: adding a new Kconfig option does not make CMake re-run
+            confgen.py (CMAKE_CONFIGURE_DEPENDS does not list the Kconfig
+            files). Run `idf.py reconfigure` after changing this, or the option
+            is silently ignored.
 
 endmenu

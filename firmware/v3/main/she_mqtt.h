@@ -10,7 +10,7 @@
 
 #include "esp_err.h"
 #include "device_profiles.h"
-#include "sensors.h"          /* sensor_sample_t — optional climate block in telemetry */
+#include "sensors.h"     /* sensor_sample_t — the optional telemetry payload block */
 #include_next "mqtt_client.h"
 
 #ifdef __cplusplus
@@ -95,6 +95,13 @@ esp_err_t mqtt_publish_energy(float voltage, float current, float power_w,
  *
  * `wifi_disconnects` / `mqtt_reconnects` are read internally from their own
  * counters — the caller supplies only the values it sampled.
+ *
+ * `sensors` is optional. Pass the latest `sensor_sample_t` to fold the
+ * environmental readings (temperature, humidity, soil, CO, alcohol, CO2) into
+ * the same payload, or NULL to publish diagnostics only. Only the blocks that
+ * are actually valid are appended, so a board with no DHT never reports a
+ * temperature of 0.0 — which is a plausible reading and would look real on the
+ * trend chart.
  */
 esp_err_t mqtt_publish_telemetry(int uptime_s, int rssi_dbm, uint32_t free_heap,
                                  uint32_t min_free_heap, const char *reset_reason,

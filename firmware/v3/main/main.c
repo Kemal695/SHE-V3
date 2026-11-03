@@ -33,7 +33,7 @@
 #include "relay_driver.h"
 #include "feedback_monitor.h"
 #include "input_monitor.h"
-#include "sensors.h"         /* DHT22 temperature + humidity (SHE-R24) */
+#include "sensors.h"        /* DHT22/AM2302 + MQ-135 + soil moisture (SHE-R24) */
 #include "energy_monitor.h"
 #include "button_task.h"
 #include "schedule_store.h"
@@ -55,6 +55,34 @@
 #include <string.h>
 
 static const char *TAG = "she_main";
+
+/* ---- Compile-time SKU, used when fctry NVS has none ----
+ *
+ * The runtime SKU comes from the fctry partition's device_sku key, which a
+ * factory-provisioned board always has. An unprovisioned board has an EMPTY
+ * fctry, so `sku` reads back as "" — and passing that to
+ * profile_build_for_sku() returns NULL for anything it does not recognise, so
+ * app_main() logged
+ *     E device_profiles: Unknown SKU:
+ *     E she_main: Failed to build node profile for SKU  — halting
+ * and then halted forever in vTaskDelay(portMAX_DELAY).
+ *
+ * The Kconfig choice already knows which SKU this image was built for. Use it
+ * as the fallback so an unprovisioned board still comes up as the SKU it was
+ * flashed as, instead of dying at Step 5. */
+#if defined(CONFIG_SHE_R4)
+#  define SHE_BUILD_SKU "SHE-R4"
+#elif defined(CONFIG_SHE_R8)
+#  define SHE_BUILD_SKU "SHE-R8"
+#elif defined(CONFIG_SHE_R16)
+#  define SHE_BUILD_SKU "SHE-R16"
+#elif defined(CONFIG_SHE_R24)
+#  define SHE_BUILD_SKU "SHE-R24"
+#elif defined(CONFIG_SHE_DEVKIT_ESP32)
+#  define SHE_BUILD_SKU "SHE-R4"   /* matches profile_build_for_sku()'s DevKit fallback */
+#else
+#  define SHE_BUILD_SKU "SHE-R24"   /* Kconfig choice default */
+#endif
 
 /* ---- Read SKU + MAC from fctry NVS to build the node identity ---- */
 static esp_err_t read_node_identity(char *mac, size_t mac_len,
@@ -229,11 +257,12 @@ static void sample_diagnostics(she_node_t *node) {
      * params/local carries only a single current value per param; `telemetry` is
      * what feeds the device_telemetry hypertable and the app's trend chart. The
      * two are separate channels and are easy to conflate — the firmware used to
-     * publish only the former, so the telemetry screen stayed empty forever. */
-    /* The environmental reading rides along in the same telemetry payload.
-     * Only pass it when a valid sample exists, so a board with no DHT22 never
-     * reports a temperature of 0.0 — which is a plausible reading and would look
-     * like real data on the chart. */
+     * publish only the former, so the telemetry screen stayed empty forever.
+     *
+     * The environmental readings ride along in the same payload. Only the blocks
+     * that are actually valid are appended (see mqtt_publish_telemetry), so a
+     * board with no DHT never reports a temperature of 0.0 — which is a
+     * plausible reading and would look like real data on the chart. */
     sensor_sample_t sample;
     const sensor_sample_t *sample_ptr = sensors_get_latest(&sample) ? &sample : NULL;
     mqtt_publish_telemetry(uptime_s, rssi, (uint32_t)free_heap,
@@ -268,6 +297,17 @@ void app_main(void) {
     /* Read SKU from fctry NVS to determine relay count */
     char mac[18] = {0}, sku[8] = {0}, node_id[32] = {0};
     read_node_identity(mac, sizeof(mac), sku, sizeof(sku), node_id, sizeof(node_id));
+
+    /* An unprovisioned board has an empty fctry partition, so `sku` is "".
+     * Fall back to the SKU this image was compiled for. Without this, two
+     * things go wrong at once: relay_count silently stays at the 8 default
+     * (so a 24-relay board refuses to drive channels 8-23), and Step 5 halts
+     * on profile_build_for_sku("") == NULL. */
+    if (sku[0] == '\0') {
+        strncpy(sku, SHE_BUILD_SKU, sizeof(sku) - 1);
+        sku[sizeof(sku) - 1] = '\0';
+        ESP_LOGW(TAG, "fctry NVS has no device_sku — using build-time SKU %s", sku);
+    }
 
     /* SKU → channel count. Every SKU the profile builder knows MUST be listed
      * here, because this is what relay_driver_init() is told, and the driver
@@ -329,19 +369,9 @@ void app_main(void) {
     }
 #endif
 
-#if defined(CONFIG_SHE_R24)
-    /* The boot-time relay self-test that used to live here has been removed.
-     *
-     * It was marked "TEMPORARY BENCH TEST (remove once the relay wiring is
-     * confirmed)" and walked all 24 channels ON/OFF before Wi-Fi came up, so
-     * every single boot clicked the relays for ~10 seconds — lights visibly
-     * flickered and sockets pulsed on power-up.
-     *
-     * relay_selftest() still exists and is still reachable on demand over MQTT
-     * ("relay_selftest" command in she_mqtt.c), which is where a bench check
-     * belongs: deliberate, not a side effect of rebooting.
-     */
-#endif
+/* No boot-time relay sweep: relay_selftest() energises every channel in turn,
+     * so it must never run on a normal power cycle. It remains available on demand
+     * via the RELAY_TEST command. */
 
 #ifdef CONFIG_SHE_HAS_PZEM
     ESP_ERROR_CHECK(energy_monitor_init());
@@ -349,15 +379,21 @@ void app_main(void) {
 #endif
 
 #if defined(CONFIG_SHE_R24)
-    /* 3d. Environmental sensor — the DHT22 on GPIO 27.
+    /* 3d. Environmental sensors — ported from the RainMaker-era firmware.
      *
-     * Non-fatal by design: the relays are the board's primary function, so a
-     * missing or miswired probe must not stop it booting or connecting. */
+     * ADC1 is free here: the CD4051 feedback monitor is the only other ADC user
+     * on this board and it is deliberately not started on SHE-R24 (see Step 3b).
+     * Both sensors must be on ADC1 — ADC2 is unusable while Wi-Fi is up on a
+     * classic ESP32, so an ADC2 sensor would read garbage once the board
+     * associates.
+     *
+     * Non-fatal by design: the relays are the board's primary function and a
+     * missing or miswired sensor must not stop it booting or connecting. */
     if (sensors_init() != ESP_OK) {
-        ESP_LOGW(TAG, "Step 3d: DHT22 unavailable — no temperature/humidity "
-                      "(relay control is unaffected)");
+        ESP_LOGW(TAG, "Step 3d: sensors unavailable — no temperature, humidity, "
+                      "air quality or soil moisture (relay control is unaffected)");
     } else {
-        ESP_LOGI(TAG, "Step 3d: DHT22 sensor initialized");
+        ESP_LOGI(TAG, "Step 3d: environmental sensors initialized");
     }
 #endif
 
@@ -414,14 +450,16 @@ void app_main(void) {
 
     /* 5c. Start the sensor task — after the profile exists, because it writes
      * readings into the Sensors device's params and publishes params/local when
-     * one moves. */
+     * one moves. The MQ-135's ~5 s clean-air calibration happens inside this
+     * task, deliberately NOT at boot: stalling app_main for 5 s before
+     * app_wifi_connect() eats into the 30 s association window. */
     if (sensors_is_running()) {
         ESP_LOGI(TAG, "Step 5c: sensor task already running");
     } else if (sensors_start(node) != ESP_OK) {
-        ESP_LOGW(TAG, "Step 5c: sensor task not started — DHT22 initialised but "
-                      "will never be sampled");
+        ESP_LOGW(TAG, "Step 5c: sensor task not started — sensors are initialised "
+                      "but will never be sampled");
     } else {
-        ESP_LOGI(TAG, "Step 5c: sensor task started (DHT22 temperature + humidity)");
+        ESP_LOGI(TAG, "Step 5c: sensor task started (DHT22 + MQ-135 + soil)");
     }
 #endif
 
@@ -439,26 +477,119 @@ void app_main(void) {
         for (int j = 0; j < d->param_count; j++) {
             node_param_t *p = &d->params[j];
             if (p->data_type == DATA_BOOL && (p->properties & PROP_WRITE)) {
-                p->last_value = param_bool(relay_get(d->channel));
+#if defined(CONFIG_SHE_R24) && SHE_AC_FEEDBACK
+                /* Lights: the toggle mirrors the lamp-side AC feedback, not the
+                 * relay. Seeding it from the relay made an unlit lamp read ON at
+                 * boot (relay restored ON, no bulb), and the feedback never
+                 * "changed" from OFF to correct it. */
+                if (input_monitor_is_light_channel(d->channel)) {
+                    p->last_value = param_bool(input_monitor_ac_channel(d->channel));
+                } else
+#endif
+                {
+                    p->last_value = param_bool(relay_get(d->channel));
+                }
             }
         }
     }
     ESP_LOGI(TAG, "Relay state synced from hardware: mask=0x%06lX",
              (unsigned long)relay_get_all());
 
-    /* 6. If not provisioned → start BLE provisioning (blocks) */
+    /* 5d. Start the button task BEFORE any path that parks app_main.
+     *
+     * This used to be the very last thing app_main did (Step 13), which meant it
+     * never ran on an unprovisioned board at all: Step 6 starts BLE provisioning
+     * and app_main then waits there until the device reboots into normal
+     * operation, so execution never reached the late call. The physical button
+     * was therefore dead in exactly the state where it is the only way out —
+     * provisioning running, the Wi-Fi join failing, and no cloud link to send a
+     * factory_reset command over. A 5 s hold is the documented recovery
+     * (button_task.c -> SHE_CMD_FACTORY_RESET).
+     *
+     * Safe here: the task needs only NVS (Step 1) and the relay driver (Step 3a),
+     * both already initialised. There is exactly one button task — the late call
+     * that used to create it is gone.
+     */
+    if (button_task_start() != ESP_OK) {
+        ESP_LOGW(TAG, "Button task NOT started — the physical button will do nothing");
+    }
+
+    /* 6. If not provisioned → start BLE provisioning, then park here.
+     *
+     * ble_provisioning_start() returns as soon as the manager is advertising; it
+     * is THIS block's job to hold app_main until the reboot that
+     * prov_event_handler() triggers on GOT_IP.
+     *
+     * The return value MUST be checked. ble_provisioning_start() returns ESP_FAIL
+     * when the fctry partition holds no PoP, which is the normal state of a board
+     * that was never factory-provisioned. The old code discarded that error and
+     * fell straight through to Step 7, where app_wifi_connect() had no
+     * credentials to use: every boot ended in esp_restart() 30 s later, so the
+     * board advertised nothing, accepted no provisioner, and printed the same
+     * failure forever. Hold here instead — a device waiting for its factory PoP
+     * is in a defined, diagnosable state, not an error rebooting can clear.
+     */
     if (!ble_provisioning_is_provisioned()) {
         ESP_LOGI(TAG, "Step 6: Device not provisioned — starting BLE provisioning");
-        ble_provisioning_start(node);
-        /* This should not return — device reboots after provisioning */
-    } else {
-        ESP_LOGI(TAG, "Step 6: Device already provisioned — skipping BLE");
+        esp_err_t prov_err = ble_provisioning_start(node);
+
+        if (prov_err != ESP_OK) {
+            ESP_LOGE(TAG, "Step 6: BLE provisioning did not start: %s", esp_err_to_name(prov_err));
+            ESP_LOGE(TAG, "  The fctry partition has no usable PoP, so this board is not");
+            ESP_LOGE(TAG, "  factory-provisioned. Write the identity image, then reboot:");
+            ESP_LOGE(TAG, "    python scripts/issue-device-cert.py <MAC> --api http://<host>:8080");
+            ESP_LOGE(TAG, "    python scripts/build-device-nvs.py --mac <MAC> --sku SHE-R24 \\");
+            ESP_LOGE(TAG, "        --cert scripts/device-certs/<cn>.cert.pem \\");
+            ESP_LOGE(TAG, "        --key  scripts/device-certs/<cn>.key.pem");
+            ESP_LOGE(TAG, "    python scripts/flash-fctry.py --port <PORT>");
+            ESP_LOGE(TAG, "  (flash-fctry.py writes ONLY fctry @0x5C0000, so Wi-Fi creds in");
+            ESP_LOGE(TAG, "   the nvs partition survive. Do not erase-flash.)");
+            ESP_LOGE(TAG, "  Holding here (no reboot) so this console stays readable.");
+        } else {
+            ESP_LOGI(TAG, "Step 6: BLE provisioning is running — waiting for the app");
+        }
+
+        /* Park either way. Falling through would reach Step 7, where
+         * app_wifi_connect() finds no credentials and reboots the board — tearing
+         * down the BLE session the phone is provisioning over. This is not an
+         * exit that has to be taken: a successful provisioning reboots from the
+         * prov event handler. */
+        const char *wait_msg = (prov_err != ESP_OK)
+            ? "Still waiting for factory provisioning (fctry PoP missing)"
+            : "Waiting for provisioning — hold the button 5 s to factory-reset and re-pair";
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(30000));
+            ESP_LOGW(TAG, "%s", wait_msg);
+        }
     }
+    ESP_LOGI(TAG, "Step 6: Device already provisioned — skipping BLE");
 
     /* 7. Wi-Fi connect (from NVS creds, 30s timeout) */
     ESP_LOGI(TAG, "Step 7: Connecting to Wi-Fi...");
-    if (app_wifi_connect() != ESP_OK) {
-        ESP_LOGE(TAG, "Wi-Fi connect failed — retrying in 30s");
+    esp_err_t wifi_err = app_wifi_connect();
+    if (wifi_err == ESP_ERR_INVALID_STATE) {
+        /* No SSID is configured at all (app_wifi_connect() reads this back from
+         * the driver with esp_wifi_get_config()). The credentials are gone even
+         * though fctry still says provisioned=1: the two live in separate
+         * partitions, so erasing or re-flashing one leaves the other untouched.
+         * A factory reset clears this flag, but `idf.py erase-flash` followed by
+         * an app-only re-flash does not — which is exactly how a board ends up
+         * flagged provisioned with nothing to connect to. Clear the flag so the
+         * next boot takes the BLE path instead of looping here. */
+        ESP_LOGW(TAG, "No Wi-Fi credentials in NVS — clearing provisioned flag, "
+                      "rebooting into BLE provisioning");
+        nvs_handle_t fh;
+        if (nvs_open_from_partition("fctry", SHE_FCTRY_NAMESPACE, NVS_READWRITE, &fh) == ESP_OK) {
+            nvs_set_u8(fh, SHE_FCTRY_KEY_PROVISIONED, 0);
+            nvs_commit(fh);
+            nvs_close(fh);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        esp_restart();
+    } else if (wifi_err != ESP_OK) {
+        /* Credentials exist but the association failed (AP down, wrong password).
+         * Reboot to retry from a clean Wi-Fi state rather than sitting dead. */
+        ESP_LOGE(TAG, "Wi-Fi connect failed (%s) — retrying in 30s", esp_err_to_name(wifi_err));
         vTaskDelay(pdMS_TO_TICKS(30000));
         esp_restart();
     }
@@ -492,9 +623,29 @@ void app_main(void) {
      * Runtime drops are handled by the OTA health check (step 12) + esp-mqtt
      * reconnect, not here. */
 
-    /* 9. Start esp_local_ctrl (mDNS + HTTPS + PoP) */
-    ESP_ERROR_CHECK(local_ctrl_start(node));
-    ESP_LOGI(TAG, "Step 9: Local control started (mDNS _she_ctrl._tcp + HTTPS :443)");
+    /* 9. Start esp_local_ctrl (mDNS + HTTPS + PoP)
+     *
+     * NOT fatal. local_ctrl_start() returns ESP_FAIL when fctry NVS holds no
+     * device cert — which is the CORRECT behaviour on a production board, since
+     * it must refuse plain HTTP rather than silently downgrade. But wrapping
+     * that in ESP_ERROR_CHECK turned an optional LAN convenience into a boot
+     * loop: the board aborted here, rebooted, and aborted again ~24 s later,
+     * forever — never reaching Step 13, never accepting an OTA, and flooding the
+     * console so the real cause (unprovisioned fctry) was hard to see.
+     *
+     * Nothing downstream depends on the local-control server, so degrade and
+     * carry on. A board with no factory cert still runs the relay driver, the
+     * schedule watcher and OTA — it just has no LAN HTTPS endpoint. */
+    esp_err_t lc_err = local_ctrl_start(node);
+    if (lc_err != ESP_OK) {
+        ESP_LOGW(TAG, "Step 9: local control unavailable (%s) — continuing without it",
+                 esp_err_to_name(lc_err));
+        ESP_LOGW(TAG, "  Local HTTPS needs a device cert in fctry NVS. Provision with");
+        ESP_LOGW(TAG, "  scripts/issue-device-cert.py -> build-device-nvs.py -> flash-fctry.py");
+        ESP_LOGW(TAG, "  (the full command list is logged at Step 6).");
+    } else {
+        ESP_LOGI(TAG, "Step 9: Local control started (mDNS _she_ctrl._tcp + HTTPS :443)");
+    }
 
     /* 10. Start energy_monitor (R8/R16 only) */
 #ifdef CONFIG_SHE_HAS_PZEM
@@ -539,9 +690,9 @@ void app_main(void) {
     }
 #endif
 
-    /* Start button task */
-    button_task_start();
-    ESP_LOGI(TAG, "Button task started");
+    /* The button task was already started before Step 6, so that it also exists
+     * on the provisioning path — see the note there. Starting it again here would
+     * create a second task polling GPIO0 alongside the first. */
 
     /* 12b. Start the schedule watcher — fires device-local schedules (including
      * repeating/weekday ones) even when the cloud is unreachable. */

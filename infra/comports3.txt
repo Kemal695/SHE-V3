@@ -1,0 +1,5 @@
+﻿=== COM ports now ===
+(none)
+=== PnP ports ===
+Unknown : USB-SERIAL CH340 (COM3)
+Unknown : USB-SERIAL CH340 (COM6)

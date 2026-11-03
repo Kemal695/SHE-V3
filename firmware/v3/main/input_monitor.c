@@ -185,6 +185,12 @@ bool input_monitor_ac(uint8_t light_index) {
     return g_ac_state[light_index];
 }
 
+bool input_monitor_ac_channel(uint8_t channel) {
+    if (channel < 8) return input_monitor_ac(channel);
+    if (channel >= 16 && channel < 24) return input_monitor_ac((uint8_t)(channel - 8));
+    return false;   /* sockets 8-15: no AC sense line */
+}
+
 bool input_monitor_dc(uint8_t index) {
     if (index >= 16) return false;
     return g_dc_state[index];
@@ -198,6 +204,7 @@ static uint8_t light_index_to_channel(uint8_t light_index) {
     return (light_index < 8) ? light_index : (uint8_t)(light_index + 8);
 }
 
+#if SHE_AC_FEEDBACK
 /* Sync the profile's cached Power value for one light to the measured feedback
  * and return true if the node was touched.
  *
@@ -228,6 +235,7 @@ static bool sync_light_param(she_node_t *node, uint8_t light_index, bool on) {
     }
     return false;
 }
+#endif  /* SHE_AC_FEEDBACK */
 
 /* ---- Poll task ------------------------------------------------------------ */
 
@@ -237,28 +245,19 @@ static void input_task(void *arg) {
     while (true) {
         input_monitor_poll();
 
+#if SHE_AC_FEEDBACK
         bool ac_changed = false;
         for (int i = 0; i < 8; i++) {
             bool a1 = input_monitor_get(INPUT_CHIP_ACIN1, (uint8_t)i);
             bool a2 = input_monitor_get(INPUT_CHIP_ACIN2, (uint8_t)i);
-            g_ac_state[i] = a1;
-            g_ac_state[8 + i] = a2;
-
-            /* Sync EVERY poll — NOT only on a transition.
-             *
-             * A command that turns a relay ON while its AC sense line is already
-             * OFF (the lamp is dark — e.g. the wall switch is off, or the bulb is
-             * dead) produces NO transition, so a change-only sync never fired and
-             * the cached Power stayed at the COMMANDED ON. The cloud — and so the
-             * app — then showed ON with the bulb off, which is exactly the
-             * "toggle on without feedback" bug.
-             *
-             * sync_light_param() is a no-op when the cached value already matches,
-             * and it never drives the relay, so calling it every second is cheap
-             * and safe: the reported state always converges to what the AC line
-             * actually measures. */
-            if (sync_light_param(node, (uint8_t)i, a1)) ac_changed = true;
-            if (sync_light_param(node, (uint8_t)(8 + i), a2)) ac_changed = true;
+            if (a1 != g_ac_state[i]) {
+                g_ac_state[i] = a1;
+                if (sync_light_param(node, (uint8_t)i, a1)) ac_changed = true;
+            }
+            if (a2 != g_ac_state[8 + i]) {
+                g_ac_state[8 + i] = a2;
+                if (sync_light_param(node, (uint8_t)(8 + i), a2)) ac_changed = true;
+            }
         }
 
         if (ac_changed) {
@@ -267,6 +266,7 @@ static void input_task(void *arg) {
              * for, and a minute of stale state makes it look broken. */
             mqtt_publish_params_local(node);
         }
+#endif  /* SHE_AC_FEEDBACK */
 
         /* DC sense lines are read-only telemetry in the reference firmware; keep
          * them observable without pretending they are controllable. */

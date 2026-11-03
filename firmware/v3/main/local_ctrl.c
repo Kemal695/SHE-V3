@@ -5,16 +5,37 @@
  * ==========================================================================*/
 
 #include "local_ctrl.h"
-#include "ble_provisioning.h"
 #include "she_mqtt.h"
 #include "relay_driver.h"     /* relay_set() / relay_save_state() for the offline control path */
-#include "input_monitor.h"    /* AC-feedback absolute light control — same path as online */
-#include "schedule_store.h"   /* device-local schedules — exposed over /she/schedule */
 #include "nvs_keys.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_https_server.h"
-#ifdef CONFIG_MDNS
+
+/* ---- mDNS availability ----------------------------------------------------
+ *
+ * ⚠ This guard used to be `#ifdef CONFIG_MDNS`, which is a PHANTOM SYMBOL.
+ * The `espressif/mdns` component's Kconfig defines only MDNS_* options
+ * (MDNS_MAX_SERVICES, MDNS_TASK_PRIORITY, MDNS_ENABLE_BROWSE, …) and no bare
+ * `MDNS` enable flag — the library is simply active when it is part of the
+ * build. That is exactly how esp_local_ctrl pulls it in:
+ *     idf_component_optional_requires(PRIVATE espressif__mdns mdns)
+ * So `CONFIG_MDNS` was never defined, the #else branch always won, and every
+ * board logged "mDNS disabled" and advertised nothing. That is the reason no
+ * device was ever discoverable as _she_ctrl._tcp.local.
+ *
+ * Test for the header instead. It asks the honest question ("can I call the
+ * API?"), needs no Kconfig cooperation, and still degrades to the stub when the
+ * component has not been fetched. `__has_include` is a GCC/Clang operator, so
+ * it is guarded for the (unlikely) case of a preprocessor that lacks it.
+ * -------------------------------------------------------------------------*/
+#if defined(__has_include)
+#  if __has_include("mdns.h")
+#    define SHE_HAVE_MDNS 1
+#  endif
+#endif
+
+#ifdef SHE_HAVE_MDNS
 #include "mdns.h"
 #endif
 #include "mbedtls/constant_time.h"
@@ -23,6 +44,7 @@
 #include <stdio.h>            /* snprintf */
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>            /* tolower — for the mDNS hostname */
 
 static const char *TAG = "she_local";
 static she_node_t *g_node = NULL;
@@ -193,32 +215,14 @@ static esp_err_t handler_ctrl(httpd_req_t *req) {
             p->last_value.val.b = on;
             p->dirty = true;
 
-#if defined(CONFIG_SHE_R24)
-            /* Mirror handle_params_remote() EXACTLY.
-             *
-             * On the R24 the relay is a TOGGLE (lamp = wall switch XOR relay), so a
-             * blind relay_set() flips the lamp RELATIVE to the wall switch — the
-             * app's "ON" could turn a lamp OFF. Online this is resolved by
-             * consulting the lamp-side AC feedback (input_monitor). The local path
-             * used to call relay_set() directly, so offline control behaved
-             * DIFFERENTLY from online control. */
-            if (input_monitor_is_light_channel(dev->channel)) {
-                input_monitor_set_light_absolute(dev->channel, on);
-                ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s (absolute, AC feedback)",
+            esp_err_t err = relay_set(dev->channel, on);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Local control: relay_set(ch=%d, %s) failed: %s",
+                         dev->channel, on ? "ON" : "OFF", esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s",
                          dev->name, dev->channel, on ? "ON" : "OFF");
                 applied++;
-            } else
-#endif
-            {
-                esp_err_t err = relay_set(dev->channel, on);
-                if (err != ESP_OK) {
-                    ESP_LOGW(TAG, "Local control: relay_set(ch=%d, %s) failed: %s",
-                             dev->channel, on ? "ON" : "OFF", esp_err_to_name(err));
-                } else {
-                    ESP_LOGI(TAG, "Local control: %s (ch %d) -> %s",
-                             dev->name, dev->channel, on ? "ON" : "OFF");
-                    applied++;
-                }
             }
         }
     }
@@ -370,22 +374,58 @@ static esp_err_t handler_config(httpd_req_t *req) {
     return ESP_OK;
 }
 
-/* ---- Start mDNS advertisement ---- */
-static esp_err_t start_mdns(she_node_t *node) {
-#ifdef CONFIG_MDNS
-    ESP_ERROR_CHECK(mdns_init());
-    /* Hostname = node_id (e.g. "she-r8-aabbcc") */
+/* ---- Start mDNS advertisement ----
+ *
+ * Best-effort by design. app_main treats local control as optional (Step 9 logs
+ * a warning and carries on when it fails), and wrapping these calls in
+ * ESP_ERROR_CHECK defeated that: a failure here aborted the whole application
+ * instead of returning, so a board whose mDNS could not start would boot-loop
+ * even though the HTTPS server — the part that actually accepts commands —
+ * would have been fine.
+ *
+ * Every step therefore logs and returns. mDNS is discovery sugar; losing it
+ * means the app has to be told the device's address instead of finding it by
+ * name, which is not worth a reboot. */
+static void start_mdns(she_node_t *node) {
+#ifdef SHE_HAVE_MDNS
+    esp_err_t err = mdns_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS init failed (%s) — not advertising %s.%s",
+                 esp_err_to_name(err), SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO);
+        return;
+    }
+
+    /* Hostname = node_id, lowercased: "SHE-R24-AABBCC" -> "she-r24-aabbcc.local" */
     char hostname[32];
-    snprintf(hostname, sizeof(hostname), "%s", node->node_id);
-    for (char *p = hostname; *p; p++) *p = tolower(*p);
-    ESP_ERROR_CHECK(mdns_hostname_set(hostname));
-    ESP_ERROR_CHECK(mdns_service_add(hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, SHE_MDNS_PORT, NULL, 0));
-    ESP_LOGI(TAG, "mDNS: %s.%s.local.:%d", hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PORT);
+    int n = snprintf(hostname, sizeof(hostname), "%s",
+                     node->node_id ? node->node_id : "she-node");
+    if (n < 0 || (size_t)n >= sizeof(hostname)) {
+        ESP_LOGW(TAG, "node_id too long for an mDNS hostname — skipping advertisement");
+        return;
+    }
+    for (char *p = hostname; *p; p++) *p = (char)tolower((unsigned char)*p);
+
+    err = mdns_hostname_set(hostname);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mdns_hostname_set('%s') failed: %s", hostname, esp_err_to_name(err));
+        return;
+    }
+
+    err = mdns_service_add(hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, SHE_MDNS_PORT, NULL, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mdns_service_add(%s.%s) failed: %s",
+                 SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, esp_err_to_name(err));
+        return;
+    }
+
+    ESP_LOGI(TAG, "mDNS: %s.%s.%s.local. -> :%d",
+             hostname, SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, SHE_MDNS_PORT);
 #else
-    ESP_LOGI(TAG, "mDNS disabled (CONFIG_MDNS=n) — local control via mDNS stubbed");
+    ESP_LOGW(TAG, "mDNS unavailable (mdns.h not found) — %s.%s not advertised. Local control is "
+                  "still reachable by IP on :%d; add espressif/mdns to the build to restore discovery.",
+             SHE_MDNS_SERVICE_TYPE, SHE_MDNS_PROTO, SHE_MDNS_PORT);
     (void)node;
 #endif
-    return ESP_OK;
 }
 
 /* ---- Read a PEM string from fctry NVS (malloc'd, caller frees) ---- */
@@ -409,220 +449,13 @@ static esp_err_t read_fctry_pem(const char *key, char **out) {
     return err;
 }
 
-/* ---- Local schedules — /she/schedule ---------------------------------------
- *
- * The device already runs time-based schedules with no cloud at all
- * (schedule_store.c: NVS + SNTP + a 5 s tick). Until now they could only be
- * created over MQTT, so an app with no link could not add one. These endpoints
- * expose the SAME store locally, which is what makes "create an automation while
- * offline" possible; the app then syncs the automation to the cloud when the link
- * returns, and schedule_add() dedups so the two never occupy two slots.
- *
- * POST body: {"hour":20,"minute":0,"days_mask":127,"relay":8,"action":1}
- *   days_mask  bit0=Sun..bit6=Sat, 0x7F=daily, 0=one-shot (omit → daily)
- *   relay      CHANNEL index — /she/info reports it per device
- *   action     1 = ON, 0 = OFF
- */
-
-/* Shared PoP gate for the schedule handlers (the older handlers inline this). */
-static bool sched_pop_ok(httpd_req_t *req) {
-    char pop_header[16] = {0};
-    size_t pop_len = httpd_req_get_hdr_value_len(req, "X-SHE-PoP");
-    if (pop_len > 0 && pop_len < sizeof(pop_header)) {
-        httpd_req_get_hdr_value_str(req, "X-SHE-PoP", pop_header, sizeof(pop_header));
-    }
-    return verify_pop(pop_header, strlen(pop_header));
-}
-
-static esp_err_t sched_unauthorized(httpd_req_t *req) {
-    httpd_resp_set_status(req, "401 Unauthorized");
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
-    return ESP_OK;
-}
-
-static esp_err_t handler_schedule_list(httpd_req_t *req) {
-    if (!sched_pop_ok(req)) return sched_unauthorized(req);
-
-    size_t count = 0;
-    const she_sched_t *list = schedule_list(&count);   /* count is the ARRAY size */
-
-    cJSON *root = cJSON_CreateObject();
-    cJSON *arr = cJSON_CreateArray();
-    for (size_t i = 0; i < count && i < SHE_SCHED_MAX; i++) {
-        if (!list[i].enabled) continue;                /* holes are not schedules */
-        cJSON *s = cJSON_CreateObject();
-        cJSON_AddNumberToObject(s, "index", (double)i);
-        cJSON_AddNumberToObject(s, "hour", list[i].hour);
-        cJSON_AddNumberToObject(s, "minute", list[i].minute);
-        cJSON_AddNumberToObject(s, "days_mask", list[i].days_mask);
-        cJSON_AddNumberToObject(s, "relay", list[i].relay);
-        cJSON_AddNumberToObject(s, "action", list[i].action);
-        cJSON_AddItemToArray(arr, s);
-    }
-    cJSON_AddItemToObject(root, "schedules", arr);
-    cJSON_AddNumberToObject(root, "max", SHE_SCHED_MAX);
-
-    char *resp = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, resp ? resp : "{\"schedules\":[]}");
-    if (resp) free(resp);
-    return ESP_OK;
-}
-
-static esp_err_t handler_schedule_add(httpd_req_t *req) {
-    if (!sched_pop_ok(req)) return sched_unauthorized(req);
-
-    char buf[256] = {0};
-    int read = httpd_req_recv(req, buf, sizeof(buf) - 1);
-    if (read <= 0) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"empty_body\"}");
-        return ESP_OK;
-    }
-
-    cJSON *root = cJSON_Parse(buf);
-    if (!root) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
-        return ESP_OK;
-    }
-
-    cJSON *jh = cJSON_GetObjectItem(root, "hour");
-    cJSON *jm = cJSON_GetObjectItem(root, "minute");
-    cJSON *jd = cJSON_GetObjectItem(root, "days_mask");
-    cJSON *jr = cJSON_GetObjectItem(root, "relay");
-    cJSON *ja = cJSON_GetObjectItem(root, "action");
-
-    if (!cJSON_IsNumber(jh) || !cJSON_IsNumber(jm) ||
-        !cJSON_IsNumber(jr) || !cJSON_IsNumber(ja)) {
-        cJSON_Delete(root);
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req,
-            "{\"error\":\"expected hour,minute,relay,action numbers\"}");
-        return ESP_OK;
-    }
-
-    const int hour = jh->valueint, minute = jm->valueint;
-    const int relay = jr->valueint, action = ja->valueint;
-    const int mask = cJSON_IsNumber(jd) ? jd->valueint : SHE_SCHED_EVERY_DAY;
-
-    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
-        relay < 0 || relay > 23 || mask < 0 || mask > 0x7F ||
-        (action != SHE_SCHED_ACTION_ON && action != SHE_SCHED_ACTION_OFF)) {
-        cJSON_Delete(root);
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"out_of_range\"}");
-        return ESP_OK;
-    }
-
-    she_sched_t s = {0};
-    s.hour = (uint8_t)hour;
-    s.minute = (uint8_t)minute;
-    s.days_mask = (uint8_t)mask;
-    s.relay = (uint8_t)relay;
-    s.action = (uint8_t)action;
-
-    int idx = -1;
-    esp_err_t err = schedule_add(&s, &idx);   /* idempotent on content */
-    cJSON_Delete(root);
-
-    if (err != ESP_OK) {
-        httpd_resp_set_status(req, "507 Insufficient Storage");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"schedule_list_full\"}");
-        return ESP_OK;
-    }
-
-    char resp[80];
-    snprintf(resp, sizeof(resp), "{\"accepted\":true,\"index\":%d}", idx);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, resp);
-    return ESP_OK;
-}
-
-static esp_err_t handler_schedule_remove(httpd_req_t *req) {
-    if (!sched_pop_ok(req)) return sched_unauthorized(req);
-
-    char buf[128] = {0};
-    int read = httpd_req_recv(req, buf, sizeof(buf) - 1);
-    if (read <= 0) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"empty_body\"}");
-        return ESP_OK;
-    }
-
-    cJSON *root = cJSON_Parse(buf);
-    if (!root) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"malformed_json\"}");
-        return ESP_OK;
-    }
-
-    cJSON *ji = cJSON_GetObjectItem(root, "index");
-    const bool ok = cJSON_IsNumber(ji);
-    const int idx = ok ? ji->valueint : -1;
-    cJSON_Delete(root);
-
-    if (!ok || schedule_remove(idx) != ESP_OK) {
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"error\":\"bad_index\"}");
-        return ESP_OK;
-    }
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"removed\":true}");
-    return ESP_OK;
-}
-
-static esp_err_t handler_schedule_clear(httpd_req_t *req) {
-    if (!sched_pop_ok(req)) return sched_unauthorized(req);
-    schedule_clear_all();
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"cleared\":true}");
-    return ESP_OK;
-}
-
 /* ---- Register /she/info + /she/ctrl on a started server ---- */
-static esp_err_t handler_reprovision(httpd_req_t *req) {
-    /* Same PoP gate as the other control endpoints: wiping the Wi-Fi config is
-     * exactly what an attacker on the LAN would want to do. */
-    char pop_header[16] = {0};
-    size_t pop_len = httpd_req_get_hdr_value_len(req, "X-SHE-PoP");
-    if (pop_len > 0 && pop_len < sizeof(pop_header)) {
-        httpd_req_get_hdr_value_str(req, "X-SHE-PoP", pop_header, sizeof(pop_header));
-    }
-    if (!verify_pop(pop_header, strlen(pop_header))) {
-        httpd_resp_set_status(req, "401 Unauthorized");
-        httpd_resp_sendstr(req, "{\"error\":\"invalid_pop\"}");
-        return ESP_OK;
-    }
-
-    httpd_resp_sendstr(req, "{\"status\":\"reprovisioning\"}");
-    /* The reboot happens on a short delay inside ble_provisioning_reset(), so
-     * the response above reaches the caller before the radio goes down. */
-    ble_provisioning_reset();
-    return ESP_OK;
-}
-
 static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_info = {
         .uri = "/she/info", .method = HTTP_GET, .handler = handler_info,
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_info));
 
-    httpd_uri_t uri_reprov = {
-        .uri = "/she/reprovision", .method = HTTP_POST, .handler = handler_reprovision,
-        .user_ctx = NULL
-    };
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_reprov));
     httpd_uri_t uri_ctrl = {
         .uri = "/she/ctrl", .method = HTTP_POST, .handler = handler_ctrl,
     };
@@ -631,27 +464,7 @@ static esp_err_t register_uris(httpd_handle_t server) {
     httpd_uri_t uri_config = {
         .uri = "/she/config", .method = HTTP_POST, .handler = handler_config,
     };
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_config));
-
-    /* Device-local schedules — the offline-automation path. Same store the MQTT
-     * `schedule_add` command drives, so both routes converge (see schedule_add's
-     * content dedup). */
-    httpd_uri_t uri_sched_list = {
-        .uri = "/she/schedule", .method = HTTP_GET, .handler = handler_schedule_list,
-    };
-    httpd_uri_t uri_sched_add = {
-        .uri = "/she/schedule", .method = HTTP_POST, .handler = handler_schedule_add,
-    };
-    httpd_uri_t uri_sched_rm = {
-        .uri = "/she/schedule/remove", .method = HTTP_POST, .handler = handler_schedule_remove,
-    };
-    httpd_uri_t uri_sched_clear = {
-        .uri = "/she/schedule", .method = HTTP_DELETE, .handler = handler_schedule_clear,
-    };
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_list));
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_add));
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uri_sched_rm));
-    return httpd_register_uri_handler(server, &uri_sched_clear);
+    return httpd_register_uri_handler(server, &uri_config);
 }
 
 /* ---- Start HTTPS server (F1 fix: real TLS via esp_https_server) ----
@@ -666,25 +479,6 @@ static esp_err_t start_https_server(void) {
         httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
         conf.httpd.server_port = SHE_MDNS_PORT;
         conf.httpd.ctrl_port = 32768;
-        // The pool is LWIP_MAX_SOCKETS - 3 (= 7 here) and LRU purge is OFF by
-        // default, so once every slot is held the server REFUSES the next
-        // connection — the phone sees "Connection reset by peer" (errno 104) and
-        // local control silently falls back to the queue. Purging the oldest
-        // IDLE socket instead means a stale TLS session can never lock the app
-        // out. (Sockets are also held by MQTT + DNS, so the headroom is small.)
-        conf.httpd.lru_purge_enable = true;
-        // keep_alive_enable is left at the IDF default (FALSE) — deliberately.
-        //
-        // It was enabled on 2026-10-30 to avoid a TLS handshake per request, then
-        // reverted when local control appeared to break. That revert did NOT fix
-        // the problem: the real cause was Wi-Fi MODEM SLEEP (see
-        // esp_wifi_set_ps(WIFI_PS_NONE) in app_wifi.c) plus a board that had moved
-        // to a new DHCP address. So keep-alive is UNPROVEN here, not disproven.
-        //
-        // It stays off because it is untested on hardware that switches mains
-        // relays: each kept-alive session holds its ~40 KB of mbedTLS buffers
-        // longer, and this board already runs close to the heap limit. Re-test it
-        // only against a healthy link, and measure free_heap before/after.
         conf.servercert = (const uint8_t *)cert_pem;
         conf.servercert_len = strlen(cert_pem) + 1;
         conf.prvtkey_pem = (const uint8_t *)key_pem;
@@ -726,6 +520,14 @@ static esp_err_t start_https_server(void) {
 /* ---- Start local control ---- */
 esp_err_t local_ctrl_start(she_node_t *node) {
     g_node = node;
+    /* Server first, THEN advertise. The old order advertised a service before
+     * anything was listening, so a board that failed to start the HTTPS server
+     * (no device cert in fctry NVS) still left an mDNS record behind pointing at
+     * a closed port — the app would discover the device and then time out. */
+    esp_err_t err = start_https_server();
+    if (err != ESP_OK) {
+        return err;
+    }
     start_mdns(node);
-    return start_https_server();
+    return ESP_OK;
 }

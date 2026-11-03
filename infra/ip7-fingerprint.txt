@@ -1,0 +1,23 @@
+﻿=== PING -a 192.168.1.7 ===
+
+Pinging 192.168.1.7 [192.168.1.7] with 32 bytes of data:
+Reply from 192.168.1.7: bytes=32 time=180ms TTL=64
+Reply from 192.168.1.7: bytes=32 time=5ms TTL=64
+
+Ping statistics for 192.168.1.7:
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 5ms, Maximum = 180ms, Average = 92ms
+
+=== ARP entry for 192.168.1.7 ===
+  192.168.1.7           96-a4-f1-ad-10-ec     dynamic   
+
+=== TCP 8080 on 192.168.1.7 ===
+TcpTestSucceeded(8080) = False
+
+=== TCP 8883 on 192.168.1.7 ===
+TcpTestSucceeded(8883) = False
+
+=== TCP 80 / 443 on 192.168.1.7 ===
+TcpTestSucceeded(80)  = False
+TcpTestSucceeded(443) = False

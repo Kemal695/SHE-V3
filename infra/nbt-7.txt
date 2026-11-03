@@ -1,0 +1,26 @@
+﻿=== nbtstat -A 192.168.1.7 ===
+    
+Bluetooth Network Connection:
+Node IpAddress: [0.0.0.0] Scope Id: []
+
+    Host not found.
+    
+Wi-Fi:
+Node IpAddress: [192.168.1.21] Scope Id: []
+
+    Host not found.
+    
+Local Area Connection* 1:
+Node IpAddress: [0.0.0.0] Scope Id: []
+
+    Host not found.
+    
+Local Area Connection* 2:
+Node IpAddress: [0.0.0.0] Scope Id: []
+
+    Host not found.
+    
+vEthernet (WSL (Hyper-V firewall)):
+Node IpAddress: [172.27.112.1] Scope Id: []
+
+    Host not found.

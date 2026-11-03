@@ -1,0 +1,815 @@
+Listening on COM3 @ 115200 for 120s
+Press EN on the board now. Hold BOOT + tap EN for download mode.
+========================================================================
+[   5.08s] ets Jun  8 2016 00:22:57\r
+[   5.08s] \r
+[   5.08s] rst:0x1 (POWERON_RESET),boot:0x17 (SPI_FAST_FLASH_BOOT)\r
+[   5.08s] configsip: 0, SPIWP:0xee\r
+[   5.08s] clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,h
+[   5.10s] d_drv:0x00,wp_drv:0x00\r
+[   5.10s] mode:DIO, clock div:2\r
+[   5.10s] load:0x3fff0030,len:7116\r
+[   5.10s] ho 0 tail 12 room 4\r
+[   5.10s] load:0x40078000,len:15700\r
+[   5.10s] load:0x40080400,len:4\r
+[   5.10s] load:0x40080404,len:3876\r
+[   5.10s] entry 0x4008064c\r
+[   5.10s] [0;32mI (31) boot: ESP-IDF v5.1
+[   5.12s] .4-dirty 2nd stage bootloader[0m\r
+[   5.12s] [0;32mI (31) boot: compile time Nov  2 2026 14:54:17[0m\r
+[   5.12s] [0;32mI (31) boot: Multicore bootloader[0m\r
+[   5.12s] [0;32mI (35) boot: chip revision: v1.1[0m\r
+[   5.12s] [0;32mI (39) boot.esp32: SPI Speed      : 40MHz[0m\r
+[   5.12s] [0;32mI (44) boo
+[   5.14s] t.esp32: SPI Mode       : DIO[0m\r
+[   5.14s] [0;32mI (48) boot.esp32: SPI Flash Size : 8MB[0m\r
+[   5.14s] [0;32mI (53) boot: Enabling RNG early entropy source...[0m\r
+[   5.14s] [0;32mI (58) boot: Partition Table:[0m\r
+[   5.14s] [0;32mI (62) boot: ## Label     
+[   5.17s]        Usage          Type ST Offset   Length[0m\r
+[   5.17s] [0;32mI (69) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m\r
+[   5.17s] [0;32mI (77) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m\r
+[   5.17s] [0;32mI (84) boot:  2 factory   
+[   5.19s]        factory app      00 00 00010000 001e0000[0m\r
+[   5.19s] [0;32mI (92) boot:  3 ota_0            OTA app          00 10 001f0000 001e0000[0m\r
+[   5.19s] [0;32mI (99) boot:  4 ota_1            OTA app          00 11 003d0000 001e0000[0m\r
+[   5.21s] [0;32mI (107) boot:  5 otadata          OTA data         01 00 005b0000 00002000[0m\r
+[   5.21s] [0;32mI (114) boot:  6 fctry            WiFi data        01 02 005c0000 00010000[0m\r
+[   5.21s] [0;32mI (122) boot:  7 nvs.keys         WiFi dat
+[   5.23s] a        01 02 005d0000 00001000[0m\r
+[   5.23s] [0;32mI (129) boot: End of partition table[0m\r
+[   5.23s] [0;32mI (134) boot: Defaulting to factory image[0m\r
+[   5.23s] [0;32mI (138) esp_image: segment 0: paddr=00010020 vaddr=3f400020 size=68ea0h (429728) map[0m\r
+[   5.39s] [0;32mI (302) esp_image: segment 1: paddr=00078ec8 vaddr=3ffbdb60 size=05a94h ( 23188) load[0m\r
+[   5.39s] [0;32mI (311) esp_image: segment 2: paddr=0007e964 vaddr=40080000 size=016b4h (  5812) load[0m\r
+[   5.39s] [0;32mI (314) esp_image: segm
+[   5.41s] ent 3: paddr=00080020 vaddr=400d0020 size=134f30h (1265456) map[0m\r
+[   5.86s] [0;32mI (775) esp_image: segment 4: paddr=001b4f58 vaddr=400816b4 size=1cd7ch (118140) load[0m\r
+[   5.92s] [0;32mI (840) boot: Loaded app from partition at offset 0x10000[0m\r
+[   5.92s] [0;32mI (840) boot: Disabling RNG early entropy source...[0m\r
+[   5.92s] [0;32mI (852) cpu_start: Multic
+[   5.94s] ore app[0m\r
+[   5.94s] [0;32mI (852) cpu_start: Pro cpu up.[0m\r
+[   5.94s] [0;32mI (852) cpu_start: Starting app cpu, entry point is 0x40081530[0m\r
+[   5.94s] [0;32mI (0) cpu_start: App cpu up.[0m\r
+[   5.94s] D (864) clk: RTC_SLOW_CLK calibration value: 3156224
+[   5.96s] [0m\r
+[   5.96s] [0;32mI (877) cpu_start: Pro cpu start user code[0m\r
+[   5.96s] [0;32mI (877) cpu_start: cpu freq: 160000000 Hz[0m\r
+[   5.96s] [0;32mI (877) cpu_start: Application information:[0m\r
+[   5.96s] [0;32mI (882) cpu_start: P
+[   5.98s] roject name:     she-firmware[0m\r
+[   5.98s] [0;32mI (887) cpu_start: App version:      242cd71-dirty[0m\r
+[   5.98s] [0;32mI (893) cpu_start: Compile time:     Nov  3 2026 10:09:23[0m\r
+[   5.98s] [0;32mI (899) cpu_start: ELF file SHA256:  29124c9c46a0f1a5...[0m\r
+[   5.98s] [0;32mI (905) cpu_
+[   6.00s] start: ESP-IDF:          v5.1.4-dirty[0m\r
+[   6.00s] [0;32mI (910) cpu_start: Min chip rev:     v0.0[0m\r
+[   6.00s] [0;32mI (915) cpu_start: Max chip rev:     v3.99 [0m\r
+[   6.00s] [0;32mI (920) cpu_start: Chip rev:         v1.1[0m\r
+[   6.00s] D (925) memory_la
+[   6.03s] yout: Checking 13 reserved memory ranges:[0m\r
+[   6.03s] D (930) memory_layout: Reserved memory range 0x3ff82000 - 0x3ff82000[0m\r
+[   6.03s] D (936) memory_layout: Reserved memory range 0x3ffae000 - 0x3ffae6e0[0m\r
+[   6.03s] D (943) memory_layout: Reserv
+[   6.05s] ed memory range 0x3ffae6e0 - 0x3ffaff10[0m\r
+[   6.05s] D (949) memory_layout: Reserved memory range 0x3ffb0000 - 0x3ffb6388[0m\r
+[   6.05s] D (956) memory_layout: Reserved memory range 0x3ffb8000 - 0x3ffb9a20[0m\r
+[   6.05s] D (962) memory_layout: Reserved
+[   6.05s]  memory range 0x3ffbdb28 - 0x3ff
+[   6.07s] bdb5c[0m\r
+[   6.07s] D (968) memory_layout: Reserved memory range 0x3ffbdb60 - 0x3ffcd468[0m\r
+[   6.07s] D (975) memory_layout: Reserved memory range 0x3ffe0000 - 0x3ffe0440[0m\r
+[   6.07s] D (981) memory_layout: Reserved memory range 0x3ffe3f20 - 0x3ffe4
+[   6.09s] 350[0m\r
+[   6.09s] D (988) memory_layout: Reserved memory range 0x40070000 - 0x40078000[0m\r
+[   6.09s] D (994) memory_layout: Reserved memory range 0x40078000 - 0x40080000[0m\r
+[   6.09s] D (1001) memory_layout: Reserved memory range 0x40080000 - 0x4009e4
+[   6.11s] 30[0m\r
+[   6.11s] D (1007) memory_layout: Reserved memory range 0x50001fe8 - 0x50002000[0m\r
+[   6.11s] D (1014) memory_layout: Building list of available memory regions:[0m\r
+[   6.11s] D (1020) memory_layout: Available memory region 0x3ffaff10 - 0x3ffb0000[0m\r
+[   6.11s] D (1027) memory_layout: 
+[   6.13s] Available memory region 0x3ffb6388 - 0x3ffb8000[0m\r
+[   6.13s] D (1033) memory_layout: Available memory region 0x3ffb9a20 - 0x3ffbdb28[0m\r
+[   6.13s] D (1040) memory_layout: Available memory region 0x3ffcd468 - 0x3ffce000[0m\r
+[   6.13s] D (1047) memory_l
+[   6.15s] ayout: Available memory region 0x3ffce000 - 0x3ffd0000[0m\r
+[   6.15s] D (1053) memory_layout: Available memory region 0x3ffd0000 - 0x3ffd2000[0m\r
+[   6.15s] D (1060) memory_layout: Available memory region 0x3ffd2000 - 0x3ffd4000[0m\r
+[   6.15s] D (1067) memory_layout: Available memory r
+[   6.17s] egion 0x3ffd4000 - 0x3ffd6000[0m\r
+[   6.17s] D (1073) memory_layout: Available memory region 0x3ffd6000 - 0x3ffd8000[0m\r
+[   6.17s] D (1080) memory_layout: Available memory region 0x3ffd8000 - 0x3ffda000[0m\r
+[   6.17s] D (1087) memory_layout: Available m
+[   6.19s] emory region 0x3ffda000 - 0x3ffdc000[0m\r
+[   6.19s] D (1093) memory_layout: Available memory region 0x3ffdc000 - 0x3ffde000[0m\r
+[   6.19s] D (1100) memory_layout: Available memory region 0x3ffde000 - 0x3ffe0000[0m\r
+[   6.19s] D (1107) memory_layout: Avai
+[   6.21s] lable memory region 0x3ffe0440 - 0x3ffe3f20[0m\r
+[   6.21s] D (1113) memory_layout: Available memory region 0x3ffe4350 - 0x3ffe8000[0m\r
+[   6.21s] D (1120) memory_layout: Available memory region 0x3ffe8000 - 0x3fff0000[0m\r
+[   6.21s] D (1127) memory_layout: Available memory region 0x3ff
+[   6.23s] f0000 - 0x3fff8000[0m\r
+[   6.23s] D (1133) memory_layout: Available memory region 0x3fff8000 - 0x3fffc000[0m\r
+[   6.23s] D (1140) memory_layout: Available memory region 0x3fffc000 - 0x40000000[0m\r
+[   6.23s] D (1147) memory_layout: Available memory regio
+[   6.25s] n 0x4009e430 - 0x400a0000[0m\r
+[   6.25s] [0;32mI (1154) heap_init: Initializing. RAM available for dynamic allocation:[0m\r
+[   6.25s] D (1161) heap_init: New heap initialised at 0x3ffaff10[0m\r
+[   6.25s] [0;32mI (1166) heap_init: At 3FFAFF10 len 000000
+[   6.27s] F0 (0 KiB): DRAM[0m\r
+[   6.27s] D (1172) heap_init: New heap initialised at 0x3ffb6388[0m\r
+[   6.27s] [0;32mI (1177) heap_init: At 3FFB6388 len 00001C78 (7 KiB): DRAM[0m\r
+[   6.27s] D (1184) heap_init: New heap initialised at 0x3ffb9a20[0m\r
+[   6.27s] [0;32mI (1189) heap_init: At 3FFB9A20 len 
+[   6.29s] 00004108 (16 KiB): DRAM[0m\r
+[   6.29s] D (1195) heap_init: New heap initialised at 0x3ffcd468[0m\r
+[   6.29s] [0;32mI (1200) heap_init: At 3FFCD468 len 00012B98 (74 KiB): DRAM[0m\r
+[   6.29s] [0;32mI (1206) heap_init: At 3FFE0440 len 00003AE0 (14 KiB): D
+[   6.31s] /IRAM[0m\r
+[   6.31s] [0;32mI (1213) heap_init: At 3FFE4350 len 0001BCB0 (111 KiB): D/IRAM[0m\r
+[   6.31s] D (1219) heap_init: New heap initialised at 0x4009e430[0m\r
+[   6.31s] [0;32mI (1225) heap_init: At 4009E430 len 00001BD0 (6 KiB): IRAM[0m\r
+[   6.31s] D (1231) intr_alloc: Connected src 46 t
+[   6.33s] o int 2 (cpu 0)[0m\r
+[   6.33s] D (1237) spi_flash: trying chip: issi[0m\r
+[   6.33s] D (1240) spi_flash: trying chip: gd[0m\r
+[   6.33s] [0;32mI (1243) spi_flash: detected chip: gd[0m\r
+[   6.33s] [0;32mI (1248) spi_flash: flash io: dio[0m\r
+[   6.33s] D (1252) cpu_start: cal
+[   6.35s] ling init function: 0x401cef5c[0m\r
+[   6.35s] D (1257) cpu_start: calling init function: 0x401cea3c[0m\r
+[   6.35s] D (1262) cpu_start: calling init function: 0x4016f610[0m\r
+[   6.35s] D (1267) cpu_start: calling init function: 0x4014dd60[0m\r
+[   6.35s] D (1272) cp
+[   6.37s] u_start: calling init function: 0x4014d36c[0m\r
+[   6.37s] D (1277) cpu_start: calling init function: 0x40149ce0[0m\r
+[   6.37s] [0;33mW (1282) ADC: legacy driver is deprecated, please migrate to `esp_adc/adc_oneshot.h`[0m\r
+[   6.37s] D (1291) cpu_start: calling init function: 0x400d411
+[   6.39s] 4[0m\r
+[   6.39s] D (1296) cpu_start: calling init function: 0x400d7514 on core: 0[0m\r
+[   6.39s] D (1302) intr_alloc: Connected src 17 to int 3 (cpu 0)[0m\r
+[   6.39s] D (1307) cpu_start: calling init function: 0x400d503c on core: 0[0m\r
+[   6.39s] [0;32mI (1314) c
+[   6.41s] oexist: coex firmware version: d96c1e51f[0m\r
+[   6.41s] D (1319) intr_alloc: Connected src 24 to int 9 (cpu 0)[0m\r
+[   6.41s] [0;32mI (1324) app_start: Starting scheduler on CPU0[0m\r
+[   6.41s] [0;32D (1329) intr_alloc: Connected src 25 to int 2 (cpu 1)[0m\r
+[   6.41s] [0;32mI (1334) app_start
+[   6.44s] : Starting scheduler on CPU1[0m\r
+[   6.44s] mI (1329) main_task: Started on CPU0[0m\r
+[   6.44s] D (1343) heap_init: New heap initialised at 0x3ffe0440[0m\r
+[   6.44s] D (1348) heap_init: New heap initialised at 0x3ffe4350[0m\r
+[   6.44s] D (1353) intr_alloc: Connect
+[   6.46s] ed src 16 to int 12 (cpu 0)[0m\r
+[   6.46s] [0;32mI (1359) main_task: Calling app_main()[0m\r
+[   6.46s] [0;32mI (1363) she_main: ========================================[0m\r
+[   6.46s] [0;32mI (1369) she_main:   SHE V3 firmware starting...[0m\r
+[   6.46s] [0;32m
+[   6.48s] I (1375) she_main:   Firmware version: 3.0.0[0m\r
+[   6.48s] [0;32mI (1380) she_main:   Secure version: 1[0m\r
+[   6.48s] [0;32mI (1384) she_main:   Compiled at: Nov  3 2026 14:38:30[0m\r
+[   6.48s] [0;32mI (1390) she_main: ========================================[0m\r
+[   6.54s] [0;32mI (1456) she_main: Step 1: NVS initialized (default + fctry)[0m\r
+[   6.54s] D (1458) esp_netif_lwip: LwIP stack has been initialized[0m\r
+[   6.54s] D (1458) esp_netif_lwip: 
+[   6.56s] esp-netif has been successfully initialized[0m\r
+[   6.56s] D (1463) event: running task for loop 0x3ffbdb04[0m\r
+[   6.56s] D (1468) event: created task for loop 0x3ffbdb04[0m\r
+[   6.56s] D (1473) event: created event loop 0x3ffbdb04[0m\r
+[   6.56s] D (1477) esp_net
+[   6.58s] if_lwip: check: remote, if=0x3ffbba80 fn=0x4016d038\r
+[   6.58s] [0m\r
+[   6.58s] D (1484) esp_netif_objects: esp_netif_add_to_list_unsafe netif added successfully (total netifs: 1)[0m\r
+[   6.58s] D (1493) esp_netif_lwip: call api in lwip: ret=0x0, give sem
+[   6.60s] [0m\r
+[   6.60s] D (1500) nvs: nvs_open_from_partition misc 1[0m\r
+[   6.60s] I (1504) wifi:wifi driver task: 3ffd1c3c, prio:23, stack:6656, core=0\r
+[   6.60s] D (1510) efuse: In EFUSE_BLK0__DATA2_REG is used 8 bits starting with 8 bit[0m\r
+[   6.60s] D (1516) efuse: In EFUSE_BLK0__DATA2_REG is used
+[   6.62s]  8 bits starting with 0 bit[0m\r
+[   6.62s] D (1523) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 24 bit[0m\r
+[   6.62s] D (1530) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 16 bit[0m\r
+[   6.62s] D (1537) efuse: In EFUSE_BL
+[   6.64s] K0__DATA1_REG is used 8 bits starting with 8 bit[0m\r
+[   6.64s] D (1544) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 0 bit[0m\r
+[   6.64s] D (1551) efuse: In EFUSE_BLK0__DATA2_REG is used 8 bits starting with 16 bit[0m\r
+[   6.64s] D (1559) nvs: nvs_open_from_partition n
+[   6.66s] vs.net80211 1[0m\r
+[   6.66s] D (1564) nvs: nvs_get opmode 1[0m\r
+[   6.66s] D (1567) nvs: nvs_get_str_or_blob sta.ssid[0m\r
+[   6.66s] D (1572) nvs: nvs_get sta.authmode 1[0m\r
+[   6.66s] D (1574) nvs: nvs_get_str_or_blob sta.pswd[0m\r
+[   6.66s] D (1580) nvs: nvs_get_str_or_bl
+[   6.68s] ob sta.pmk[0m\r
+[   6.68s] D (1583) nvs: nvs_get sta.chan 1[0m\r
+[   6.68s] D (1586) nvs: nvs_get auto.conn 1[0m\r
+[   6.68s] D (1589) nvs: nvs_get bssid.set 1[0m\r
+[   6.68s] D (1593) nvs: nvs_get_str_or_blob sta.bssid[0m\r
+[   6.68s] D (1597) nvs: nvs_get sta.lis_intval 2[0m\r
+[   6.70s] D (1601) nvs: nvs_get sta.phym 1[0m\r
+[   6.70s] D (1604) nvs: nvs_get sta.phybw 1[0m\r
+[   6.70s] D (1607) nvs: nvs_get_str_or_blob sta.apsw[0m\r
+[   6.70s] D (1613) nvs: nvs_get_str_or_blob sta.apinfo[0m\r
+[   6.70s] D (1620) nvs: nvs_get sta.scan_method 1[0m\r
+[   6.70s] D (1620) nvs: nvs_get sta.sort_meth
+[   6.72s] od 1[0m\r
+[   6.72s] D (1624) nvs: nvs_get sta.minrssi 1[0m\r
+[   6.72s] D (1628) nvs: nvs_get sta.minauth 1[0m\r
+[   6.72s] D (1631) nvs: nvs_get sta.pmf_e 1[0m\r
+[   6.72s] D (1635) nvs: nvs_get sta.pmf_r 1[0m\r
+[   6.72s] D (1638) nvs: nvs_get sta.btm_e 1[0m\r
+[   6.72s] D (1641) nvs: n
+[   6.74s] vs_get sta.rrm_e 1[0m\r
+[   6.74s] D (1645) nvs: nvs_get sta.mbo_e 1[0m\r
+[   6.74s] D (1648) nvs: nvs_get_str_or_blob ap.ssid[0m\r
+[   6.74s] D (1652) nvs: nvs_get_str_or_blob ap.passwd[0m\r
+[   6.74s] D (1656) nvs: nvs_get_str_or_blob ap.pmk[0m\r
+[   6.74s] D (1660) nvs: nvs_get ap.chan 1[0m\r
+[   6.74s] D (1663) nvs: 
+[   6.76s] nvs_get ap.authmode 1[0m\r
+[   6.76s] D (1667) nvs: nvs_get ap.hidden 1[0m\r
+[   6.76s] D (1670) nvs: nvs_get ap.max.conn 1[0m\r
+[   6.76s] D (1674) nvs: nvs_get bcn.interval 2[0m\r
+[   6.76s] D (1678) nvs: nvs_get ap.phym 1[0m\r
+[   6.76s] D (1681) nvs: nvs_get ap.phybw 1[0m\r
+[   6.78s] D (1684) nvs: nvs_get ap.sndchan 1[0m\r
+[   6.78s] D (1688) nvs: nvs_get ap.pmf_e 1[0m\r
+[   6.78s] D (1691) nvs: nvs_get ap.pmf_r 1[0m\r
+[   6.78s] D (1694) nvs: nvs_get ap.p_cipher 1[0m\r
+[   6.78s] D (1698) nvs: nvs_get lorate 1[0m\r
+[   6.78s] D (1701) nvs: nvs_get_str_or_blob country[0m\r
+[   6.78s] D (1705) nvs: nv
+[   6.81s] s_get ap.ftm_r 1[0m\r
+[   6.81s] D (1708) nvs: nvs_get sta.ft 1[0m\r
+[   6.81s] D (1712) nvs: nvs_get sta.owe 1[0m\r
+[   6.81s] D (1715) nvs: nvs_get sta.trans_d 1[0m\r
+[   6.81s] D (1718) nvs: nvs_get sta.sae_h2e 1[0m\r
+[   6.81s] D (1722) nvs: nvs_get sta.sae_pk_mode 1[0m\r
+[   6.81s] D 
+[   6.83s] (1726) nvs: nvs_get sta.bss_retry 1[0m\r
+[   6.83s] D (1730) nvs: nvs_get_str_or_blob sta.owe_data[0m\r
+[   6.83s] D (1734) nvs: nvs_get sta.he_dcm 1[0m\r
+[   6.83s] D (1737) nvs: nvs_get sta.he_dcm_c_tx 1[0m\r
+[   6.83s] D (1741) nvs: nvs_get sta.he_dcm_c_rx 1[0m\r
+[   6.83s] D
+[   6.85s]  (1745) nvs: nvs_get sta.he_mcs9_d 1[0m\r
+[   6.85s] D (1749) nvs: nvs_get sta.he_su_b_d 1[0m\r
+[   6.85s] D (1753) nvs: nvs_get sta.he_su_b_f_d 1[0m\r
+[   6.85s] D (1756) nvs: nvs_get sta.he_mu_b_f_d 1[0m\r
+[   6.85s] D (1760) nvs: nvs_get sta.he_cqi_f_d 1[0m\r
+[   6.85s] D (1764) nvs: nvs_get_str_or_blob sta
+[   6.87s] .sae_h2e_id[0m\r
+[   6.87s] D (1770) nvs: nvs_get ap.sae_h2e 1[0m\r
+[   6.87s] D (1772) nvs: nvs_get_str_or_blob ap.pmk_info[0m\r
+[   6.87s] D (1777) nvs: nvs_get nan.phym 1[0m\r
+[   6.87s] D (1781) nvs: nvs_set ap.sndchan 1 1[0m\r
+[   6.87s] I (1784) wifi:wifi firmware version:
+[   6.89s]  3ce09e5\r
+[   6.89s] I (1788) wifi:wifi certification version: v7.0\r
+[   6.89s] I (1792) wifi:config NVS flash: enabled\r
+[   6.89s] I (1795) wifi:config nano formating: disabled\r
+[   6.89s] I (1800) wifi:Init data frame dynamic rx buffer num: 32\r
+[   6.89s] I (1805) wifi:Init st
+[   6.89s] atic rx mgmt buffer num: 5\r
+[   6.89s] I (1
+[   6.91s] 809) wifi:Init management short buffer num: 32\r
+[   6.91s] I (1813) wifi:Init dynamic tx buffer num: 32\r
+[   6.91s] I (1817) wifi:Init static rx buffer size: 1600\r
+[   6.91s] I (1822) wifi:Init static rx buffer num: 10\r
+[   6.91s] I (1825) wifi:Init dynamic rx buffer 
+[   6.93s] num: 32\r
+[   6.93s] [0;32mI (1831) wifi_init: rx ba win: 6[0m\r
+[   6.93s] [0;32mI (1833) wifi_init: tcpip mbox: 32[0m\r
+[   6.93s] [0;32mI (1837) wifi_init: udp mbox: 6[0m\r
+[   6.93s] [0;32mI (1841) wifi_init: tcp mbox: 6[0m\r
+[   6.93s] [0;32mI (1845) wifi_init: tcp tx w
+[   6.95s] in: 5760[0m\r
+[   6.95s] [0;32mI (1849) wifi_init: tcp rx win: 5760[0m\r
+[   6.95s] [0;32mI (1853) wifi_init: tcp mss: 1440[0m\r
+[   6.95s] [0;32mI (1857) wifi_init: WiFi IRAM OP enabled[0m\r
+[   6.95s] [0;32mI (1862) wifi_init: WiFi RX IRAM OP enabled[0m\r
+[   6.95s] D (1867) nvs: nvs_get opmode 1[0m\r
+[   6.95s] [
+[   6.97s] 0;32mI (1870) she_wifi: Wi-Fi subsystem initialized (STA mode)[0m\r
+[   6.97s] [0;32mI (1876) she_main: Step 2: Wi-Fi subsystem initialized[0m\r
+[   6.97s] [0;32mI (1883) she_sys: SNTP started (server=pool.ntp.org) — clock will sync once Wi-F
+[   6.99s] i is up[0m\r
+[   6.99s] D (1891) nvs: nvs_open_from_partition she_fctry 0[0m\r
+[   6.99s] D (1896) nvs: nvs_get_str_or_blob device_mac[0m\r
+[   6.99s] D (1901) nvs: nvs_get_str_or_blob device_sku[0m\r
+[   6.99s] D (1905) nvs: nvs_get_str_or_blob node_id[0m\r
+[   6.99s] D (1909) nvs: nvs_close 3[0m\r
+[   6.99s] [0;32mI (
+[   7.01s] 1911) she_relay: Initializing PCF8574 for 24 relays (SDA=15 SCL=13)[0m\r
+[   7.01s] [0;32mI (1918) gpio: GPIO[13]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[   7.01s] [0;32mI (1928) gpio: GPIO[15]| InputEn: 1|
+[   7.03s]  OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[   7.03s] [0;32mI (1939) she_relay: I2C idle levels: SDA(GPIO15)=1 SCL(GPIO13)=1[0m\r
+[   7.03s] [0;32mI (1944) she_relay: I2C bus idle-high — wiring looks electrically sane, probing[0m\r
+[   7.03s] [0;32mI (1952) gpio
+[   7.05s] : GPIO[15]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[   7.05s] [0;32mI (1961) gpio: GPIO[13]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[   7.05s] [0;32mI (1970) she_relay: [
+[   7.07s] i2c] param_config…[0m\r
+[   7.07s] [0;32mI (1976) she_relay: [i2c] driver_install…[0m\r
+[   7.07s] D (1981) intr_alloc: Connected src 49 to int 13 (cpu 0)[0m\r
+[   7.07s] [0;32mI (1985) she_relay: [i2c] installed; scanning bus…[0m\r
+[   7.07s] [0;32mI (1991) 
+[   7.09s] she_relay:   probing 0x20…[0m\r
+[   7.18s] [0;32mI (2095) she_relay:   probing 0x21…[0m\r
+[   7.28s] [0;32mI (2195) she_relay:   probing 0x22…[0m\r
+[   7.38s] [0;32mI (2295) she_relay:   probing 0x23…[0m\r
+[   7.48s] [0;32mI (2395) she_relay:   probing 0x24…[0m\r
+[   7.48s] [0;32mI (2395) she_relay:   → 0x24 ACKed[0m\r
+[   7.48s] [0;32mI (2395) she_relay:   probing 0x25…[0m\r
+[   7.48s] [0;32mI (2397) she_relay:   → 0x25 ACKed[0m\r
+[   7.48s] [0;32mI (2401) she_relay:
+[   7.50s]    probing 0x26…[0m\r
+[   7.50s] [0;32mI (2406) she_relay:   → 0x26 ACKed[0m\r
+[   7.50s] [0;32mI (2409) she_relay:   probing 0x27…[0m\r
+[   7.58s] [0;32mI (2514) she_relay: I2C s
+[   7.60s] can 0x20-0x27: 3 device(s) responded[0m\r
+[   7.60s] [0;32mI (2514) she_relay: Relay expanders match the reference map 0x24/0x26/0x25[0m\r
+[   7.60s] [0;32mI (2517) she_relay: Relay expander 0 = 0x24 (ch 0-7)[0m\r
+[   7.60s] [0;32mI (2523) she_relay: Rel
+[   7.63s] ay expander 1 = 0x26 (ch 8-15)[0m\r
+[   7.63s] [0;32mI (2528) she_relay: Relay expander 2 = 0x25 (ch 16-23)[0m\r
+[   7.63s] [0;32mI (2534) she_relay: 3/3 expanders responded[0m\r
+[   7.63s] [0;32mI (2540) she_relay: PCF8574 initialized (present=1, 3 chip
+[   7.65s] s) — all relays OFF[0m\r
+[   7.65s] [0;32mI (2547) she_main: Step 3a: relay driver initialized (24 relays)[0m\r
+[   7.65s] [0;32mI (2554) she_main: Step 3b: CD4051 feedback monitor not used on SHE-R24 — contact feedback comes from the bus-1 PCF8574 input expanders[0m
+[   7.65s] \r
+[   7.65s] D 
+[   7.67s] (2567) intr_alloc: Connected src 50 to int 17 (cpu 0)[0m\r
+[   7.67s] [0;32mI (2573) she_inputs: I2C1 input bus ready (SDA=4 SCL=5) — 4/4 expanders responded[0m\r
+[   7.67s] [0;33mW (2582) she_sensors: ================= PINMAP MODE ==========
+[   7.69s] =======[0m\r
+[   7.69s] [0;33mW (2588) she_sensors: Each GPIO blinks 2 Hz for 6 s, one at a time, in this order:[0m\r
+[   7.69s] [0;33mW (2596) she_sensors:    1) GPIO27[0m\r
+[   7.69s] [0;33mW (2600) she_sensors:    2) GPIO32[0m\r
+[   7.69s] [0;33mW (2604) she_se
+[   7.69s] nsors:    3) GPIO33[0m\r
+[   7.69s] [0;33m
+[   7.71s] W (2608) she_sensors:    4) GPIO2[0m\r
+[   7.71s] [0;33mW (2612) she_sensors:    5) GPIO14[0m\r
+[   7.71s] [0;33mW (2616) she_sensors:    6) GPIO16[0m\r
+[   7.71s] [0;33mW (2620) she_sensors:    7) GPIO19[0m\r
+[   7.71s] [0;33mW (2624) she_sensors:    8) GPIO21[0
+[   7.73s] m\r
+[   7.73s] [0;33mW (2628) she_sensors:    9) GPIO22[0m\r
+[   7.73s] [0;33mW (2632) she_sensors:   10) GPIO23[0m\r
+[   7.73s] [0;33mW (2636) she_sensors:   11) GPIO25[0m\r
+[   7.73s] [0;33mW (2641) she_sensors:   12) GPIO26[0m\r
+[   7.73s] [0;33mW (2645) she_sensors: Put 
+[   7.75s] a DC voltmeter on ONE terminal; note WHICH window makes it[0m\r
+[   7.75s] [0;33mW (2653) she_sensors: toggle 0<->3.3V. That window's GPIO is that terminal's GPIO.[0m\r
+[   7.75s] [0;33mW (2661) she_sensors: ===============================================[0m\r
+[   7.75s] [0;32mI (2669)
+[   7.77s]  gpio: GPIO[27]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[   7.77s] [0;33mW (2678) she_sensors: >>> [1/12] NOW DRIVING GPIO27 for 6 s <<<[0m\r
+[        ] ... 17611 bytes so far, still listening
+[  13.77s] [0;32mI (8684) gpio: GPIO[27]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  15.27s] [0;32mI (10184) gpio: GPIO[32]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  15.27s] [0;33mW (10184) she_sensors: >>> [2/12] NOW DRIVIN
+[  15.29s] G GPIO32 for 6 s <<<[0m\r
+[        ] ... 17905 bytes so far, still listening
+[  21.26s] [0;32mI (16189) gpio: GPIO[32]| InputEn: 1| OutputEn: 0| OpenDr
+[  21.28s] ain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  22.78s] [0;32mI (17689) gpio: GPIO[33]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  22.78s] [0;33mW (17689) she_sensors: >>> [3/12] NOW DRIVING GPIO33 for 6 s <<<[0m\r
+[  28.78s] [0;32mI (23694) gpio: GPIO[33]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[        ] ... 18309 bytes so far, still listening
+[  30.27s] [0;32mI (25194) gpio: GPIO[2]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| I
+[  30.29s] ntr:0 [0m\r
+[  30.29s] [0;33mW (25194) she_sensors: >>> [4/12] NOW DRIVING GPIO2 for 6 s <<<[0m\r
+[  36.29s] [0;32mI (31199) gpio: GPIO[2]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  37.78s] [0;32mI (32699) gpio: GPIO[14]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  37.78s] [0;33mW (32699) sh
+[  37.80s] e_sensors: >>> [5/12] NOW DRIVING GPIO14 for 6 s <<<[0m\r
+[        ] ... 18787 bytes so far, still listening
+[  43.79s] [0;32mI (38704) gpio: GPIO[14]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  45.28s] [0;32mI (40204) gpio: GPIO[16]| InputEn: 1| OutputEn: 1| OpenDr
+[  45.30s] ain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  45.30s] [0;33mW (40204) she_sensors: >>> [6/12] NOW DRIVING GPIO16 for 6 s <<<[0m\r
+[        ] ... 19082 bytes so far, still listening
+[  51.30s] [0;32mI (46209) gpio: GPIO[16]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  52.79s] [0;32mI (47709) gpio: GPIO[19]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  52.79s] [0;33mW (47709) she_sensors: >>> [7/12] NOW DRIVIN
+[  52.81s] G GPIO19 for 6 s <<<[0m\r
+[  58.80s] [0;32mI (53714) gpio: GPIO[19]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[        ] ... 19486 bytes so far, still listening
+[  60.30s] [0;32mI (55214) gpio: GPIO[21]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  60.30s] [0;33mW (55214) she_sensors: >>> [8/12] NOW DRIVIN
+[  60.32s] G GPIO21 for 6 s <<<[0m\r
+[  66.31s] [0;32mI (61219) gpio: GPIO[21]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  67.80s] [0;32mI (62719) gpio: GPIO[22]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  67.80s] [0;33mW (62719) she_sensors: >>> [9/12] NOW DRIVIN
+[  67.82s] G GPIO22 for 6 s <<<[0m\r
+[        ] ... 19967 bytes so far, still listening
+[  73.80s] [0;32mI (68724) gpio: GPIO[22]| InputEn: 1| OutputEn: 0| OpenDr
+[  73.82s] ain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  75.31s] [0;32mI (70224) gpio: GPIO[23]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  75.31s] [0;33mW (70224) she_sensors: >>> [10/12] NOW DRIVI
+[  75.33s] NG GPIO23 for 6 s <<<[0m\r
+[        ] ... 20263 bytes so far, still listening
+[  81.30s] [0;32mI (76229) gpio: GPIO[23]| InputEn: 1| OutputEn: 0| OpenDr
+[  81.32s] ain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  82.82s] [0;32mI (77729) gpio: GPIO[25]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  82.82s] [0;33mW (77729) she_sensors: >>> [11/12] NOW DRIVING GPIO25 for 6 s <<<[0m\r
+[  88.82s] [0;32mI (83734) gpio: GPIO[25]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[        ] ... 20668 bytes so far, still listening
+[  90.31s] [0;32mI (85234) gpio: GPIO[26]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  90.31s] [0;33mW (85234) sh
+[  90.31s] e_sensors: >>> [12/12] NOW DRIVI
+[  90.33s] NG GPIO26 for 6 s <<<[0m\r
+[  91.62s] ets Jun  8 2016 00:22:57\r
+[  91.62s] \r
+[  91.62s] rst:0x1 (POWERON_RESET),boot:0x17 (SPI_FAST_FLASH_BOOT)\r
+[  91.62s] configsip: 0, SPIWP:0xee\r
+[  91.62s] clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,h
+[  91.64s] d_drv:0x00,wp_drv:0x00\r
+[  91.64s] mode:DIO, clock div:2\r
+[  91.64s] load:0x3fff0030,len:7116\r
+[  91.64s] ho 0 tail 12 room 4\r
+[  91.64s] load:0x40078000,len:15700\r
+[  91.64s] load:0x40080400,len:4\r
+[  91.64s] load:0x40080404,len:3876\r
+[  91.64s] entry 0x4008064c\r
+[  91.64s] [0;32mI (31) boot: ESP-IDF v5.1
+[  91.66s] .4-dirty 2nd stage bootloader[0m\r
+[  91.66s] [0;32mI (31) boot: compile time Nov  2 2026 14:54:17[0m\r
+[  91.66s] [0;32mI (31) boot: Multicore bootloader[0m\r
+[  91.66s] [0;32mI (35) boot: chip revision: v1.1[0m\r
+[  91.66s] [0;32mI (39) boot.esp32: SPI Speed    
+[  91.68s]   : 40MHz[0m\r
+[  91.68s] [0;32mI (44) boot.esp32: SPI Mode       : DIO[0m\r
+[  91.68s] [0;32mI (48) boot.esp32: SPI Flash Size : 8MB[0m\r
+[  91.68s] [0;32mI (53) boot: Enabling RNG early entropy source...[0m\r
+[  91.68s] [0;32mI (58) boot: Partition Table:[0m\r
+[  91.68s] [0;32mI (62) boot: ## Label     
+[  91.70s]        Usage          Type ST Offset   Length[0m\r
+[  91.70s] [0;32mI (69) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m\r
+[  91.70s] [0;32mI (77) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m\r
+[  91.70s] 
+[  91.73s] [0;32mI (84) boot:  2 factory          factory app      00 00 00010000 001e0000[0m\r
+[  91.73s] [0;32mI (92) boot:  3 ota_0            OTA app          00 10 001f0000 001e0000[0m\r
+[  91.73s] [0;32mI (99) boot:  4 ota_1            OTA app          00 11 003d0000 001e0000[0m\r
+[  91.75s] [0;32mI (107) boot:  5 otadata          OTA data         01 00 005b0000 00002000[0m\r
+[  91.75s] [0;32mI (114) boot:  6 fctry            WiFi data        01 02 005c0000 00010000[0m\r
+[  91.75s] [0;32mI (122) boot:  7 nvs.keys         WiFi dat
+[  91.77s] a        01 02 005d0000 00001000[0m\r
+[  91.77s] [0;32mI (129) boot: End of partition table[0m\r
+[  91.77s] [0;32mI (134) boot: Defaulting to factory image[0m\r
+[  91.77s] [0;32mI (138) esp_image: segment 0: paddr=00010020 vaddr=3f400020 size=68ea0h (429
+[  91.79s] 728) map[0m\r
+[  91.93s] [0;32mI (302) esp_image: segment 1: paddr=00078ec8 vaddr=3ffbdb60 size=05a94h ( 23188) load[0m\r
+[  91.93s] [0;32mI (311) esp_image: segment 2: paddr=0007e964 vaddr=40080000 size=016b4h (  5812) load[0m
+[  91.95s] \r
+[  91.95s] [0;32mI (314) esp_image: segment 3: paddr=00080020 vaddr=400d0020 size=134f30h (1265456) map[0m\r
+[  92.40s] [0;32mI (775) esp_image: segment 4: paddr=001b4f58 vaddr=400816b4 size=1cd7ch (118140) load[0m\r
+[  92.46s] [0;32mI (840) boot: Loaded app from partition at offset 0x10000[0m\r
+[  92.46s] [0;32mI (840) boot: Disabling RNG early entropy source...[0m\r
+[  92.48s] [0;32mI (852) cpu_start: Multicore app[0m\r
+[  92.48s] [0;32mI (852) cpu_start: Pro cpu up.[0m\r
+[  92.48s] [0;32mI (852) cpu_start: Starting app cpu, entry point is 0x40081530[0m\r
+[  92.48s] [0;32mI (0) cpu_start: App cpu up.[0m\r
+[  92.48s] D (864) clk: RTC_SLO
+[  92.50s] W_CLK calibration value: 3156570[0m\r
+[  92.50s] [0;32mI (877) cpu_start: Pro cpu start user code[0m\r
+[  92.50s] [0;32mI (877) cpu_start: cpu freq: 160000000 Hz[0m\r
+[  92.50s] [0;32mI (877) cpu_start: Application information:
+[  92.52s] [0m\r
+[  92.52s] [0;32mI (882) cpu_start: Project name:     she-firmware[0m\r
+[  92.52s] [0;32mI (887) cpu_start: App version:      242cd71-dirty[0m\r
+[  92.52s] [0;32mI (893) cpu_start: Compile time:     Nov  3 2026 10:09:23[0m\r
+[  92.52s] [0;32mI (899) cpu_start
+[  92.54s] : ELF file SHA256:  29124c9c46a0f1a5...[0m\r
+[  92.54s] [0;32mI (905) cpu_start: ESP-IDF:          v5.1.4-dirty[0m\r
+[  92.54s] [0;32mI (910) cpu_start: Min chip rev:     v0.0[0m\r
+[  92.54s] [0;32mI (915) cpu_start: Max chip rev:     v3.99 [0m\r
+[  92.54s] [0;32mI (920) cpu_start: Chip rev:    
+[  92.56s]      v1.1[0m\r
+[  92.56s] D (925) memory_layout: Checking 13 reserved memory ranges:[0m\r
+[  92.56s] D (930) memory_layout: Reserved memory range 0x3ff82000 - 0x3ff82000[0m\r
+[  92.56s] D (936) memory_layout: Reserved memory range 0x3ffae000 - 0x3ffae6e0[0
+[  92.58s] m\r
+[  92.58s] D (943) memory_layout: Reserved memory range 0x3ffae6e0 - 0x3ffaff10[0m\r
+[  92.58s] D (949) memory_layout: Reserved memory range 0x3ffb0000 - 0x3ffb6388[0m\r
+[  92.58s] D (956) memory_layout: Reserved memory range 0x3ffb8000 - 0x3ffb9a20[0m\r
+[  92.58s] D (962) memory_layout: Reserved
+[  92.60s]  memory range 0x3ffbdb28 - 0x3ffbdb5c[0m\r
+[  92.60s] D (968) memory_layout: Reserved memory range 0x3ffbdb60 - 0x3ffcd468[0m\r
+[  92.60s] D (975) memory_layout: Reserved memory range 0x3ffe0000 - 0x3ffe0440[0m\r
+[  92.60s] D (981) memory_layout: Reserved m
+[  92.63s] emory range 0x3ffe3f20 - 0x3ffe4350[0m\r
+[  92.63s] D (988) memory_layout: Reserved memory range 0x40070000 - 0x40078000[0m\r
+[  92.63s] D (994) memory_layout: Reserved memory range 0x40078000 - 0x40080000[0m\r
+[  92.63s] D (1001) memory_layout: Reserved memory range 0x40080000 - 0x4009e4
+[  92.65s] 30[0m\r
+[  92.65s] D (1007) memory_layout: Reserved memory range 0x50001fe8 - 0x50002000[0m\r
+[  92.65s] D (1014) memory_layout: Building list of available memory regions:[0m\r
+[  92.65s] D (1020) memory_layout: Available memory region 0x3ffaff10 - 0x3ffb00
+[  92.67s] 00[0m\r
+[  92.67s] D (1027) memory_layout: Available memory region 0x3ffb6388 - 0x3ffb8000[0m\r
+[  92.67s] D (1033) memory_layout: Available memory region 0x3ffb9a20 - 0x3ffbdb28[0m\r
+[  92.67s] D (1040) memory_layout: Available memory region 0x3ffcd468 - 0
+[  92.67s] x3ffce000[0m\r
+[  92.67s] D (1047) memory_l
+[  92.69s] ayout: Available memory region 0x3ffce000 - 0x3ffd0000[0m\r
+[  92.69s] D (1053) memory_layout: Available memory region 0x3ffd0000 - 0x3ffd2000[0m\r
+[  92.69s] D (1060) memory_layout: Available memory region 0x3ffd2000 - 0x3ffd4000[0m\r
+[  92.69s] D (1067) m
+[  92.71s] emory_layout: Available memory region 0x3ffd4000 - 0x3ffd6000[0m\r
+[  92.71s] D (1073) memory_layout: Available memory region 0x3ffd6000 - 0x3ffd8000[0m\r
+[  92.71s] D (1080) memory_layout: Available memory region 0x3ffd8000 - 0x3ffda000[0m\r
+[  92.71s] D (
+[  92.73s] 1087) memory_layout: Available memory region 0x3ffda000 - 0x3ffdc000[0m\r
+[  92.73s] D (1093) memory_layout: Available memory region 0x3ffdc000 - 0x3ffde000[0m\r
+[  92.73s] D (1100) memory_layout: Available memory region 0x3ffde000 - 0x3ffe0000[0m\r
+[  92.73s] D (1107) memory_layout: Avai
+[  92.75s] lable memory region 0x3ffe0440 - 0x3ffe3f20[0m\r
+[  92.75s] D (1113) memory_layout: Available memory region 0x3ffe4350 - 0x3ffe8000[0m\r
+[  92.75s] D (1120) memory_layout: Available memory region 0x3ffe8000 - 0x3fff0000[0m\r
+[  92.75s] D (1127) memory_layou
+[  92.77s] t: Available memory region 0x3fff0000 - 0x3fff8000[0m\r
+[  92.77s] D (1133) memory_layout: Available memory region 0x3fff8000 - 0x3fffc000[0m\r
+[  92.77s] D (1140) memory_layout: Available memory region 0x3fffc000 - 0x40000000[0m\r
+[  92.77s] D (1147) memor
+[  92.79s] y_layout: Available memory region 0x4009e430 - 0x400a0000[0m\r
+[  92.79s] [0;32mI (1154) heap_init: Initializing. RAM available for dynamic allocation:[0m\r
+[  92.79s] D (1161) heap_init: New heap initialised at 0x3ffaff10[0m\r
+[  92.79s] [0;32mI (1166) heap_init: At 3FFAFF10 len 000000
+[  92.81s] F0 (0 KiB): DRAM[0m\r
+[  92.81s] D (1172) heap_init: New heap initialised at 0x3ffb6388[0m\r
+[  92.81s] [0;32mI (1177) heap_init: At 3FFB6388 len 00001C78 (7 KiB): DRAM[0m\r
+[  92.81s] D (1184) heap_init: New heap initialised at 0x3ffb9a20[0m\r
+[  92.81s] [0;32mI (1
+[  92.83s] 189) heap_init: At 3FFB9A20 len 00004108 (16 KiB): DRAM[0m\r
+[  92.83s] D (1195) heap_init: New heap initialised at 0x3ffcd468[0m\r
+[  92.83s] [0;32mI (1200) heap_init: At 3FFCD468 len 00012B98 (74 KiB): DRAM[0m\r
+[  92.83s] [0;32mI (1206) heap_init: At 3FFE0440 len 00003AE0 (14 KiB): D
+[  92.85s] /IRAM[0m\r
+[  92.85s] [0;32mI (1213) heap_init: At 3FFE4350 len 0001BCB0 (111 KiB): D/IRAM[0m\r
+[  92.85s] D (1219) heap_init: New heap initialised at 0x4009e430[0m\r
+[  92.85s] [0;32mI (1225) heap_init: At 4009E430 len 00001BD0 (6 KiB): IRAM[0m\r
+[  92.85s] D (1231
+[  92.87s] ) intr_alloc: Connected src 46 to int 2 (cpu 0)[0m\r
+[  92.87s] D (1237) spi_flash: trying chip: issi[0m\r
+[  92.87s] D (1240) spi_flash: trying chip: gd[0m\r
+[  92.87s] [0;32mI (1243) spi_flash: detected chip: gd[0m\r
+[  92.87s] [0;32mI (1248) spi_flash: flash io: 
+[  92.89s] dio[0m\r
+[  92.89s] D (1252) cpu_start: calling init function: 0x401cef5c[0m\r
+[  92.89s] D (1257) cpu_start: calling init function: 0x401cea3c[0m\r
+[  92.89s] D (1262) cpu_start: calling init function: 0x4016f610[0m\r
+[  92.89s] D (1267) cpu_start: calling init function: 0x4014dd60[0m\r
+[  92.89s] D (1272) cp
+[  92.91s] u_start: calling init function: 0x4014d36c[0m\r
+[  92.91s] D (1277) cpu_start: calling init function: 0x40149ce0[0m\r
+[  92.91s] [0;33mW (1282) ADC: legacy driver is deprecated, please migrate to `esp_adc/adc_oneshot.h`[0m\r
+[  92.91s] D (1291) cpu_start: 
+[  92.93s] calling init function: 0x400d4114[0m\r
+[  92.93s] D (1296) cpu_start: calling init function: 0x400d7514 on core: 0[0m\r
+[  92.93s] D (1302) intr_alloc: Connected src 17 to int 3 (cpu 0)[0m\r
+[  92.93s] D (1307) cpu_start: calling init function: 0x400d503c on core: 0[0m\r
+[  92.93s] [0;32mI (1314) c
+[  92.95s] oexist: coex firmware version: d96c1e51f[0m\r
+[  92.95s] D (1319) intr_alloc: Connected src 24 to int 9 (cpu 0)[0m\r
+[  92.95s] [0;32mI (1324) app_start: Starting scheduler on CPU0[0m\r
+[  92.95s] [0;32D (1329) intr_alloc: Connected src 25 to int 2 (cpu 1
+[  92.97s] )[0m\r
+[  92.97s] [0;32mI (1334) app_start: Starting scheduler on CPU1[0m\r
+[  92.97s] mI (1329) main_task: Started on CPU0[0m\r
+[  92.97s] D (1343) heap_init: New heap initialised at 0x3ffe0440[0m\r
+[  92.97s] D (1348) heap_init: New heap initialised at 0x3ffe4350[
+[  92.99s] 0m\r
+[  92.99s] D (1353) intr_alloc: Connected src 16 to int 12 (cpu 0)[0m\r
+[  92.99s] [0;32mI (1359) main_task: Calling app_main()[0m\r
+[  92.99s] [0;32mI (1363) she_main: ========================================[0m\r
+[  92.99s] [0;32mI (1369) she_main:   SHE V3 firmware starting...[0m\r
+[  92.99s] [0;32m
+[  93.02s] I (1375) she_main:   Firmware version: 3.0.0[0m\r
+[  93.02s] [0;32mI (1380) she_main:   Secure version: 1[0m\r
+[  93.02s] [0;32mI (1384) she_main:   Compiled at: Nov  3 2026 14:38:30[0m\r
+[  93.02s] [0;32mI (1390) she_main: ==============================
+[  93.04s] ==========[0m\r
+[  93.08s] [0;32mI (1456) she_main: Step 1: NVS initialized (default + fctry)[0m\r
+[  93.08s] D (1458) esp_netif_lwip: LwIP stack has been initialize
+[  93.10s] d[0m\r
+[  93.10s] D (1458) esp_netif_lwip: esp-netif has been successfully initialized[0m\r
+[  93.10s] D (1463) event: running task for loop 0x3ffbdb04[0m\r
+[  93.10s] D (1468) event: created task for loop 0x3ffbdb04[0m\r
+[  93.10s] D (1473) event: created event loop 0x3ffbdb04[0m\r
+[  93.10s] D (1477) esp_net
+[  93.12s] if_lwip: check: remote, if=0x3ffbba80 fn=0x4016d038\r
+[  93.12s] [0m\r
+[  93.12s] D (1484) esp_netif_objects: esp_netif_add_to_list_unsafe netif added successfully (total netifs: 1)[0m\r
+[  93.12s] D (1493) esp_netif_lwip: call api in lwip: ret=0x0, give sem
+[  93.14s] [0m\r
+[  93.14s] D (1500) nvs: nvs_open_from_partition misc 1[0m\r
+[  93.14s] I (1504) wifi:wifi driver task: 3ffd1c3c, prio:23, stack:6656, core=0\r
+[  93.14s] D (1510) efuse: In EFUSE_BLK0__DATA2_REG is used 8 bits starting with 8 bit[0m\r
+[  93.14s] D (1516) efuse: 
+[  93.16s] In EFUSE_BLK0__DATA2_REG is used 8 bits starting with 0 bit[0m\r
+[  93.16s] D (1523) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 24 bit[0m\r
+[  93.16s] D (1530) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 16 bit[0m\r
+[  93.16s] D (1537) efuse: In EFUSE_BL
+[  93.18s] K0__DATA1_REG is used 8 bits starting with 8 bit[0m\r
+[  93.18s] D (1544) efuse: In EFUSE_BLK0__DATA1_REG is used 8 bits starting with 0 bit[0m\r
+[  93.18s] D (1551) efuse: In EFUSE_BLK0__DATA2_REG is used 8 bits starting with 16 bit[0m\r
+[  93.18s] D (1559
+[  93.20s] ) nvs: nvs_open_from_partition nvs.net80211 1[0m\r
+[  93.20s] D (1564) nvs: nvs_get opmode 1[0m\r
+[  93.20s] D (1567) nvs: nvs_get_str_or_blob sta.ssid[0m\r
+[  93.20s] D (1572) nvs: nvs_get sta.authmode 1[0m\r
+[  93.20s] D (1574) nvs: nvs_get_str_or_blob sta.pswd[0m\r
+[  93.20s] D (1580) nvs: nvs_get_str_or_bl
+[  93.22s] ob sta.pmk[0m\r
+[  93.22s] D (1583) nvs: nvs_get sta.chan 1[0m\r
+[  93.22s] D (1586) nvs: nvs_get auto.conn 1[0m\r
+[  93.22s] D (1589) nvs: nvs_get bssid.set 1[0m\r
+[  93.22s] D (1593) nvs: nvs_get_str_or_blob sta.bssid[0m\r
+[  93.22s] D (1597) nvs: nvs_get sta.lis_intval 2[0m\r
+[  93.24s] D (1601) nvs: nvs_get sta.phym 1[0m\r
+[  93.24s] D (1604) nvs: nvs_get sta.phybw 1[0m\r
+[  93.24s] D (1608) nvs: nvs_get_str_or_blob sta.apsw[0m\r
+[  93.24s] D (1613) nvs: nvs_get_str_or_blob sta.apinfo[0m\r
+[  93.24s] D (1620) nvs: nvs_get sta.scan_method 1[0m\r
+[  93.24s] D (
+[  93.26s] 1620) nvs: nvs_get sta.sort_method 1[0m\r
+[  93.26s] D (1624) nvs: nvs_get sta.minrssi 1[0m\r
+[  93.26s] D (1628) nvs: nvs_get sta.minauth 1[0m\r
+[  93.26s] D (1631) nvs: nvs_get sta.pmf_e 1[0m\r
+[  93.26s] D (1635) nvs: nvs_get sta.pmf_r 1[0m\r
+[  93.26s] D (1638) nvs: nvs_get sta.btm_e 1[0m\r
+[  93.26s] D (1641) nvs: n
+[  93.28s] vs_get sta.rrm_e 1[0m\r
+[  93.28s] D (1645) nvs: nvs_get sta.mbo_e 1[0m\r
+[  93.28s] D (1648) nvs: nvs_get_str_or_blob ap.ssid[0m\r
+[  93.28s] D (1652) nvs: nvs_get_str_or_blob ap.passwd[0m\r
+[  93.28s] D (1656) nvs: nvs_get_str_or_blob ap.pmk[0m\r
+[  93.28s] D (1660) nvs: nvs_g
+[  93.30s] et ap.chan 1[0m\r
+[  93.30s] D (1663) nvs: nvs_get ap.authmode 1[0m\r
+[  93.30s] D (1667) nvs: nvs_get ap.hidden 1[0m\r
+[  93.30s] D (1670) nvs: nvs_get ap.max.conn 1[0m\r
+[  93.30s] D (1674) nvs: nvs_get bcn.interval 2[0m\r
+[  93.30s] D (1678) nvs: nvs_get ap.phym 1[0m\r
+[  93.30s] D (1681) nvs: nvs_get ap.phybw 1[0m\r
+[  93.32s] D (1684) nvs: nvs_get ap.sndchan 1[0m\r
+[  93.32s] D (1688) nvs: nvs_get ap.pmf_e 1[0m\r
+[  93.32s] D (1691) nvs: nvs_get ap.pmf_r 1[0m\r
+[  93.32s] D (1694) nvs: nvs_get ap.p_cipher 1[0m\r
+[  93.32s] D (1698) nvs: nvs_get lorate 1[0m\r
+[  93.32s] D (1701) nvs: nvs_get_str_or_bl
+[  93.35s] ob country[0m\r
+[  93.35s] D (1705) nvs: nvs_get ap.ftm_r 1[0m\r
+[  93.35s] D (1708) nvs: nvs_get sta.ft 1[0m\r
+[  93.35s] D (1712) nvs: nvs_get sta.owe 1[0m\r
+[  93.35s] D (1715) nvs: nvs_get sta.trans_d 1[0m\r
+[  93.35s] D (1718) nvs: nvs_get sta.sae_h2e 1[0m\r
+[  93.35s] D (1722) nvs: nvs_get sta.sae_pk_mode 1[0m\r
+[  93.35s] D 
+[  93.37s] (1726) nvs: nvs_get sta.bss_retry 1[0m\r
+[  93.37s] D (1730) nvs: nvs_get_str_or_blob sta.owe_data[0m\r
+[  93.37s] D (1734) nvs: nvs_get sta.he_dcm 1[0m\r
+[  93.37s] D (1737) nvs: nvs_get sta.he_dcm_c_tx 1[0m\r
+[  93.37s] D (1741) nvs: nvs_get sta.he_dcm_c_rx 1[0m\r
+[  93.37s] D
+[  93.39s]  (1745) nvs: nvs_get sta.he_mcs9_d 1[0m\r
+[  93.39s] D (1749) nvs: nvs_get sta.he_su_b_d 1[0m\r
+[  93.39s] D (1753) nvs: nvs_get sta.he_su_b_f_d 1[0m\r
+[  93.39s] D (1756) nvs: nvs_get sta.he_mu_b_f_d 1[0m\r
+[  93.39s] D (1760) nvs: nvs_get sta.he_cqi_f_d 1[0m\r
+[  93.39s] D (17
+[  93.39s] 64) nvs: nvs_get_str_or_blob sta
+[  93.41s] .sae_h2e_id[0m\r
+[  93.41s] D (1770) nvs: nvs_get ap.sae_h2e 1[0m\r
+[  93.41s] D (1772) nvs: nvs_get_str_or_blob ap.pmk_info[0m\r
+[  93.41s] D (1777) nvs: nvs_get nan.phym 1[0m\r
+[  93.41s] D (1781) nvs: nvs_set ap.sndchan 1 1[0m\r
+[  93.41s] I (1784) wifi:wifi firmware version:
+[  93.43s]  3ce09e5\r
+[  93.43s] I (1788) wifi:wifi certification version: v7.0\r
+[  93.43s] I (1792) wifi:config NVS flash: enabled\r
+[  93.43s] I (1795) wifi:config nano formating: disabled\r
+[  93.43s] I (1800) wifi:Init data frame dynamic rx buffer num: 32\r
+[  93.43s] I (1805) wifi:Init st
+[  93.45s] atic rx mgmt buffer num: 5\r
+[  93.45s] I (1809) wifi:Init management short buffer num: 32\r
+[  93.45s] I (1813) wifi:Init dynamic tx buffer num: 32\r
+[  93.45s] I (1817) wifi:Init static rx buffer size: 1600\r
+[  93.45s] I (1822) wifi:Init static rx buffer num: 10\r
+[  93.45s] I (1825) wifi:Init dynamic rx buffer 
+[  93.47s] num: 32\r
+[  93.47s] [0;32mI (1831) wifi_init: rx ba win: 6[0m\r
+[  93.47s] [0;32mI (1833) wifi_init: tcpip mbox: 32[0m\r
+[  93.47s] [0;32mI (1837) wifi_init: udp mbox: 6[0m\r
+[  93.47s] [0;32mI (1841) wifi_init: tcp mbox: 6[0m\r
+[  93.47s] [0;32mI (1845) wifi_init: tcp tx w
+[  93.49s] in: 5760[0m\r
+[  93.49s] [0;32mI (1849) wifi_init: tcp rx win: 5760[0m\r
+[  93.49s] [0;32mI (1853) wifi_init: tcp mss: 1440[0m\r
+[  93.49s] [0;32mI (1857) wifi_init: WiFi IRAM OP enabled[0m\r
+[  93.49s] [0;32mI (1862) wifi_init: WiFi RX IRAM OP enabled[0m\r
+[  93.49s] D (186
+[  93.51s] 7) nvs: nvs_get opmode 1[0m\r
+[  93.51s] [0;32mI (1870) she_wifi: Wi-Fi subsystem initialized (STA mode)[0m\r
+[  93.51s] [0;32mI (1876) she_main: Step 2: Wi-Fi subsystem initialized[0m\r
+[  93.51s] [0;32mI (1883) she_sys: SNTP started (server=pool.ntp.org) — clock will sync once Wi-F
+[  93.53s] i is up[0m\r
+[  93.53s] D (1891) nvs: nvs_open_from_partition she_fctry 0[0m\r
+[  93.53s] D (1896) nvs: nvs_get_str_or_blob device_mac[0m\r
+[  93.53s] D (1901) nvs: nvs_get_str_or_blob device_sku[0m\r
+[  93.53s] D (1905) nvs: nvs_get_str_or_blob node_id[0m\r
+[  93.53s] D (1909) 
+[  93.55s] nvs: nvs_close 3[0m\r
+[  93.55s] [0;32mI (1911) she_relay: Initializing PCF8574 for 24 relays (SDA=15 SCL=13)[0m\r
+[  93.55s] [0;32mI (1918) gpio: GPIO[13]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[  93.55s] [0;32mI (1
+[  93.57s] 928) gpio: GPIO[15]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[  93.57s] [0;32mI (1939) she_relay: I2C idle levels: SDA(GPIO15)=1 SCL(GPIO13)=1[0m\r
+[  93.57s] [0;32mI (1944) she_relay: I2C bus idle-high — wiring looks electrically sane, p
+[  93.59s] robing[0m\r
+[  93.59s] [0;32mI (1952) gpio: GPIO[15]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [0m\r
+[  93.59s] [0;32mI (1961) gpio: GPIO[13]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0 [
+[  93.61s] 0m\r
+[  93.61s] [0;32mI (1970) she_relay: [i2c] param_config…[0m\r
+[  93.61s] [0;32mI (1976) she_relay: [i2c] driver_install…[0m\r
+[  93.61s] D (1981) intr_alloc: Connected src 49 to int 13 (cpu 0)[0m\r
+[  93.61s] [0;32mI (1985) she_relay: [i2c] installed; scann
+[  93.63s] ing bus…[0m\r
+[  93.63s] [0;32mI (1991) she_relay:   probing 0x20…[0m\r
+[  93.71s] [0;32mI (2095) she_relay:   probing 0x21…[0m\r
+[  93.82s] [0;32mI (2195) she_relay:   probing 0x22…[0m\r
+[  93.92s] [0;32mI (2295) she_relay:   probing 0x23…[0m\r
+[  94.02s] [0;32mI (2395) she_relay:   probing 0x24…[0m\r
+[  94.02s] [0;32mI (2395) she_relay:   → 0x24 ACKed[0m\r
+[  94.02s] [0;32mI (2395) she_relay:   probing 0x25…[0m\r
+[  94.02s] [0;32mI (2397) she_relay:   → 0x25 ACKed
+[  94.04s] [0m\r
+[  94.04s] [0;32mI (2401) she_relay:   probing 0x26…[0m\r
+[  94.04s] [0;32mI (2406) she_relay:   → 0x26 ACKed[0m\r
+[  94.04s] [0;32mI (2409) she_relay:   probing 0x27…[0m\r
+[  94.14s] [0;32mI (2514) she_relay: I2C scan 0x20-0x27: 3 device(s) responded[0m\r
+[  94.14s] [0;32mI (2514) she_relay: Relay expanders match the reference map 0x24/0x26/0x25[0m\r
+[  94.14s] [0;32mI (2517) she_relay: Relay expander 0 = 0x24 (ch 0-7)[0m
+[  94.16s] \r
+[  94.16s] [0;32mI (2523) she_relay: Relay expander 1 = 0x26 (ch 8-15)[0m\r
+[  94.16s] [0;32mI (2528) she_relay: Relay expander 2 = 0x25 (ch 16-23)[0m\r
+[  94.16s] [0;32mI (2534) she_relay: 3/3 expanders responded[0m\r
+[  94.16s] [0;32mI (2540) she_relay: PCF857
+[  94.18s] 4 initialized (present=1, 3 chips) — all relays OFF[0m\r
+[  94.18s] [0;32mI (2547) she_main: Step 3a: relay driver initialized (24 relays)[0m\r
+[  94.18s] [0;32mI (2554) she_main: Step 3b: CD4051 feedback monitor not used on SHE-R24 — contact feedback comes from the bus-1
+[  94.20s]  PCF8574 input expanders[0m\r
+[  94.20s] D (2567) intr_alloc: Connected src 50 to int 17 (cpu 0)[0m\r
+[  94.20s] [0;32mI (2573) she_inputs: I2C1 input bus ready (SDA=4 SCL=5) — 4/4 expanders responded[0m\r
+[  94.20s] [0;33mW (2582) she_sensors: ========
+[  94.23s] ========= PINMAP MODE =================[0m\r
+[  94.23s] [0;33mW (2588) she_sensors: Each GPIO blinks 2 Hz for 6 s, one at a time, in this order:[0m\r
+[  94.23s] [0;33mW (2596) she_sensors:    1) GPIO27[0m\r
+[  94.23s] [0;33mW (2600) she_sensors:    2) GPIO32[0m\r
+[  94.23s] [0;33mW (2604) she_se
+[  94.25s] nsors:    3) GPIO33[0m\r
+[  94.25s] [0;33mW (2608) she_sensors:    4) GPIO2[0m\r
+[  94.25s] [0;33mW (2612) she_sensors:    5) GPIO14[0m\r
+[  94.25s] [0;33mW (2616) she_sensors:    6) GPIO16[0m\r
+[  94.25s] [0;33mW (2620) she_sensors:    7) GPIO19[0m\r
+[  94.25s] [0;33mW (26
+[  94.27s] 24) she_sensors:    8) GPIO21[0m\r
+[  94.27s] [0;33mW (2628) she_sensors:    9) GPIO22[0m\r
+[  94.27s] [0;33mW (2632) she_sensors:   10) GPIO23[0m\r
+[  94.27s] [0;33mW (2636) she_sensors:   11) GPIO25[0m\r
+[  94.27s] [0;33mW (2641) she_sensors:   12) GPIO26[0m\r
+[  94.27s] 
+[  94.27s] [0;33mW (2645) she_sensors: Put 
+[  94.29s] a DC voltmeter on ONE terminal; note WHICH window makes it[0m\r
+[  94.29s] [0;33mW (2653) she_sensors: toggle 0<->3.3V. That window's GPIO is that terminal's GPIO.[0m\r
+[  94.29s] [0;33mW (2661) she_sensors: ====================================
+[  94.31s] ===========[0m\r
+[  94.31s] [0;32mI (2669) gpio: GPIO[27]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[  94.31s] [0;33mW (2678) she_sensors: >>> [1/12] NOW DRIVING GPIO27 for 6 s <<<[0m\r
+[        ] ... 38466 bytes so far, still listening
+[ 100.30s] [0;32mI (8684) gpio: GPIO[27]| InputEn: 1| OutputEn: 0| OpenDra
+[ 100.30s] in: 0| Pullup: 0| Pulldown: 0| I
+[ 100.32s] ntr:0 [0m\r
+[ 101.81s] [0;32mI (10184) gpio: GPIO[32]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[ 101.81s] [0;33mW (10184) she_sensors: >>> [2/12] NOW DRIVING GPIO32 for 6 s <<<[0m\r
+[ 107.81s] [0;32mI (16189) gpio: GPIO[32]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[ 109.31s] [0;32mI (17689) gpio: GPIO[33]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[ 109.31s] [0;33mW (17689) sh
+[ 109.31s] e_sensors: >>> [3/12] NOW DRIVIN
+[ 109.33s] G GPIO33 for 6 s <<<[0m\r
+[        ] ... 39055 bytes so far, still listening
+[ 115.32s] [0;32mI (23694) gpio: GPIO[33]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 [0m\r
+[ 116.81s] [0;32mI (25194) gpio: GPIO[2]| InputEn: 1| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| I
+[ 116.83s] ntr:0 [0m\r
+[ 116.83s] [0;33mW (25194) she_sensors: >>> [4/12] NOW DRIVING GPIO2 for 6 s <<<[0m\r
+========================================================================
+RESULT: 39348 bytes received. ESP->PC link WORKS.
+        If esptool cannot sync, the PC->ESP32 direction is broken,
+        or you must enter download mode manually (hold BOOT, tap EN).
