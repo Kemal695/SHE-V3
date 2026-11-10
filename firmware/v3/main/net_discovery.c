@@ -1,0 +1,261 @@
+/* =============================================================================
+ * SHE V3 firmware — net_discovery.c
+ * =============================================================================
+ * Find the SHE backend on the device's own /24.
+ *
+ * Strategy, cheapest first:
+ *   1. TCP-connect probe :8080 across the /24, six at a time, 120 ms each.
+ *      A host that is not there never answers, so the probe is bounded by the
+ *      timeout rather than by the network — 254 hosts ≈ 5 s worst case.
+ *   2. Only the few hosts that accepted a connection get an HTTP GET
+ *      /actuator/health, and only one that returns `"status":"UP"` is adopted.
+ *
+ * Deliberately /24, not the real netmask: a /16 would mean 65 000 probes, and
+ * every network this product is deployed on is /24 or smaller.
+ *
+ * This runs only when the configured broker is unreachable, so the normal boot
+ * path pays nothing for it.
+ * ==========================================================================*/
+#include "net_discovery.h"
+
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
+
+#include "esp_log.h"
+#include "esp_netif.h"
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
+
+static const char *TAG = "she_disc";
+
+/* Kept below CONFIG_LWIP_MAX_SOCKETS (10) with room for the MQTT/TLS sockets
+ * that are already open by the time this can run. */
+#define PROBE_CONCURRENCY    6
+#define PROBE_TIMEOUT_MS     120
+#define HTTP_TIMEOUT_S       2
+#define HEALTH_PATH          "/actuator/health"
+#define HEALTH_MAX_BYTES     512
+
+/* ---------------------------------------------------------------------------
+ * Non-blocking connect, left pending. Caller waits on the fd.
+ * Returns fd >= 0, or -1.
+ * ------------------------------------------------------------------------- */
+static int connect_pending(uint32_t ip_be, uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) return -1;
+
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = ip_be;
+
+    int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    if (rc == 0) return fd;                 /* connected immediately */
+    if (errno == EINPROGRESS) return fd;    /* pending — caller selects */
+    close(fd);
+    return -1;
+}
+
+/* Did a pending connect succeed? Consumes nothing; caller closes the fd. */
+static bool connect_completed(int fd)
+{
+    int so_err = 0;
+    socklen_t len = sizeof(so_err);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_err, &len) != 0) return false;
+    return so_err == 0;
+}
+
+/* Blocking single-host probe, used to check the configured broker is alive. */
+static bool probe_blocking(uint32_t ip_be, uint16_t port, int timeout_ms)
+{
+    int fd = connect_pending(ip_be, port);
+    if (fd < 0) return false;
+
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(fd, &wfds);
+    struct timeval tv;
+    tv.tv_sec  = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+    bool ok = false;
+    if (select(fd + 1, NULL, &wfds, NULL, &tv) > 0 && FD_ISSET(fd, &wfds)) {
+        ok = connect_completed(fd);
+    }
+    close(fd);
+    return ok;
+}
+
+/* ---------------------------------------------------------------------------
+ * Ask a candidate whether it really is the SHE backend.
+ * ------------------------------------------------------------------------- */
+static bool http_is_backend(uint32_t ip_be, uint16_t port)
+{
+    int fd = connect_pending(ip_be, port);
+    if (fd < 0) return false;
+
+    /* The host answered a TCP probe a moment ago, so give connect the same
+     * bounded wait rather than trusting a blocking connect to return. */
+    fd_set wfds;
+    FD_ZERO(&wfds);
+    FD_SET(fd, &wfds);
+    struct timeval tv = { .tv_sec = HTTP_TIMEOUT_S, .tv_usec = 0 };
+    if (select(fd + 1, NULL, &wfds, NULL, &tv) <= 0 || !connect_completed(fd)) {
+        close(fd);
+        return false;
+    }
+
+    /* Back to blocking for the request/response exchange. */
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+    struct timeval rcv = { .tv_sec = HTTP_TIMEOUT_S, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcv, sizeof(rcv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &rcv, sizeof(rcv));
+
+    static const char req[] =
+        "GET " HEALTH_PATH " HTTP/1.0\r\n"
+        "Host: she\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+
+    if (send(fd, req, sizeof(req) - 1, 0) < 0) {
+        close(fd);
+        return false;
+    }
+
+    /* Static, not automatic: this runs on the main task, which has only
+     * CONFIG_ESP_MAIN_TASK_STACK_SIZE (3584 B) and is already holding the MQTT
+     * client config. A 512-byte local here is how you turn "broker discovery"
+     * into a stack-overflow panic. The function is only ever called
+     * sequentially from one task, so a single static buffer is safe. */
+    static char buf[HEALTH_MAX_BYTES];
+    int total = 0;
+    bool matched = false;
+    while (total < (int)sizeof(buf) - 1) {
+        int n = recv(fd, buf + total, sizeof(buf) - 1 - total, 0);
+        if (n <= 0) break;
+        total += n;
+        buf[total] = '\0';
+        /* Spring Boot's health payload: {"status":"UP","components":{...}} */
+        if (strstr(buf, "\"status\":\"UP\"") != NULL) {
+            matched = true;
+            break;
+        }
+    }
+    close(fd);
+    return matched;
+}
+
+/* ---------------------------------------------------------------------------
+ * Public API
+ * ------------------------------------------------------------------------- */
+esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t api_port)
+{
+    if (host_out == NULL || host_len < 16) return ESP_ERR_INVALID_ARG;
+
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == NULL) {
+        ESP_LOGW(TAG, "No station netif — cannot scan");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_netif_ip_info_t info;
+    if (esp_netif_get_ip_info(netif, &info) != ESP_OK || info.ip.addr == 0) {
+        ESP_LOGW(TAG, "No IP yet — cannot scan");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const uint32_t own_h  = ntohl(info.ip.addr);
+    const uint32_t net24  = own_h & 0xFFFFFF00u;   /* our own /24, whatever the mask */
+    const uint32_t own_be = info.ip.addr;
+
+    ESP_LOGW(TAG, "Broker unreachable — scanning %u.%u.%u.0/24 for the backend",
+             (unsigned)((net24 >> 24) & 0xFF), (unsigned)((net24 >> 16) & 0xFF),
+             (unsigned)((net24 >> 8) & 0xFF));
+
+    uint32_t candidates[8];
+    int n_candidates = 0;
+
+    /* ---- Phase 1: who has :8080 open? ---- */
+    for (uint32_t host = 1; host <= 254 && n_candidates < (int)(sizeof(candidates) / sizeof(candidates[0])); ) {
+        int fds[PROBE_CONCURRENCY];
+        uint32_t ips[PROBE_CONCURRENCY];
+        int n = 0;
+
+        while (n < PROBE_CONCURRENCY && host <= 254) {
+            uint32_t ip_be = htonl(net24 + host);
+            host++;
+            if (ip_be == own_be) continue;          /* never probe ourselves */
+
+            int fd = connect_pending(ip_be, api_port);
+            if (fd < 0) continue;                   /* out of sockets — skip it */
+            fds[n] = fd;
+            ips[n] = ip_be;
+            n++;
+        }
+        if (n == 0) break;
+
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        int maxfd = -1;
+        for (int k = 0; k < n; k++) {
+            FD_SET(fds[k], &wfds);
+            if (fds[k] > maxfd) maxfd = fds[k];
+        }
+        struct timeval tv;
+        tv.tv_sec  = PROBE_TIMEOUT_MS / 1000;
+        tv.tv_usec = (PROBE_TIMEOUT_MS % 1000) * 1000;
+
+        if (select(maxfd + 1, NULL, &wfds, NULL, &tv) > 0) {
+            for (int k = 0; k < n; k++) {
+                if (FD_ISSET(fds[k], &wfds) && connect_completed(fds[k])) {
+                    if (n_candidates < (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+                        candidates[n_candidates++] = ips[k];
+                    }
+                }
+            }
+        }
+        for (int k = 0; k < n; k++) close(fds[k]);
+    }
+
+    if (n_candidates == 0) {
+        ESP_LOGW(TAG, "No host on the /24 accepted TCP %u", (unsigned)api_port);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    /* ---- Phase 2: which of them is actually the SHE backend? ---- */
+    for (int k = 0; k < n_candidates; k++) {
+        if (!http_is_backend(candidates[k], api_port)) continue;
+
+        struct in_addr a = { .s_addr = candidates[k] };
+        snprintf(host_out, host_len, "%s", inet_ntoa(a));
+        ESP_LOGW(TAG, "Backend found at %s:%u", host_out, (unsigned)api_port);
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "%d host(s) answered but none looked like the SHE backend",
+             n_candidates);
+    return ESP_ERR_NOT_FOUND;
+}
+
+bool net_discovery_probe_host(const char *host, uint16_t port, int timeout_ms)
+{
+    if (host == NULL || host[0] == '\0') return false;
+
+    /* inet_addr returns INADDR_NONE for anything that is not a dotted quad.
+     * Hostnames are out of scope: the stored broker is always an IP here. */
+    struct in_addr a;
+    a.s_addr = inet_addr(host);
+    if (a.s_addr == INADDR_NONE) return false;
+    return probe_blocking(a.s_addr, port, timeout_ms);
+}

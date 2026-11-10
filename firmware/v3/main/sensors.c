@@ -86,6 +86,23 @@ static int g_dht_gpio = SHE_DHT11_GPIO;
 /** Cumulative read stats for the boot/log diagnostics. */
 static int g_dht_total = 0;      /* total dht_read() calls */
 static int g_dht_fails = 0;      /* calls that returned ESP_FAIL (no/garbled frame) */
+
+/* ---- Self-healing pin detection ----
+ *
+ * dht_find_pin() used to run ONLY at boot. Plug the sensor in afterwards and the
+ * board kept reading the old fallback pin forever: every read timed out, and
+ * because publishing is gated on dht_valid, the app received nothing at all —
+ * not even a zero. That reads as "the app is broken", when the sensor had simply
+ * been connected after the scan.
+ *
+ * So while every read is failing, re-scan. A sensor that is answering is never
+ * disturbed, and a re-scan costs nothing when the hardware is healthy.
+ */
+#define DHT_REDETECT_FAILS      5
+#define DHT_REDETECT_PERIOD_MS  (120 * 1000)
+
+static int          s_fails_at_last_detect = 0;
+static TickType_t   s_last_detect_tick     = 0;
 static int g_probe_cycle = 0;    /* counts sensor cycles for the periodic wiring probe */
 
 /** One decoded frame plus whether it landed inside the part's plausible range. */
@@ -814,6 +831,39 @@ static void sensor_task(void *arg) {
             s.dht_valid = true;
         } else {
             s.dht_failures++;
+
+            /* Every read is failing — the sensor may have been plugged in after
+             * the boot scan. Re-detect, but not more often than every two
+             * minutes so a genuinely dead module cannot turn this into a scan
+             * loop that hogs the bus. */
+            if (g_dht_fails >= DHT_REDETECT_FAILS &&
+                g_dht_fails > s_fails_at_last_detect &&
+                (s_last_detect_tick == 0 ||
+                 (xTaskGetTickCount() - s_last_detect_tick) >=
+                     pdMS_TO_TICKS(DHT_REDETECT_PERIOD_MS))) {
+
+                const int since = g_dht_fails - s_fails_at_last_detect;
+                s_last_detect_tick     = xTaskGetTickCount();
+                s_fails_at_last_detect = g_dht_fails;
+
+                ESP_LOGW(TAG, "DHT silent (%d failed reads since last check) — "
+                              "re-scanning pins; the sensor may have been connected "
+                              "after boot", since);
+
+                const int re_found = dht_find_pin();
+                if (re_found >= 0) {
+                    if (re_found != g_dht_gpio) {
+                        ESP_LOGW(TAG, "DHT found on GPIO%d (was GPIO%d) — adopting it",
+                                 re_found, g_dht_gpio);
+                        g_dht_gpio = re_found;
+                    } else {
+                        ESP_LOGI(TAG, "DHT re-confirmed on GPIO%d", re_found);
+                    }
+                }
+                /* dht_find_pin() leaves the last pin it probed as a plain input;
+                 * put the active pin back into 1-wire mode either way. */
+                dht_bus_init(g_dht_gpio);
+            }
         }
 
         /* ---- Soil ---- */
@@ -992,6 +1042,12 @@ esp_err_t sensors_init(void) {
     } else {
         ESP_LOGW(TAG, "DHT auto-detect found nothing; keeping configured GPIO%d", SHE_DHT11_GPIO);
     }
+
+    /* Baseline for the periodic re-detect in the sensor task. The boot scan above
+     * bumps g_dht_fails for every pin it probes, so without this the task would
+     * see "already failing" and immediately scan a second time. */
+    s_fails_at_last_detect = g_dht_fails;
+    s_last_detect_tick     = xTaskGetTickCount();
 
     /* Decisive hardware check: record the raw line edges on every candidate GPIO
      * after a start pulse. This distinguishes a dead/unwired sensor (no edges

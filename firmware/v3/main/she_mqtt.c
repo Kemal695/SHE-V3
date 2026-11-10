@@ -14,6 +14,7 @@
 #include "app_wifi.h"        /* app_wifi_disconnect_count() for the telemetry topic */
 #include "ota_handler.h"     /* ota_handler_start() for the ota/url direction */
 #include "system_service.h"  /* system_service_execute() for the command direction */
+#include "net_discovery.h"   /* find the backend when the stored broker is gone */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -787,6 +788,88 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
+/* ---- Broker self-healing ----
+ *
+ * The broker address lives in `fctry`, written once when the board was made,
+ * and provisioning never touched it. That is fine until the network changes:
+ * the board then joins the new Wi-Fi and dials a host that no longer exists,
+ * forever, with no visible symptom other than never appearing in the app.
+ *
+ * So before the client is created, check the address we are about to use. If
+ * nothing is listening there, look for the backend on this LAN and adopt what
+ * we find. The result is written to the RUNTIME nvs namespace, which
+ * cfg_get_str() consults before fctry — so it survives reboots, and a factory
+ * reset simply drops back to the factory value.
+ */
+
+/* "mqtts://192.168.1.21:8883" -> host + port. Defaults by scheme. */
+static bool broker_parse(const char *uri, char *host, size_t host_len, uint16_t *port)
+{
+    if (uri == NULL || host == NULL || port == NULL) return false;
+
+    *port = (strncmp(uri, "mqtts", 5) == 0) ? 8883 : 1883;
+
+    const char *p = strstr(uri, "://");
+    p = (p != NULL) ? p + 3 : uri;
+
+    const char *end = strchr(p, '/');           /* optional path */
+    if (end == NULL) end = p + strlen(p);
+
+    const char *colon = memchr(p, ':', (size_t)(end - p));
+    size_t hlen = (colon != NULL) ? (size_t)(colon - p) : (size_t)(end - p);
+    if (hlen == 0 || hlen >= host_len) return false;
+
+    memcpy(host, p, hlen);
+    host[hlen] = '\0';
+
+    if (colon != NULL) {
+        long v = strtol(colon + 1, NULL, 10);
+        if (v > 0 && v < 65536) *port = (uint16_t)v;
+    }
+    return true;
+}
+
+static void broker_refresh_if_unreachable(void)
+{
+    char host[64];
+    uint16_t port = 8883;
+    if (!broker_parse(g_mqtt_broker, host, sizeof(host), &port)) return;
+
+    if (net_discovery_probe_host(host, port, 1500)) {
+        return;                                 /* configured broker is alive */
+    }
+
+    ESP_LOGW(TAG, "Broker %s:%u is unreachable — searching this LAN for the backend",
+             host, (unsigned)port);
+
+    char found[32];
+    if (net_discovery_find_backend(found, sizeof(found), NET_DISCOVERY_API_PORT) != ESP_OK) {
+        ESP_LOGW(TAG, "Discovery found nothing — keeping %s", g_mqtt_broker);
+        return;
+    }
+
+    char new_broker[128];
+    snprintf(new_broker, sizeof(new_broker), "mqtts://%s:8883", found);
+
+    ESP_LOGW(TAG, "Adopting discovered backend: %s -> %s", g_mqtt_broker, new_broker);
+    strncpy(g_mqtt_broker, new_broker, sizeof(g_mqtt_broker) - 1);
+    g_mqtt_broker[sizeof(g_mqtt_broker) - 1] = '\0';
+
+    char api[128];
+    snprintf(api, sizeof(api), "http://%s:%u", found, (unsigned)NET_DISCOVERY_API_PORT);
+
+    nvs_handle_t h;
+    if (nvs_open(SHE_NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, SHE_NVS_KEY_MQTT_BROKER, g_mqtt_broker);
+        nvs_set_str(h, SHE_NVS_KEY_API_BASE_URL, api);
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "Saved broker + api_base (%s) to NVS — this sticks across reboots", api);
+    } else {
+        ESP_LOGW(TAG, "Could not persist the new broker — correct for this boot only");
+    }
+}
+
 /* ---- Start MQTT client ---- */
 esp_err_t mqtt_client_start(she_node_t *node) {
     g_node = node;
@@ -797,6 +880,9 @@ esp_err_t mqtt_client_start(she_node_t *node) {
         ESP_LOGE(TAG, "Device not provisioned — cannot start MQTT");
         return err;
     }
+
+    /* Network may have moved since this address was written. */
+    broker_refresh_if_unreachable();
 
     /* Load device cert + key from fctry NVS */
     char *cert_pem = NULL, *key_pem = NULL;

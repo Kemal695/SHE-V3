@@ -13,10 +13,19 @@
 // intermittent, because the ordering could differ between launches.
 //
 // Resolution order:
-//   1. the last home that WORKED (cached in Hive), if it is still in the list;
+//   1. the last home that WORKED (cached in Hive), if it is still in the list
+//      AND still has nodes;
 //   2. otherwise the first home that actually HAS nodes;
-//   3. otherwise the first home.
+//   3. otherwise the cached home (if any), else the first home.
 // The winner is cached, so later launches are instant and stable.
+//
+// 🟠 2026-11-10 — the cache used to be trusted WITHOUT checking for nodes, so
+// step 1 returned before anything was probed. Once an empty home got cached the
+// app stayed on it forever and the "first home that HAS nodes" step never ran.
+// Symptom: board online and publishing, app showed "no devices" indefinitely
+// while hammering GET /homes/<empty>/nodes. A cached home is now only returned
+// if it still has nodes — or if the probe fails, where the cache is the best
+// guess available (offline path).
 // =============================================================================
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,16 +69,36 @@ Future<String?> resolveActiveHomeId(WidgetRef ref, {bool force = false}) async {
     return (v == null || v.isEmpty) ? null : v;
   }
 
-  // 1. The home that worked last time, if it still exists.
-  if (!force && cached != null && cached.isNotEmpty) {
+  // 1. The home that worked last time — but only if it STILL HAS NODES.
+  //    Returning the cached id blindly is what pinned the app to an empty home
+  //    forever (see the header note). The id still has to exist in the list.
+  String? cachedInList;
+  if (cached != null && cached.isNotEmpty) {
     for (final h in homes) {
-      if (idOf(h) == cached) return cached;
+      if (idOf(h) == cached) {
+        cachedInList = cached;
+        break;
+      }
+    }
+  }
+
+  final service = ref.read(nodeServiceProvider);
+
+  if (!force && cachedInList != null) {
+    final cachedId = cachedInList;
+    try {
+      final nodes = await service.listNodesByHome(cachedId);
+      if (nodes.isNotEmpty) return cachedId;
+      // Cached home is empty — fall through and find one that is not.
+    } catch (_) {
+      // Backend unreachable: the cache is the best answer we have, and probing
+      // the rest would fail too. Keeps cold starts on a flaky network instant.
+      return cachedId;
     }
   }
 
   // 2. The first home that actually has nodes. This is the step that matters:
   //    the other 31 homes are empty husks from earlier provisioning runs.
-  final service = ref.read(nodeServiceProvider);
   for (final h in homes) {
     final id = idOf(h);
     if (id == null) continue;
@@ -84,8 +113,9 @@ Future<String?> resolveActiveHomeId(WidgetRef ref, {bool force = false}) async {
     }
   }
 
-  // 3. Nothing has nodes: fall back to the first so the UI still renders.
-  final first = idOf(homes.first);
-  if (first != null) await box?.put(activeHomeIdKey, first);
-  return first;
+  // 3. Nothing has nodes: keep the previous home rather than jumping to
+  //    `homes.first`, so the UI at least stays where the user last was.
+  final fallback = cachedInList ?? idOf(homes.first);
+  if (fallback != null) await box?.put(activeHomeIdKey, fallback);
+  return fallback;
 }

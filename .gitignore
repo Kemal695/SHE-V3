@@ -29,6 +29,16 @@ infra/ca/out/
 # also carry the device PoP. Regenerate with scripts/build-device-nvs.py — never commit.
 scripts/nvs-build/
 
+# Local debug captures — serial logs, build/flash logs. These are throwaway
+# diagnostics from a bench session (ser_*.txt holds raw ESP32 console output),
+# not source. A previous checkpoint committed nine of them by accident; they are
+# ignored here so that does not keep happening.
+ser_*.txt
+build_*.log
+flash_*.log
+backend/backend-run.log
+mobile/flutter_*.log
+
 # OTA signing keys. The public half is already embedded in
 # firmware/v3/main/ota_handler.c, so committing this directory adds nothing but risk.
 ota-keys/

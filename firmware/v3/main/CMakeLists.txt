@@ -23,6 +23,7 @@ idf_component_register(
         "system_service.c"
         "schedule_store.c"
         "button_task.c"
+        "net_discovery.c"
         # Vendored Ed25519 verifier (see third_party/README.md for why and for checksums)
         "third_party/tweetnacl.c"
         "third_party/tweetnacl_port.c"

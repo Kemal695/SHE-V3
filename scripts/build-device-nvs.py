@@ -26,8 +26,10 @@ Usage:
       --key  scripts/device-certs/10061cae5328.key.pem
 """
 import argparse
+import os
 import pathlib
 import re
+import socket
 import subprocess
 import sys
 
@@ -50,6 +52,57 @@ DEFAULT_HOME = "69b4294f-c1bf-4a68-838e-b906892174ab"
 # still defaults to COM4 (the now-absent DevKit), which fails with
 # "could not open port COM4". Change this if the board moves.
 DEFAULT_PORT = "COM3"
+
+
+def detect_lan_ip():
+    """Best-effort primary LAN IPv4 address, or None.
+
+    This exists so the default broker/API host is not a hardcoded address. It
+    used to be `192.168.1.7`, which is not a placeholder — it was somebody's
+    machine at one point. That value gets baked into the fctry partition at
+    manufacturing time and the device dials it forever afterwards: when the
+    router moved to 192.168.1.x the board spent its life failing to reach a host
+    that no longer existed, and the only symptom was "device never appears in
+    the app". A stale LAN IP is the worst kind of default — it looks valid.
+    """
+    try:
+        # Connecting a UDP socket sends no packets; it just asks the OS which
+        # local address would be used for an outbound route.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+def resolve_endpoints(args):
+    """Fill in --mqtt-broker / --api-base when they were not given.
+
+    Order: explicit flag > environment variable > detected LAN IP > loopback.
+    The resolved values are always printed, because this is exactly the setting
+    that silently breaks a device later.
+    """
+    lan_ip = detect_lan_ip()
+
+    if args.mqtt_broker is None:
+        args.mqtt_broker = (
+            os.environ.get("SHE_MQTT_BROKER")
+            or (f"mqtts://{lan_ip}:8883" if lan_ip else "mqtts://mqtt.she.et:8883")
+        )
+    if args.api_base is None:
+        args.api_base = (
+            os.environ.get("SHE_API_BASE")
+            or (f"http://{lan_ip}:8080" if lan_ip else "http://localhost:8080")
+        )
+
+    print(f"broker       : {args.mqtt_broker}")
+    print(f"api base     : {args.api_base}")
+    if lan_ip and lan_ip not in args.mqtt_broker:
+        print(f"  ⚠ detected LAN IP is {lan_ip} but the broker points elsewhere — "
+              f"make sure that host is reachable from the device's network.")
 
 
 def normalize_mac(mac: str) -> str:
@@ -99,8 +152,10 @@ def main() -> int:
     ap.add_argument("--key", required=True)
     ap.add_argument("--tenant", default=DEFAULT_TENANT)
     ap.add_argument("--home", default=DEFAULT_HOME)
-    ap.add_argument("--mqtt-broker", default="mqtts://192.168.1.7:8883")
-    ap.add_argument("--api-base", default="http://192.168.1.7:8080")
+    ap.add_argument("--mqtt-broker", default=None,
+                    help="defaults to $SHE_MQTT_BROKER, else mqtts://<detected LAN IP>:8883")
+    ap.add_argument("--api-base", default=None,
+                    help="defaults to $SHE_API_BASE, else http://<detected LAN IP>:8080")
     ap.add_argument("--fw-version", default="3.0.0")
     ap.add_argument("--mark-provisioned", action="store_true",
                     help="also set provisioned=1 in fctry, so re-flashing does not "
@@ -109,6 +164,8 @@ def main() -> int:
     ap.add_argument("--port", default=DEFAULT_PORT,
                     help="serial port only used in the printed esptool hint")
     args = ap.parse_args()
+
+    resolve_endpoints(args)
 
     clean = normalize_mac(args.mac)
     cmac = colon_mac(clean)
@@ -171,11 +228,20 @@ def main() -> int:
     print(f"fctry image  : {fctry_bin}  {fsz} bytes  -> flash @ {hex(FCTRY_OFFSET)}")
     print(f"nvs   image  : {nvs_bin}  {nsz} bytes  -> flash @ {hex(NVS_OFFSET)}")
     print()
+    # `python -m esptool`, not `esptool.py`: the console script installed by the
+    # IDF python env crashes with "module 'esptool' has no attribute '_main'",
+    # which reads like a broken flash tool rather than a broken entry point.
     print("Flash with (device must be in download mode: hold BOOT, tap EN, release BOOT):")
-    print(f"  esptool.py --chip esp32 --port {args.port} --baud 460800 write_flash "
-          f"{hex(FCTRY_OFFSET)} {fctry_bin.as_posix()}")
-    print(f"  esptool.py --chip esp32 --port {args.port} --baud 460800 write_flash "
-          f"{hex(NVS_OFFSET)} {nvs_bin.as_posix()}")
+    print(f'  "{IDF_PY}" -m esptool --chip esp32 --port {args.port} --baud 115200 '
+          f"write_flash {hex(FCTRY_OFFSET)} {fctry_bin.as_posix()}")
+    print()
+    print("  ⚠ The nvs image is OPTIONAL and DESTRUCTIVE:")
+    print(f"    it replaces the whole {hex(NVS_OFFSET)} partition, which also holds the")
+    print("    Wi-Fi credentials written by provisioning. Flashing it logs the device")
+    print("    off the network and forces a full re-provision.")
+    print("    Only the fctry image is needed to change the broker / API address.")
+    print(f'  "{IDF_PY}" -m esptool --chip esp32 --port {args.port} --baud 115200 '
+          f"write_flash {hex(NVS_OFFSET)} {nvs_bin.as_posix()}   # ← wipes Wi-Fi creds")
     return 0
 
 
