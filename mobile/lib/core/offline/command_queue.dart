@@ -193,17 +193,26 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
       // The board dropped between polls — fall through to the cloud path below.
     }
 
-    // Offline short-circuit: if the live link is down, queue IMMEDIATELY instead
-    // of firing a request that can only time out. Against a dead host the TCP
-    // connect takes ~30 s before it errors (the firewall drops the SYN rather
-    // than refusing), so without this the user stares at a spinner and then gets
-    // "The server took too long to respond." The queue replays on reconnect.
-    if (!ref.read(wsConnectedProvider)) {
-      // Before giving up, try LOCAL CONTROL: talking straight to the board over
-      // Wi-Fi actually switches the device, which is the whole point of offline.
-      // [deviceName] is the firmware's role name ("Socket 5") — the board has no
-      // notion of the cloud device id. Skipped when the local-first branch above
-      // already tried and failed.
+    // ⚠️ Do NOT use the WebSocket as a reachability probe.
+    //
+    // This used to short-circuit straight to "queued" whenever
+    // `wsConnectedProvider` was false, on the assumption that a dead socket
+    // meant a dead server. It does not: the socket closes routinely — on token
+    // expiry (close 1000) and on ordinary network blips (close 1006) — while
+    // HTTP stays perfectly healthy throughout. The visible result was every tap
+    // answering "Queued" with the board online and the backend up, which is
+    // indistinguishable from a genuine outage.
+    //
+    // Reachability is decided by the request itself. The dead-host case this
+    // short-circuit existed for is already bounded by the client's 10 s connect
+    // timeout, so the worst case is a spinner rather than a 30 s hang.
+    try {
+      await ref.read(nodeServiceProvider).writeParams(nodeId, deviceId, params);
+      return SendOutcome.sent;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.badResponse) rethrow;
+      // Transport failure — only now is local control worth a shot before
+      // giving up. Skipped when the local-first branch already tried.
       if (canTryLocal && !triedLocal) {
         final ok = await svc.sendCommand(
           deviceName: deviceName,
@@ -214,15 +223,6 @@ class CommandQueue extends Notifier<List<PendingCommand>> {
           return SendOutcome.sent;
         }
       }
-      _enqueue(nodeId, deviceId, params, label, deviceName);
-      return SendOutcome.queued;
-    }
-
-    try {
-      await ref.read(nodeServiceProvider).writeParams(nodeId, deviceId, params);
-      return SendOutcome.sent;
-    } on DioException catch (e) {
-      if (e.type == DioExceptionType.badResponse) rethrow;
       _enqueue(nodeId, deviceId, params, label, deviceName);
       return SendOutcome.queued;
     } catch (_) {

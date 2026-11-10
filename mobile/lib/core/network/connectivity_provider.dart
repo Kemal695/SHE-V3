@@ -21,6 +21,7 @@
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dio_client.dart';
@@ -88,9 +89,44 @@ class ConnectivityController extends Notifier<ConnectivityStatus> {
       state = ConnectivityStatus.online;
       return;
     }
-    _graceTimer = Timer(_grace, () {
+    _graceTimer = Timer(_grace, () async {
+      // The socket is a NOTIFICATION channel, not a liveness probe. It closes on
+      // token expiry (code 1000) and on ordinary network blips (code 1006) while
+      // HTTP keeps working. Declaring "offline" on socket state alone is what
+      // swapped the Devices page onto cached data — and when the cache was thin,
+      // the page looked like it had emptied itself.
+      //
+      // So confirm with a real request before believing it. Only a failed
+      // request means offline.
+      if (await _httpReachable()) {
+        state = ConnectivityStatus.online;
+        // HTTP works, so the socket is the only thing broken: nudge it instead
+        // of showing the user an outage banner.
+        ref.read(wsClientProvider).reconnectNow();
+        return;
+      }
       state = ConnectivityStatus.offline;
     });
+  }
+
+  /// Does the backend answer at all? A cheap real request, not a socket state.
+  ///
+  /// Any response below 500 counts as reachable — a 401 still proves the server
+  /// is there, and treating it as "offline" would be a lie.
+  Future<bool> _httpReachable() async {
+    try {
+      await ref.read(dioProvider).get<dynamic>(
+            '/actuator/health',
+            options: Options(
+              receiveTimeout: const Duration(seconds: 5),
+              sendTimeout: const Duration(seconds: 5),
+              validateStatus: (code) => code != null && code < 500,
+            ),
+          );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// The banner's "Retry": nudge the socket to reconnect immediately instead of
