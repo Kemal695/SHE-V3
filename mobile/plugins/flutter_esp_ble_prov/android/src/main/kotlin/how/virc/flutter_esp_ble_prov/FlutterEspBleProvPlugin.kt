@@ -596,60 +596,34 @@ class CustomDataProvisionManager(boss: Boss) : ActionManager(boss) {
       proofOfPossession,
       onConnectCallback = { esp ->
         boss.d("customData: start")
-        esp.provisionCustomData(data, endpoint, object : ProvisionListener {
-          override fun createSessionFailed(e: java.lang.Exception?) {
-            boss.e("customData createSessionFailed $e")
-            Handler(Looper.getMainLooper()).post {
-              ctx.result.error("E1", "Secure session rejected by $deviceName", "$e")
+        // The library method is sendDataToCustomEndPoint(endpoint, data, listener)
+        // taking a ResponseListener. There is no `provisionCustomData` and no
+        // ProvisionListener variant for custom endpoints in
+        // esp-idf-provisioning-android:lib-2.1.2 — verified against the published
+        // jar rather than assumed.
+        esp.sendDataToCustomEndPoint(
+          endpoint,
+          data.toByteArray(Charsets.UTF_8),
+          object : ResponseListener {
+            override fun onSuccess(response: ByteArray?) {
+              boss.d("customData success (${response?.size ?: 0} bytes returned)")
+              // Free the BLE link: provisionWifi() opens its own connection next.
+              try {
+                esp.disconnectDevice()
+              } catch (e: Exception) {
+                boss.e("customData disconnect failed: $e")
+              }
+              Handler(Looper.getMainLooper()).post { ctx.result.success(true) }
+            }
+
+            override fun onFailure(e: java.lang.Exception?) {
+              boss.e("customData onFailure $e")
+              Handler(Looper.getMainLooper()).post {
+                ctx.result.error("E1", "Device rejected endpoint \"$endpoint\"", "$e")
+              }
             }
           }
-
-          override fun wifiConfigSent() {
-            boss.d("customData wifiConfigSent")
-          }
-
-          override fun wifiConfigFailed(e: java.lang.Exception?) {
-            boss.e("customData wifiConfigFailed $e")
-          }
-
-          override fun wifiConfigApplied() {
-            boss.d("customData wifiConfigApplied")
-          }
-
-          override fun wifiConfigApplyFailed(e: java.lang.Exception?) {
-            boss.e("customData wifiConfigApplyFailed $e")
-          }
-
-          override fun provisioningFailedFromDevice(failureReason: ESPConstants.ProvisionFailureReason?) {
-            boss.e("customData failedFromDevice reason=$failureReason")
-            Handler(Looper.getMainLooper()).post {
-              ctx.result.error(
-                "E1",
-                "Device rejected endpoint \"$endpoint\" ($failureReason)",
-                "reason=$failureReason"
-              )
-            }
-          }
-
-          override fun deviceProvisioningSuccess() {
-            boss.d("customData success")
-            // Free the BLE link: provisionWifi() opens its own connection next,
-            // and this device reboots on its own schedule, not ours.
-            try {
-              esp.disconnectDevice()
-            } catch (e: Exception) {
-              boss.e("customData disconnect failed: $e")
-            }
-            Handler(Looper.getMainLooper()).post { ctx.result.success(true) }
-          }
-
-          override fun onProvisioningFailed(e: java.lang.Exception?) {
-            boss.e("customData onProvisioningFailed $e")
-            Handler(Looper.getMainLooper()).post {
-              ctx.result.error("E1", "Custom data not delivered", "$e")
-            }
-          }
-        })
+        )
       },
       onFailureCallback = { msg ->
         boss.e("esp connect: failed $msg")
