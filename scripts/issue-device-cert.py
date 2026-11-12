@@ -20,8 +20,10 @@ Writes <MAC-clean>.key.pem and <MAC-clean>.cert.pem into ./device-certs/.
 """
 import argparse
 import json
+import os
 import pathlib
 import re
+import socket
 import sys
 import urllib.request
 
@@ -30,7 +32,30 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-DEFAULT_API = "http://192.168.1.7:8080"
+def detect_lan_ip():
+    """Primary LAN IPv4, or None.
+
+    This used to be a hardcoded `192.168.1.7`, which is not a placeholder — it
+    was this bench's address once. The router has moved twice since, and the
+    stale value fails with a bare "Unable to connect", which reads like the
+    backend is down when it is actually healthy on a different address.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))   # no packets sent; picks the outbound route
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+_lan_ip = detect_lan_ip()
+DEFAULT_API = (
+    os.environ.get("SHE_API_BASE")
+    or (f"http://{_lan_ip}:8080" if _lan_ip else "http://127.0.0.1:8080")
+)
 DEFAULT_TENANT = "00000000-0000-0000-0000-000000000001"
 DEFAULT_CA = "00000000-0000-0000-0000-000000000001"
 

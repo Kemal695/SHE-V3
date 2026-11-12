@@ -139,14 +139,14 @@ class _LocalAdminScreenState extends ConsumerState<LocalAdminScreen> {
             _field(
               controller: _apiCtrl,
               label: 'API base URL',
-              hint: 'http://192.168.1.7:8080',
+              hint: 'http://<server-ip>:8080',
               keyboardType: TextInputType.url,
             ),
             const SizedBox(height: V3Spacing.md),
             _field(
               controller: _wsCtrl,
               label: 'WebSocket base URL',
-              hint: 'ws://192.168.1.7:8080',
+              hint: 'ws://<server-ip>:8080',
               keyboardType: TextInputType.url,
             ),
             const SizedBox(height: V3Spacing.lg),

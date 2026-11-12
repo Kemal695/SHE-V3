@@ -14,7 +14,26 @@ import socket
 import sys
 import urllib.request
 
-HOST = "192.168.1.7"
+def _detect_lan_ip():
+    """Primary LAN IPv4, or None.
+
+    `HOST` used to be a hardcoded 192.168.1.7 — a real address this bench once
+    had, not a placeholder. It has since moved twice, and the probe then fails
+    with "Unable to connect", which looks like the backend is down rather than
+    the probe pointing at a stale address.
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))   # no packets sent; picks the outbound route
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+HOST = os.environ.get("SHE_HOST") or _detect_lan_ip() or "127.0.0.1"
 PORT = 8080
 PATH = "/ws/v3"
 API = f"http://{HOST}:{PORT}/api/v3"

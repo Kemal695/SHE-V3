@@ -53,7 +53,7 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
                     controller: apiController,
                     decoration: const InputDecoration(
                       labelText: 'API base URL',
-                      hintText: 'http://192.168.1.7:8080',
+                      hintText: 'http://<server-ip>:8080',
                       border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.url,
@@ -64,7 +64,7 @@ Future<void> showServerSettingsDialog(BuildContext context, WidgetRef ref) {
                     controller: wsController,
                     decoration: const InputDecoration(
                       labelText: 'WebSocket base URL',
-                      hintText: 'ws://192.168.1.7:8080',
+                      hintText: 'ws://<server-ip>:8080',
                       border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.url,
