@@ -24,6 +24,7 @@
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
+import 'package:geolocator/geolocator.dart';
 
 /// Android permission name for the QR scanner (V3-FACTORY-OPS §4).
 const String kAndroidCameraPermission = 'android.permission.CAMERA';
@@ -81,6 +82,27 @@ Future<BluetoothPreflight> ensureBluetoothReady(FlutterEspBleProv prov) async {
       'SHE needs the "Nearby devices" permission to find your device over '
       'Bluetooth. Allow it for this app in Android Settings, then tap Scan '
       'again.',
+    );
+  }
+
+  // ---- 2b. location services must be SWITCHED ON ----
+  // Android gates BLE *scanning* behind location, not only the permission: with
+  // the grant in place but the system Location toggle OFF, the scan returns zero
+  // devices and no error at all. The user then sees an empty list, concludes the
+  // board is dead, and starts reflashing it — which is precisely what happened
+  // on the bench. Checking the toggle costs one call and says something useful.
+  bool locationOn = true;
+  try {
+    locationOn = await Geolocator.isLocationServiceEnabled();
+  } catch (_) {
+    // Cannot determine it — do not block the flow on a check that failed.
+  }
+  if (!locationOn) {
+    return const BluetoothPreflight.failed(
+      'Turn on Location in Android Settings, then tap Scan again.\n\n'
+      'Android will not let an app scan for Bluetooth devices while Location '
+      'is switched off. The scan finds nothing and reports no error, so the '
+      'device list just looks empty.',
     );
   }
 
