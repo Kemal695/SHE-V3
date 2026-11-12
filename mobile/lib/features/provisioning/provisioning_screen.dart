@@ -52,6 +52,7 @@ import '../device_detail/device_detail_screen.dart'
 import 'package:go_router/go_router.dart';
 
 import '../../core/ble/bluetooth_preflight.dart';
+import '../../core/network/active_home.dart';
 import '../../core/network/base_url_provider.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/theme/she_theme.dart';
@@ -248,12 +249,23 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
     try {
       final homes = await ref.read(nodeServiceProvider).listHomes();
       if (!mounted) return;
+      // Claim into the SAME home the rest of the app is showing.
+      //
+      // This used to take `homes.first`, which is arbitrary: GET /homes is
+      // sorted newest-first, so `first` is whichever empty husk was created
+      // most recently. The node then landed in a home the dashboard never
+      // looks at, and the result was the worst kind of failure — provisioning
+      // reported success, the backend recorded the claim, and the device simply
+      // never appeared anywhere. resolveActiveHomeId() is the same resolver the
+      // Devices and Automations screens use, so the two can no longer disagree.
+      final active = await resolveActiveHomeId(ref);
+      if (!mounted) return;
       setState(() {
         _homes = homes;
-        if (_homes.isNotEmpty) {
-          _selectedHomeId =
-              (_homes.first['id'] ?? _homes.first['home_id'])?.toString();
-        }
+        _selectedHomeId = active ??
+            (homes.isNotEmpty
+                ? (homes.first['id'] ?? homes.first['home_id'])?.toString()
+                : null);
       });
     } catch (_) {
       // Homes load failure is non-fatal — backend falls back to the user's
