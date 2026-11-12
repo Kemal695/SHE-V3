@@ -33,7 +33,14 @@ static const char *TAG = "she_disc";
 /* Kept below CONFIG_LWIP_MAX_SOCKETS (10) with room for the MQTT/TLS sockets
  * that are already open by the time this can run. */
 #define PROBE_CONCURRENCY    6
-#define PROBE_TIMEOUT_MS     120
+/* 400 ms, not 120. A host that is present still has to be resolved by ARP
+ * before its SYN can be answered, and on Wi-Fi that is routinely 100-300 ms
+ * for an address the device has never talked to. At 120 ms the scan walked the
+ * whole /24 and reported "no host" while the backend was up and reachable on
+ * that very subnet — a false negative that reads exactly like a missing
+ * backend. The cost is bounded: 254/6 x 400 ms ~= 17 s, and this only runs when
+ * the configured broker is already dead. */
+#define PROBE_TIMEOUT_MS     400
 #define HTTP_TIMEOUT_S       2
 #define HEALTH_PATH          "/actuator/health"
 #define HEALTH_MAX_BYTES     512
@@ -185,6 +192,7 @@ esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t a
 
     uint32_t candidates[8];
     int n_candidates = 0;
+    int socket_fails = 0;      /* probes skipped because no socket was available */
 
     /* ---- Phase 1: who has :8080 open? ---- */
     for (uint32_t host = 1; host <= 254 && n_candidates < (int)(sizeof(candidates) / sizeof(candidates[0])); ) {
@@ -198,7 +206,7 @@ esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t a
             if (ip_be == own_be) continue;          /* never probe ourselves */
 
             int fd = connect_pending(ip_be, api_port);
-            if (fd < 0) continue;                   /* out of sockets — skip it */
+            if (fd < 0) { socket_fails++; continue; }   /* out of sockets */
             fds[n] = fd;
             ips[n] = ip_be;
             n++;
@@ -229,7 +237,9 @@ esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t a
     }
 
     if (n_candidates == 0) {
-        ESP_LOGW(TAG, "No host on the /24 accepted TCP %u", (unsigned)api_port);
+        ESP_LOGW(TAG, "No host on the /24 accepted TCP %u "
+                      "(%d probes skipped: no socket)",
+                 (unsigned)api_port, socket_fails);
         return ESP_ERR_NOT_FOUND;
     }
 
