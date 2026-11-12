@@ -72,6 +72,21 @@ class FlutterEspBleProv {
         .provisionWifi(deviceName, proofOfPossession, ssid, passphrase);
   }
 
+  /// Send [data] to a custom endpoint on the device, BEFORE provisioning Wi-Fi.
+  ///
+  /// SHE uses this to hand the device its server address (broker + API base) so
+  /// provisioning writes the complete connectivity config. It has to happen
+  /// before [provisionWifi]: the firmware reboots a couple of seconds after it
+  /// obtains an IP, which tears down the BLE link.
+  ///
+  /// [endpoint] is the custom endpoint name registered by the firmware
+  /// ("she-net"). Returns true when the device accepted the payload.
+  Future<bool?> provisionCustomData(String deviceName, String proofOfPossession,
+      String data, String endpoint) {
+    return FlutterEspBleProvPlatform.instance
+        .provisionCustomData(deviceName, proofOfPossession, data, endpoint);
+  }
+
   /// Returns the native platform version
   Future<String?> getPlatformVersion() {
     return FlutterEspBleProvPlatform.instance.getPlatformVersion();

@@ -39,6 +39,7 @@
 // =============================================================================
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -50,6 +51,7 @@ import '../device_detail/device_detail_screen.dart'
 import 'package:go_router/go_router.dart';
 
 import '../../core/ble/bluetooth_preflight.dart';
+import '../../core/network/base_url_provider.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/theme/she_theme.dart';
 // The dashboard caches the home's node list in a FutureProvider, and device
@@ -678,6 +680,48 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   /// [noAnswer] and [rejected] are **both survivable**: the board may have taken
   /// the credentials and rebooted before it could report anything, so step 4 is
   /// the only honest verdict.
+  /// Hands the device the SERVER address over the custom `she-net` endpoint.
+  ///
+  /// Provisioning used to send only the Wi-Fi password, so the device learned
+  /// where the network was and nothing about where the backend was. The broker
+  /// stayed at whatever was baked into the factory partition, and the moment
+  /// the server's LAN address changed the board would join Wi-Fi successfully
+  /// and then dial a host that no longer existed — presenting as "the device
+  /// never checked in" while it was in fact online and healthy.
+  ///
+  /// Must run BEFORE the Wi-Fi credentials: the firmware reboots a couple of
+  /// seconds after it obtains an IP, which drops the BLE link.
+  ///
+  /// Failures are non-fatal. Firmware without the endpoint simply refuses the
+  /// payload, and the device falls back to its factory broker.
+  Future<void> _sendServerConfig() async {
+    final device = _selectedDevice;
+    if (device == null) return;
+
+    final apiBase = ref.read(apiBaseUrlProvider).trim();
+    if (apiBase.isEmpty) return;
+
+    final host = Uri.tryParse(apiBase)?.host;
+    if (host == null || host.isEmpty) return;
+
+    // Same host as the API: mTLS broker on 8883, HTTP API on 8080.
+    final payload = jsonEncode({
+      'mqtt_broker': 'mqtts://$host:8883',
+      'api_base': apiBase,
+    });
+
+    try {
+      await _prov
+          .provisionCustomData(
+              device, _popCtrl.text.trim(), payload, 'she-net')
+          .timeout(const Duration(seconds: 20));
+      debugPrint('server address sent to device: $payload');
+    } on Object catch (e) {
+      // Expected on older firmware. Not worth failing provisioning over.
+      debugPrint('provisionCustomData failed (non-fatal): $e');
+    }
+  }
+
   Future<_SendOutcome> _sendWifiCredentials(String ssid) async {
     final call = _prov.provisionWifi(
       _selectedDevice!,
@@ -815,6 +859,13 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         _steps[s] = _StepState.pending;
       }
     });
+
+    // ---- Step 0: hand the device its server address ----
+    // Separate from the Wi-Fi step on purpose, and before it: the firmware
+    // reboots ~2 s after it gets an IP, so this is the only window.
+    setState(() => _status = 'Sending server address…');
+    await _sendServerConfig();
+    if (!mounted) return;
 
     // ---- Step 1: sending Wi-Fi credentials ----
     // ⚠ This is the step that used to hang the wizard. The board's answer is

@@ -10,6 +10,7 @@
 #include "ble_provisioning.h"
 #include "app_wifi.h"        /* app_wifi_set_provisioning_active() */
 #include "nvs_keys.h"
+#include "cJSON.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -244,6 +245,106 @@ bool ble_provisioning_is_provisioned(void) {
     return provisioned == 1;
 }
 
+/* ---- Custom provisioning endpoint: "she-net" ----
+ *
+ * Carries the SERVER address (broker + API base) alongside the Wi-Fi
+ * credentials, so one provisioning pass writes the complete connectivity
+ * config into NVS.
+ *
+ * Why this exists: without it the device only ever learned where the NETWORK
+ * was, never where the BACKEND was. The broker stayed at whatever was baked
+ * into `fctry` at manufacturing time, so every time the router handed the
+ * server a new address the board joined Wi-Fi successfully and then dialled a
+ * host that no longer existed — which looks identical to "the device is dead".
+ *
+ * The app sends, before the Wi-Fi credentials:
+ *     {"mqtt_broker":"mqtts://HOST:8883","api_base":"http://HOST:8080"}
+ * Order matters: the device reboots ~2 s after it gets an IP, so there is no
+ * second chance to send anything after the credentials.
+ *
+ * Written to the RUNTIME namespace (she_nvs), not fctry: cfg_get_str() prefers
+ * it, it survives reboots, and a factory reset drops back to the factory value.
+ */
+static esp_err_t she_net_handler(uint32_t session_id,
+                                 const uint8_t *inbuf, ssize_t inlen,
+                                 uint8_t **outbuf, ssize_t *outlen,
+                                 void *priv_data)
+{
+    (void)session_id;
+    (void)outbuf;
+    (void)outlen;
+    (void)priv_data;
+
+    if (inbuf == NULL || inlen <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* protocomm hands us a length, not a C string. */
+    char json[192];
+    if ((size_t)inlen >= sizeof(json)) {
+        ESP_LOGE(TAG, "she-net: payload too long (%d bytes)", (int)inlen);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    memcpy(json, inbuf, (size_t)inlen);
+    json[inlen] = '\0';
+
+    cJSON *root = cJSON_Parse(json);
+    if (root == NULL) {
+        ESP_LOGE(TAG, "she-net: payload is not valid JSON: %s", json);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const cJSON *broker = cJSON_GetObjectItemCaseSensitive(root, "mqtt_broker");
+    const cJSON *api    = cJSON_GetObjectItemCaseSensitive(root, "api_base");
+
+    if (!cJSON_IsString(broker) || broker->valuestring[0] == '\0') {
+        ESP_LOGE(TAG, "she-net: no usable mqtt_broker in %s", json);
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(SHE_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "she-net: cannot open %s (%s)", SHE_NVS_NAMESPACE,
+                 esp_err_to_name(err));
+        cJSON_Delete(root);
+        return err;
+    }
+
+    nvs_set_str(h, SHE_NVS_KEY_MQTT_BROKER, broker->valuestring);
+    ESP_LOGW(TAG, "she-net: broker  = %s", broker->valuestring);
+
+    if (cJSON_IsString(api) && api->valuestring[0] != '\0') {
+        nvs_set_str(h, SHE_NVS_KEY_API_BASE_URL, api->valuestring);
+        ESP_LOGW(TAG, "she-net: api base = %s", api->valuestring);
+    }
+
+    err = nvs_commit(h);
+    nvs_close(h);
+    cJSON_Delete(root);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "she-net: connectivity config stored — the device will "
+                      "use it on the next boot");
+    } else {
+        ESP_LOGE(TAG, "she-net: commit failed (%s)", esp_err_to_name(err));
+    }
+    return err;
+}
+
+/* Must run after wifi_prov_mgr_init() and BEFORE start_provisioning(). */
+static void register_custom_endpoints(void)
+{
+    esp_err_t err = wifi_prov_mgr_endpoint_register("she-net", she_net_handler, NULL);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Endpoint 'she-net' registered (broker + api base over BLE)");
+    } else {
+        ESP_LOGW(TAG, "Could not register 'she-net' (%s) — the app's server "
+                      "address will be ignored", esp_err_to_name(err));
+    }
+}
+
 /* ---- Start BLE provisioning ---- */
 esp_err_t ble_provisioning_start(she_node_t *node) {
     ESP_LOGI(TAG, "Starting BLE provisioning (Service UUID: %s)", SHE_BLE_SERVICE_UUID);
@@ -354,6 +455,9 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
     };
     ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
 
+    /* Carry the server address too, not just the Wi-Fi password. */
+    register_custom_endpoints();
+
     /* Set service UUID (P1-2: 0000ffff-0000-1000-8000-00805f9b34fb).
      * ESP-IDF expects the 128-bit UUID as a LITTLE-ENDIAN (LSB-first) byte
      * array, so the 16-bit 0xFFFF belongs at offset 12-13 — NOT at 2-3.
@@ -368,9 +472,11 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
     };
     wifi_prov_scheme_ble_set_service_uuid(she_ble_service_uuid);
 
-    /* Standard Espressif Wi-Fi provisioning (prov-session/prov-config/prov-scan).
-     * No custom "she-prov" endpoint in app-claims flow — the app sends only
-     * Wi-Fi creds over BLE, then calls POST /api/v3/nodes/claim itself. */
+    /* Standard Espressif Wi-Fi provisioning (prov-session/prov-config/prov-scan)
+     * PLUS one custom endpoint, "she-net" (registered above), which carries the
+     * broker + API base so the device does not have to guess where the backend
+     * is after joining a new network. The app still calls
+     * POST /api/v3/nodes/claim itself — the device never claims. */
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID,
                                                &prov_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
@@ -390,6 +496,7 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
         wifi_prov_mgr_stop_provisioning();
         wifi_prov_mgr_deinit();
         ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
+        register_custom_endpoints();     /* endpoints die with the manager */
         prov_err = wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, service_name, NULL);
     }
     ESP_ERROR_CHECK(prov_err);

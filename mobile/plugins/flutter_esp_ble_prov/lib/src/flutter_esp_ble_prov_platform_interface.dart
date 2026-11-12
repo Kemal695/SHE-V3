@@ -40,4 +40,9 @@ abstract class FlutterEspBleProvPlatform extends PlatformInterface {
       String ssid, String passphrase) {
     throw UnimplementedError('provisionWifi has not been implemented');
   }
+
+  Future<bool?> provisionCustomData(String deviceName, String proofOfPossession,
+      String data, String endpoint) {
+    throw UnimplementedError('provisionCustomData has not been implemented');
+  }
 }

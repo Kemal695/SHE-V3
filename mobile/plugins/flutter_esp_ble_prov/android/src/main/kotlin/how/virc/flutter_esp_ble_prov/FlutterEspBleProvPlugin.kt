@@ -151,6 +151,7 @@ class Boss {
   private val scanBleMethod = "scanBleDevices"
   private val scanWifiMethod = "scanWifiNetworks"
   private val provisionWifiMethod = "provisionWifi"
+  private val provisionCustomDataMethod = "provisionCustomData"
   private val platformVersionMethod = "getPlatformVersion"
 
   /**
@@ -168,6 +169,7 @@ class Boss {
   private val bleScanner: BleScanManager = BleScanManager(this)
   private val wifiScanner: WifiScanManager = WifiScanManager(this)
   private val wifiProvisioner: WifiProvisionManager = WifiProvisionManager(this)
+  private val customDataProvisioner: CustomDataProvisionManager = CustomDataProvisionManager(this)
 
   private lateinit var platformContext: Context
   lateinit var platformActivity: Activity
@@ -284,6 +286,7 @@ class Boss {
         scanBleMethod -> bleScanner.call(ctx)
         scanWifiMethod -> wifiScanner.call(ctx)
         provisionWifiMethod -> wifiProvisioner.call(ctx)
+        provisionCustomDataMethod -> customDataProvisioner.call(ctx)
         else -> result.notImplemented()
       }
     })
@@ -562,6 +565,98 @@ class WifiProvisionManager(boss: Boss) : ActionManager(boss) {
     )
   }
 
+}
+
+/**
+ * Sends a JSON payload to a CUSTOM provisioning endpoint on the device.
+ *
+ * SHE uses this to hand the device its server address (broker + API base), so a
+ * single provisioning pass writes the complete connectivity config. Without it
+ * the device only learns where the NETWORK is, and the broker stays at whatever
+ * was baked in at manufacturing time — every server address change then leaves
+ * the board joining Wi-Fi successfully and dialling a host that no longer
+ * exists.
+ *
+ * MUST be called BEFORE provisionWifi: the firmware reboots a couple of seconds
+ * after it obtains an IP, which tears down the BLE session and any chance of
+ * sending this afterwards.
+ */
+class CustomDataProvisionManager(boss: Boss) : ActionManager(boss) {
+  override fun call(ctx: CallContext) {
+    // NOTE: never log ctx.call.arguments — it would dump the whole payload.
+    val deviceName = ctx.arg("deviceName") ?: return
+    val proofOfPossession = ctx.arg("proofOfPossession") ?: return
+    val data = ctx.arg("data") ?: return
+    val endpoint = ctx.arg("endpoint") ?: return
+    boss.e("provisionCustomData device=$deviceName endpoint=$endpoint bytes=${data.length}")
+    val conn = boss.connector(deviceName) ?: return
+
+    boss.connect(
+      conn,
+      proofOfPossession,
+      onConnectCallback = { esp ->
+        boss.d("customData: start")
+        esp.provisionCustomData(data, endpoint, object : ProvisionListener {
+          override fun createSessionFailed(e: java.lang.Exception?) {
+            boss.e("customData createSessionFailed $e")
+            Handler(Looper.getMainLooper()).post {
+              ctx.result.error("E1", "Secure session rejected by $deviceName", "$e")
+            }
+          }
+
+          override fun wifiConfigSent() {
+            boss.d("customData wifiConfigSent")
+          }
+
+          override fun wifiConfigFailed(e: java.lang.Exception?) {
+            boss.e("customData wifiConfigFailed $e")
+          }
+
+          override fun wifiConfigApplied() {
+            boss.d("customData wifiConfigApplied")
+          }
+
+          override fun wifiConfigApplyFailed(e: java.lang.Exception?) {
+            boss.e("customData wifiConfigApplyFailed $e")
+          }
+
+          override fun provisioningFailedFromDevice(failureReason: ESPConstants.ProvisionFailureReason?) {
+            boss.e("customData failedFromDevice reason=$failureReason")
+            Handler(Looper.getMainLooper()).post {
+              ctx.result.error(
+                "E1",
+                "Device rejected endpoint \"$endpoint\" ($failureReason)",
+                "reason=$failureReason"
+              )
+            }
+          }
+
+          override fun deviceProvisioningSuccess() {
+            boss.d("customData success")
+            // Free the BLE link: provisionWifi() opens its own connection next,
+            // and this device reboots on its own schedule, not ours.
+            try {
+              esp.disconnectDevice()
+            } catch (e: Exception) {
+              boss.e("customData disconnect failed: $e")
+            }
+            Handler(Looper.getMainLooper()).post { ctx.result.success(true) }
+          }
+
+          override fun onProvisioningFailed(e: java.lang.Exception?) {
+            boss.e("customData onProvisioningFailed $e")
+            Handler(Looper.getMainLooper()).post {
+              ctx.result.error("E1", "Custom data not delivered", "$e")
+            }
+          }
+        })
+      },
+      onFailureCallback = { msg ->
+        boss.e("esp connect: failed $msg")
+        Handler(Looper.getMainLooper()).post { ctx.result.error("E2", msg, null) }
+      },
+    )
+  }
 }
 
 
