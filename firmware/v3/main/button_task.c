@@ -51,6 +51,24 @@ static const char *TAG = "she_button";
 #define LONG_PRESS_MS       5000
 #define DEBOUNCE_MS         50    /* F10 fix: ignore sub-50ms glitches */
 
+/* ── Short press: cycle all 24 relays ────────────────────────────────────────
+ * OFF by default. This was a bench test, and it is actively harmful:
+ *
+ *  1. It fires on EVERY press shorter than 5 s — including the "hold BOOT, tap
+ *     EN" that entering download mode requires. So every flash made all 24
+ *     relays chatter, which reads as "the board is blinking".
+ *  2. relay_set_all(0x00FFFFFF) energises 24 coils at once. That is far beyond
+ *     what a USB port can supply, so the 5 V rail sags and the board can brown
+ *     out mid-flash — which is the most likely cause of the board appearing
+ *     dead ("silent serial, esptool will not sync") earlier the same day.
+ *  3. On a real installation those relays switch mains loads.
+ *
+ * The long press (factory reset) stays — provisioning needs it. Set to 1 only
+ * on a bench board with no load attached. */
+#ifndef SHE_BUTTON_SHORT_PRESS_CYCLES_RELAYS
+#define SHE_BUTTON_SHORT_PRESS_CYCLES_RELAYS  0
+#endif
+
 static void button_task(void *arg) {
     bool last_level = true;   /* pulled high = not pressed */
 
@@ -78,7 +96,8 @@ static void button_task(void *arg) {
             }
 
             if (press_duration < LONG_PRESS_MS) {
-                /* Short press — cycle relays */
+#if SHE_BUTTON_SHORT_PRESS_CYCLES_RELAYS
+                /* Short press — cycle relays (bench only, see the macro above) */
                 ESP_LOGI(TAG, "Short press — cycling relays");
                 /* Toggle all relays on then off.
                  * 0x00FFFFFF covers 24 channels (ADR-015); the old 0xFFFF would
@@ -86,6 +105,11 @@ static void button_task(void *arg) {
                 relay_set_all(0x00FFFFFFu);
                 vTaskDelay(pdMS_TO_TICKS(500));
                 relay_set_all(0x00000000u);
+#else
+                /* Deliberately inert. A short press happens on every attempt to
+                 * enter download mode, so it must not switch anything. */
+                ESP_LOGI(TAG, "Short press ignored (relay cycling disabled)");
+#endif
             }
         }
         last_level = level;

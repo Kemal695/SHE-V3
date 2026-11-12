@@ -43,6 +43,12 @@ static she_node_t *g_node = NULL;
 /* Cumulative broker disconnects since boot — reported as `mqtt_reconnects`. */
 static uint32_t g_mqtt_reconnects = 0;
 
+/* Consecutive failed connects since the last success. Drives the runtime
+ * re-discovery below: a broker address that moves WHILE we are running is not
+ * caught by the startup probe, and without this the device dials a dead address
+ * until somebody power-cycles it. */
+static int g_conn_fails = 0;
+
 /* Cached provisioning info (from NVS) */
 static char g_tenant_short[16];
 static char g_home_short[16];
@@ -683,6 +689,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED: {
         g_mqtt_connected = true;
+        g_conn_fails = 0;        /* the address we hold is good — stop counting */
         rx_reassembly_reset();   /* a new session cannot continue an old message */
         ESP_LOGI(TAG, "MQTT connected — publishing status=online + config");
         mqtt_publish_status(true);
@@ -708,6 +715,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
     }
     case MQTT_EVENT_DISCONNECTED:
         g_mqtt_connected = false;
+        g_conn_fails++;          /* feeds the runtime re-discovery */
         rx_reassembly_reset();   /* the rest of a split message will never arrive */
         /* Each drop is followed by a reconnect, so counting disconnects is a
          * faithful proxy for `mqtt_reconnects`. */
@@ -768,6 +776,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         break;
     }
     case MQTT_EVENT_ERROR:
+        g_conn_fails++;          /* feeds the runtime re-discovery */
         /* error_type 1 == MQTT_ERROR_TYPE_TCP_TRANSPORT, i.e. the TLS layer failed.
          * Report heap here too: MBEDTLS_ERR_SSL_INTERNAL_ERROR is what mbedtls
          * returns when an internal allocation fails, and without heap numbers a
@@ -965,6 +974,43 @@ bool mqtt_client_is_connected(void) {
     return g_mqtt_connected;
 }
 
+/* ---- Recover a broker address that moved WHILE we were running ----
+ *
+ * broker_refresh_if_unreachable() runs once, at startup. If the backend's
+ * address changes afterwards — a new DHCP lease is the usual cause, and this
+ * bench has moved four times (.5 -> .7 -> .21 -> .18) — the device keeps
+ * retrying the old address indefinitely. Nothing recovers it short of a
+ * power-cycle, and from the app it is indistinguishable from "the device is
+ * dead": online on Wi-Fi, never checks in.
+ *
+ * So after a run of failed connects, look again. Only rebuild the client when
+ * the address actually changed; a restart against the same address cannot help
+ * and would just reset the backoff.
+ *
+ * Runs on the heartbeat task, NOT the MQTT event task: destroying the client
+ * from inside its own event callback is a deadlock.
+ */
+#define SHE_REDISCOVER_FAILS  4     /* ~4 failed connects at the 20 s backoff */
+
+static void mqtt_recover_broker(void)
+{
+    char before[128];
+    snprintf(before, sizeof(before), "%s", g_mqtt_broker);
+
+    broker_refresh_if_unreachable();    /* probe, scan, persist — no-op if alive */
+
+    if (strcmp(before, g_mqtt_broker) == 0) {
+        return;                         /* same address: a restart would not help */
+    }
+
+    ESP_LOGW(TAG, "Broker moved to %s while offline — restarting MQTT", g_mqtt_broker);
+
+    mqtt_client_stop();
+    if (mqtt_client_start(g_node) != ESP_OK) {
+        ESP_LOGE(TAG, "Restart against the discovered broker failed");
+    }
+}
+
 /* ---- Publish helpers ---- */
 esp_err_t mqtt_publish(const char *topic, const char *payload, int qos, bool retained) {
     if (!mqtt_client) return ESP_FAIL;
@@ -1017,7 +1063,16 @@ static void status_heartbeat_task(void *arg)
     (void)arg;
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(STATUS_HEARTBEAT_S * 1000));
-        if (!g_mqtt_connected) continue;        /* don't publish while offline */
+
+        if (!g_mqtt_connected) {
+            /* Offline. The address we are dialling may no longer exist, so give
+             * discovery a chance to correct it instead of retrying forever. */
+            if (g_conn_fails >= SHE_REDISCOVER_FAILS) {
+                g_conn_fails = 0;
+                mqtt_recover_broker();
+            }
+            continue;                       /* don't publish while offline */
+        }
         if (mqtt_publish_status(true) != ESP_OK) {
             ESP_LOGW(TAG, "status heartbeat publish failed");
         }
@@ -1028,7 +1083,9 @@ void mqtt_start_status_heartbeat(void)
 {
     static bool started = false;
     if (started) return;
-    if (xTaskCreate(status_heartbeat_task, "she_status_hb", 3072, NULL, 4, NULL) == pdPASS) {
+    /* 4096, not 3072: this task can now call mqtt_recover_broker(), which runs a
+     * subnet scan and may rebuild the client (config struct + NVS + cert load). */
+    if (xTaskCreate(status_heartbeat_task, "she_status_hb", 4096, NULL, 4, NULL) == pdPASS) {
         started = true;
         ESP_LOGI(TAG, "status heartbeat every %ds", STATUS_HEARTBEAT_S);
     } else {
