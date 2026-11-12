@@ -29,19 +29,42 @@ import 'package:geolocator/geolocator.dart';
 /// Android permission name for the QR scanner (V3-FACTORY-OPS §4).
 const String kAndroidCameraPermission = 'android.permission.CAMERA';
 
+/// Which settings page (if any) would actually fix a failed preflight.
+///
+/// The distinction matters: a denied permission is fixed in the APP's settings,
+/// while Location being switched off is fixed in the SYSTEM location settings.
+/// Sending the user to the wrong one is a dead end — it is exactly what made
+/// the empty scan feel like a broken device.
+enum PreflightFix { none, appSettings, locationSettings }
+
 /// Outcome of [ensureBluetoothReady].
 class BluetoothPreflight {
-  const BluetoothPreflight.ready()
+  const BluetoothPreflight.ready({this.locationServicesOff = false})
       : ok = true,
-        message = null;
+        message = null,
+        fix = PreflightFix.none;
 
-  const BluetoothPreflight.failed(String this.message) : ok = false;
+  const BluetoothPreflight.failed(String this.message)
+      : ok = false,
+        fix = PreflightFix.appSettings,
+        locationServicesOff = false;
 
   /// True when the BLE stack is usable and a scan may be started.
   final bool ok;
 
   /// A user-facing explanation, only set when [ok] is false.
   final String? message;
+
+  /// Which settings page the user should be taken to, if any.
+  final PreflightFix fix;
+
+  /// Advisory, NOT a failure.
+  ///
+  /// With BLUETOOTH_SCAN declared as `neverForLocation` (see the manifest),
+  /// Android 12+ scans fine with Location switched off — so blocking here would
+  /// be wrong. It stays a hint: if a scan then comes back empty, Location being
+  /// off is the most likely reason and worth saying out loud.
+  final bool locationServicesOff;
 }
 
 /// Makes sure a BLE scan can actually run. Never throws.
@@ -85,25 +108,17 @@ Future<BluetoothPreflight> ensureBluetoothReady(FlutterEspBleProv prov) async {
     );
   }
 
-  // ---- 2b. location services must be SWITCHED ON ----
-  // Android gates BLE *scanning* behind location, not only the permission: with
-  // the grant in place but the system Location toggle OFF, the scan returns zero
-  // devices and no error at all. The user then sees an empty list, concludes the
-  // board is dead, and starts reflashing it — which is precisely what happened
-  // on the bench. Checking the toggle costs one call and says something useful.
+  // ---- 2b. location services: ADVISORY ONLY ----
+  // With BLUETOOTH_SCAN declared `neverForLocation`, Android 12+ does not need
+  // Location switched on to scan, so this must NOT block the flow. It is
+  // reported so that an empty scan can be explained instead of just being an
+  // empty list. (On Android 11 and below the scan really does need it, and the
+  // empty-scan hint covers that case too.)
   bool locationOn = true;
   try {
     locationOn = await Geolocator.isLocationServiceEnabled();
   } catch (_) {
-    // Cannot determine it — do not block the flow on a check that failed.
-  }
-  if (!locationOn) {
-    return const BluetoothPreflight.failed(
-      'Turn on Location in Android Settings, then tap Scan again.\n\n'
-      'Android will not let an app scan for Bluetooth devices while Location '
-      'is switched off. The scan finds nothing and reports no error, so the '
-      'device list just looks empty.',
-    );
+    // Cannot determine it — treat as on, so nothing is blocked.
   }
 
   // ---- 3. adapter ----
@@ -146,7 +161,7 @@ Future<BluetoothPreflight> ensureBluetoothReady(FlutterEspBleProv prov) async {
     );
   }
 
-  return const BluetoothPreflight.ready();
+  return BluetoothPreflight.ready(locationServicesOff: !locationOn);
 }
 
 /// Asks the platform for the real adapter state.

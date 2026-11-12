@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Voice control (phone-side speech recognition) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Tactile "Hey Robi was heard" cue — works even when the phone is
@@ -12,6 +13,27 @@
          app is not open. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Bluetooth LE — BLE provisioning (setting a device up over the air).
+         Android 12 (API 31) split Bluetooth into runtime permissions.
+         `neverForLocation` is the important part: it declares that this app does
+         NOT derive physical location from BLE scans, and that is what removes
+         the "Location services must be switched ON" requirement for scanning.
+         Without these declarations Android falls back to the legacy path, where
+         a BLE scan returns an EMPTY LIST with no error unless Location is on —
+         which is exactly why a board that was advertising perfectly looked
+         invisible, and why it only appeared after Location was switched on by
+         hand. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- Legacy Bluetooth permissions: only meaningful on Android 11 and below,
+         where scanning still requires Location. Capped so they are not requested
+         on newer releases. -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30"/>
     <!-- Optional: lets the recognizer keep working if the user backgrounds the
          app mid-utterance. Not required for the normal foreground flow. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>

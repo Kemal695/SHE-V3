@@ -45,6 +45,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import '../dashboard/dashboard_screen.dart' show homeNodesProvider;
 import '../device_detail/device_detail_screen.dart'
     show nodeDetailProvider, nodeDevicesProvider;
@@ -217,6 +218,9 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   /// which otherwise leaves the flow as a dead end.
   bool _showSettingsAction = false;
 
+  /// Which settings page the "fix it" action opens. Set from the preflight.
+  PreflightFix _preflightFix = PreflightFix.appSettings;
+
   List<Map<String, dynamic>> _homes = [];
   String? _selectedHomeId;
 
@@ -292,10 +296,18 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
     });
   }
 
-  /// Opens this app's Android settings page — the only way back from a
-  /// "Don't allow" on a runtime permission.
+  /// Opens the settings page that can actually fix the failed preflight.
+  ///
+  /// A denied runtime permission is fixed in the APP's settings; Location being
+  /// switched off is fixed in the SYSTEM location settings. Sending the user to
+  /// the wrong one is a dead end — the app-settings page has no Location toggle
+  /// on modern Android, so the "fix it" button used to lead nowhere.
   Future<void> _openSettings() async {
     try {
+      if (_preflightFix == PreflightFix.locationSettings) {
+        await Geolocator.openLocationSettings();
+        return;
+      }
       await _prov.openAppSettings();
     } catch (_) {
       // Nothing more we can do; the message already says where to go.
@@ -403,6 +415,7 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         _isLoading = false;
         _status = null;
         _error = pre.message;
+        _preflightFix = pre.fix;
         _showSettingsAction = true;
       });
       return;
@@ -424,12 +437,25 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
         _devices = devices;
         _isScanning = false;
         _isLoading = false;
-        _status = devices.isEmpty
-            ? 'No devices found. Make sure the device is powered on and not '
-                'already added to another phone, and — on Android 11 or older '
-                '— that Location services are switched on (Android hides '
-                'Bluetooth scan results without them).'
-            : '${devices.length} device(s) found — tap one to continue';
+        _status = devices.isNotEmpty
+            ? '${devices.length} device(s) found — tap one to continue'
+            : 'No devices found.';
+
+        // An empty scan has one dominant cause that is invisible to the user:
+        // Location being off. It is not a hard requirement on Android 12+ (see
+        // BLUETOOTH_SCAN/neverForLocation in the manifest), so it is reported
+        // here rather than blocking the scan — but when nothing was found, it is
+        // the first thing worth ruling out.
+        if (devices.isEmpty && pre.locationServicesOff) {
+          _error = 'No devices found, and Location is switched off.\n\n'
+              'Android can hide Bluetooth scan results while Location is off — '
+              'on Android 11 and older it always does. Turn Location on and '
+              'scan again.\n\n'
+              'If Location is already on, check that the board is powered and '
+              'that its name starts with "${_prefixCtrl.text.trim()}".';
+          _preflightFix = PreflightFix.locationSettings;
+          _showSettingsAction = true;
+        }
       });
     } catch (e) {
       if (!mounted) return;
