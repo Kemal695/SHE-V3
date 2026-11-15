@@ -333,15 +333,48 @@ static esp_err_t she_net_handler(uint32_t session_id,
     return err;
 }
 
-/* Must run after wifi_prov_mgr_init() and BEFORE start_provisioning(). */
-static void register_custom_endpoints(void)
+/* Custom endpoints need TWO calls in ESP-IDF, with opposite timing, and calling
+ * only one of them silently produces an endpoint that exists in name only:
+ *
+ *   wifi_prov_mgr_endpoint_create()   — only accepted while prov_state == IDLE,
+ *                                       i.e. BEFORE start. It appends the endpoint
+ *                                       to the BLE scheme's name/UUID table, and
+ *                                       protocomm_ble builds the GATT table from
+ *                                       that table when the transport starts. This
+ *                                       is the call that actually creates the
+ *                                       characteristic the phone writes to.
+ *
+ *   wifi_prov_mgr_endpoint_register() — only accepted while prov_state is between
+ *                                       STARTING and STOPPING, i.e. AFTER start.
+ *                                       It attaches the request handler.
+ *
+ * This file previously called register() before start. The manager rejected it
+ * with ESP_FAIL (logged, then ignored), so no characteristic was ever created and
+ * the Android library failed with "Characteristic is not available for given
+ * path" — the app's broker address was never delivered, and the device silently
+ * fell back to whatever was baked into fctry. That is why every re-provisioning
+ * after an IP change appeared to succeed and still left the board dialling a dead
+ * host.
+ */
+static void create_custom_endpoint(void)
+{
+    esp_err_t err = wifi_prov_mgr_endpoint_create("she-net");
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Endpoint 'she-net' created (GATT characteristic present)");
+    } else {
+        ESP_LOGW(TAG, "Could not create 'she-net' (%s) — the app will have no way "
+                      "to send the server address", esp_err_to_name(err));
+    }
+}
+
+static void attach_custom_endpoint(void)
 {
     esp_err_t err = wifi_prov_mgr_endpoint_register("she-net", she_net_handler, NULL);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Endpoint 'she-net' registered (broker + api base over BLE)");
+        ESP_LOGI(TAG, "Endpoint 'she-net' handler attached (broker + api base over BLE)");
     } else {
-        ESP_LOGW(TAG, "Could not register 'she-net' (%s) — the app's server "
-                      "address will be ignored", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Could not attach 'she-net' handler (%s) — the characteristic "
+                      "exists but will not answer", esp_err_to_name(err));
     }
 }
 
@@ -455,8 +488,9 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
     };
     ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
 
-    /* Carry the server address too, not just the Wi-Fi password. */
-    register_custom_endpoints();
+    /* Carry the server address too, not just the Wi-Fi password. Must happen
+     * before start_provisioning() — see create_custom_endpoint(). */
+    create_custom_endpoint();
 
     /* Set service UUID (P1-2: 0000ffff-0000-1000-8000-00805f9b34fb).
      * ESP-IDF expects the 128-bit UUID as a LITTLE-ENDIAN (LSB-first) byte
@@ -496,10 +530,14 @@ esp_err_t ble_provisioning_start(she_node_t *node) {
         wifi_prov_mgr_stop_provisioning();
         wifi_prov_mgr_deinit();
         ESP_ERROR_CHECK(wifi_prov_mgr_init(cfg));
-        register_custom_endpoints();     /* endpoints die with the manager */
+        create_custom_endpoint();        /* endpoints die with the manager */
         prov_err = wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, pop, service_name, NULL);
     }
     ESP_ERROR_CHECK(prov_err);
+
+    /* Handlers can only be attached once the manager is actually running; the
+     * characteristic itself was created above, before start. */
+    attach_custom_endpoint();
 
     ESP_LOGI(TAG, "BLE provisioning started — waiting for app to connect (PoP: %s)", pop);
 
