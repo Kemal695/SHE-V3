@@ -41,6 +41,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
@@ -732,15 +733,33 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
   ///
   /// Failures are non-fatal. Firmware without the endpoint simply refuses the
   /// payload, and the device falls back to its factory broker.
-  Future<void> _sendServerConfig() async {
+  /// Hands the device its server address over BLE.
+  ///
+  /// Returns a user-facing error when the address is provably wrong — this phone
+  /// cannot reach the backend. That case MUST abort provisioning: otherwise the
+  /// device joins Wi-Fi, stores a dead host, and never checks in, which looks
+  /// exactly like a broken device and cannot be recovered without a reflash.
+  /// (This is not hypothetical: the server moved from .18 to .15 and the app was
+  /// still configured for .18, so the device was handed an address that no longer
+  /// existed and step 4 failed every time.)
+  ///
+  /// A failed BLE write is still non-fatal: older firmware has no `she-net`
+  /// endpoint and falls back to its factory address, which may well be correct.
+  Future<String?> _sendServerConfig() async {
     final device = _selectedDevice;
-    if (device == null) return;
+    if (device == null) return null;
 
     final apiBase = ref.read(apiBaseUrlProvider).trim();
-    if (apiBase.isEmpty) return;
+    if (apiBase.isEmpty) return null;
 
     final host = Uri.tryParse(apiBase)?.host;
-    if (host == null || host.isEmpty) return;
+    if (host == null || host.isEmpty) return null;
+
+    final unreachable = await _backendUnreachableReason(apiBase);
+    if (unreachable != null) {
+      debugPrint('server address NOT sent — $unreachable');
+      return unreachable;
+    }
 
     // Same host as the API: mTLS broker on 8883, HTTP API on 8080.
     final payload = jsonEncode({
@@ -757,6 +776,37 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
     } on Object catch (e) {
       // Expected on older firmware. Not worth failing provisioning over.
       debugPrint('provisionCustomData failed (non-fatal): $e');
+    }
+    return null;
+  }
+
+  /// Returns null when [apiBase] is reachable from this phone, or a message
+  /// explaining why it is not.
+  ///
+  /// Deliberately independent of the app's authenticated client: this answers one
+  /// question only — "can this phone talk to the server right now?" — and must not
+  /// be confused by an expired token or a 401.
+  Future<String?> _backendUnreachableReason(String apiBase) async {
+    final probe = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 4),
+      receiveTimeout: const Duration(seconds: 4),
+      // A 4xx still proves the host is there; only 5xx and transport failures
+      // mean "wrong address".
+      validateStatus: (s) => s != null && s < 500,
+    ));
+    try {
+      final resp = await probe.get('$apiBase/actuator/health');
+      if (resp.statusCode == 200) return null;
+      return 'The server at $apiBase is not healthy (HTTP ${resp.statusCode}).\n\n'
+          'The device would be told to use an address that is not working, so '
+          'it would join your Wi-Fi and then never appear.';
+    } on Object {
+      return 'This phone cannot reach $apiBase.\n\n'
+          'The device is about to be told where the server lives. If that '
+          'address is wrong it will join your Wi-Fi and then never appear, with '
+          'no way to recover except re-provisioning.\n\n'
+          'Check Settings → Server, and that this phone is on the same network '
+          'as the server.';
     }
   }
 
@@ -901,9 +951,17 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
     // ---- Step 0: hand the device its server address ----
     // Separate from the Wi-Fi step on purpose, and before it: the firmware
     // reboots ~2 s after it gets an IP, so this is the only window.
-    setState(() => _status = 'Sending server address…');
-    await _sendServerConfig();
+    setState(() => _status = 'Checking the server address…');
+    final serverConfigError = await _sendServerConfig();
     if (!mounted) return;
+    if (serverConfigError != null) {
+      // Abort. Sending a wrong address produces a device that joins Wi-Fi,
+      // never checks in, and cannot be fixed without re-provisioning — the
+      // exact failure that cost hours when the server IP moved.
+      _setStep(_ProvStep.sendCreds, _StepState.failed);
+      _fail(serverConfigError);
+      return;
+    }
 
     // ---- Step 1: sending Wi-Fi credentials ----
     // ⚠ This is the step that used to hang the wizard. The board's answer is

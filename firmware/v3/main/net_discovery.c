@@ -105,11 +105,29 @@ static bool probe_blocking(uint32_t ip_be, uint16_t port, int timeout_ms)
 
 /* ---------------------------------------------------------------------------
  * Ask a candidate whether it really is the SHE backend.
+ *
+ * `why` receives a short human-readable reason when the answer is "no". Without
+ * it this function's only output was a single line — "1 host(s) answered but
+ * none looked like the SHE backend" — which named neither the host nor the
+ * response, so a live backend could be rejected and there was nothing to go on.
+ * That exact message cost hours.
  * ------------------------------------------------------------------------- */
-static bool http_is_backend(uint32_t ip_be, uint16_t port)
+static bool http_is_backend(uint32_t ip_be, uint16_t port, char *why, size_t why_len)
 {
+    /* Callers may not care about the reason; keep the snprintf() calls below
+     * safe rather than sprinkling NULL checks through every branch. */
+    char sink[1];
+    if (why == NULL || why_len == 0) {
+        why = sink;
+        why_len = sizeof(sink);
+    }
+    why[0] = '\0';
+
     int fd = connect_pending(ip_be, port);
-    if (fd < 0) return false;
+    if (fd < 0) {
+        snprintf(why, why_len, "connect could not be started");
+        return false;
+    }
 
     /* The host answered a TCP probe a moment ago, so give connect the same
      * bounded wait rather than trusting a blocking connect to return. */
@@ -119,6 +137,7 @@ static bool http_is_backend(uint32_t ip_be, uint16_t port)
     struct timeval tv = { .tv_sec = HTTP_TIMEOUT_S, .tv_usec = 0 };
     if (select(fd + 1, NULL, &wfds, NULL, &tv) <= 0 || !connect_completed(fd)) {
         close(fd);
+        snprintf(why, why_len, "connect did not complete within %ds", HTTP_TIMEOUT_S);
         return false;
     }
 
@@ -137,6 +156,7 @@ static bool http_is_backend(uint32_t ip_be, uint16_t port)
 
     if (send(fd, req, sizeof(req) - 1, 0) < 0) {
         close(fd);
+        snprintf(why, why_len, "request could not be sent");
         return false;
     }
 
@@ -160,6 +180,23 @@ static bool http_is_backend(uint32_t ip_be, uint16_t port)
         }
     }
     close(fd);
+
+    if (!matched) {
+        if (total == 0) {
+            snprintf(why, why_len, "no HTTP response");
+        } else {
+            /* Report the status line and the first few body bytes, with control
+             * characters stripped so the log stays one line. */
+            char snippet[64];
+            size_t j = 0;
+            for (int i = 0; i < total && j < sizeof(snippet) - 1; i++) {
+                char c = buf[i];
+                snippet[j++] = (c == '\r' || c == '\n' || c == '\t') ? ' ' : c;
+            }
+            snippet[j] = '\0';
+            snprintf(why, why_len, "HTTP response did not contain \"status\":\"UP\" — %s", snippet);
+        }
+    }
     return matched;
 }
 
@@ -243,9 +280,25 @@ esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t a
         return ESP_ERR_NOT_FOUND;
     }
 
+    /* Name the hosts that answered. Without this, "none looked like the SHE
+     * backend" cannot be told apart from "the backend was never even a
+     * candidate" — which is the difference between a health-check bug and a
+     * probing bug, and both look identical from the outside. */
+    for (int k = 0; k < n_candidates; k++) {
+        struct in_addr c = { .s_addr = candidates[k] };
+        ESP_LOGW(TAG, "  candidate %s:%u answered TCP",
+                 inet_ntoa(c), (unsigned)api_port);
+    }
+
     /* ---- Phase 2: which of them is actually the SHE backend? ---- */
     for (int k = 0; k < n_candidates; k++) {
-        if (!http_is_backend(candidates[k], api_port)) continue;
+        char why[96];
+        if (!http_is_backend(candidates[k], api_port, why, sizeof(why))) {
+            struct in_addr bad = { .s_addr = candidates[k] };
+            ESP_LOGW(TAG, "  %s:%u answered TCP but was rejected — %s",
+                     inet_ntoa(bad), (unsigned)api_port, why);
+            continue;
+        }
 
         struct in_addr a = { .s_addr = candidates[k] };
         snprintf(host_out, host_len, "%s", inet_ntoa(a));
@@ -253,8 +306,9 @@ esp_err_t net_discovery_find_backend(char *host_out, size_t host_len, uint16_t a
         return ESP_OK;
     }
 
-    ESP_LOGW(TAG, "%d host(s) answered but none looked like the SHE backend",
-             n_candidates);
+    ESP_LOGW(TAG, "%d host(s) answered TCP %u but none served %s with a healthy "
+                  "payload — see the per-host reasons above",
+             n_candidates, (unsigned)api_port, HEALTH_PATH);
     return ESP_ERR_NOT_FOUND;
 }
 
