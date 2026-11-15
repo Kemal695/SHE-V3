@@ -22,6 +22,8 @@
 // across the provisioning screen.
 // =============================================================================
 
+import 'dart:io' show Platform;
+
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
 import 'package:geolocator/geolocator.dart';
@@ -48,6 +50,17 @@ class BluetoothPreflight {
       : ok = false,
         fix = PreflightFix.appSettings,
         locationServicesOff = false;
+
+  /// A failure the user can only clear on the SYSTEM location settings page.
+  ///
+  /// Used on Android 11 and older, where a BLE scan with Location switched off
+  /// returns zero devices and raises no error at all. `fix` points at the
+  /// location settings rather than the app's own page, which on modern Android
+  /// has no Location toggle and is therefore a dead end.
+  const BluetoothPreflight.failedLocation(String this.message)
+      : ok = false,
+        fix = PreflightFix.locationSettings,
+        locationServicesOff = true;
 
   /// True when the BLE stack is usable and a scan may be started.
   final bool ok;
@@ -108,17 +121,34 @@ Future<BluetoothPreflight> ensureBluetoothReady(FlutterEspBleProv prov) async {
     );
   }
 
-  // ---- 2b. location services: ADVISORY ONLY ----
-  // With BLUETOOTH_SCAN declared `neverForLocation`, Android 12+ does not need
-  // Location switched on to scan, so this must NOT block the flow. It is
-  // reported so that an empty scan can be explained instead of just being an
-  // empty list. (On Android 11 and below the scan really does need it, and the
-  // empty-scan hint covers that case too.)
+  // ---- 2b. location services ----
+  // Android 12+ does NOT need Location switched on to scan once BLUETOOTH_SCAN
+  // is declared with usesPermissionFlags="neverForLocation" — which this app
+  // does. But BLUETOOTH_SCAN does not exist before API 31, so on Android 11 and
+  // below the scan runs on the legacy path, where Location OFF returns ZERO
+  // devices and reports NO error.
+  //
+  // Treating this as advisory everywhere (the previous version of this file)
+  // was wrong: on an Android 11 phone the scan runs into the void and the user
+  // simply sees "no devices", with nothing to act on. The rule is therefore
+  // version-dependent, not blanket.
   bool locationOn = true;
   try {
     locationOn = await Geolocator.isLocationServiceEnabled();
   } catch (_) {
-    // Cannot determine it — treat as on, so nothing is blocked.
+    // Cannot determine it — do not block the flow on a check that failed.
+  }
+
+  final sdk = _androidSdkInt();
+  final locationIsRequired = sdk != null && sdk <= 30;
+  if (!locationOn && locationIsRequired) {
+    return const BluetoothPreflight.failedLocation(
+      'Turn on Location to find your device.\n\n'
+      'This phone runs Android 11 or older, where Android returns no Bluetooth '
+      'scan results at all while Location is switched off — the scan finds '
+      'nothing and reports no error, so the device list just looks empty.\n\n'
+      'Tap the button below — it opens the right settings page.',
+    );
   }
 
   // ---- 3. adapter ----
@@ -162,6 +192,19 @@ Future<BluetoothPreflight> ensureBluetoothReady(FlutterEspBleProv prov) async {
   }
 
   return BluetoothPreflight.ready(locationServicesOff: !locationOn);
+}
+
+/// Android API level, parsed out of [Platform.operatingSystemVersion].
+///
+/// Flutter reports that string on Android as e.g. `"Android 11 (SDK 30)"`, so
+/// the level can be read without adding `device_info_plus` as a dependency.
+/// Returns null on iOS or if the string does not match — callers must then
+/// assume the modern (API 31+) behaviour rather than blocking the user.
+int? _androidSdkInt() {
+  if (!Platform.isAndroid) return null;
+  final match =
+      RegExp(r'SDK (\d+)').firstMatch(Platform.operatingSystemVersion);
+  return match == null ? null : int.tryParse(match.group(1)!);
 }
 
 /// Asks the platform for the real adapter state.
