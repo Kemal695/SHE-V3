@@ -178,10 +178,18 @@ services:
       EMQX_AUTHENTICATION__1__BACKEND: http
       EMQX_AUTHENTICATION__1__METHOD: post
       EMQX_AUTHENTICATION__1__URL: http://she-backend:8080/internal/mqtt/auth
-      EMQX_AUTHENTICATION__1__HEADERS__CONTENT_TYPE: application/json
-      EMQX_AUTHENTICATION__1__HEADERS__X_INTERNAL_TOKEN: ${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}
-      EMQX_AUTHENTICATION__1__BODY__CLIENTID: $${clientid}
-      EMQX_AUTHENTICATION__1__BODY__CN: $${cert_common_name}
+      # Same trap as BODY: a header name containing a hyphen cannot be expressed
+      # as an env key, so HEADERS__X_INTERNAL_TOKEN is silently dropped and the
+      # backend answers 401 (invalid internal token) to every CONNECT.
+      EMQX_AUTHENTICATION__1__HEADERS: '{"content-type":"application/json","x-internal-token":"${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}"}'
+      # EMQX maps nested keys (HEADERS__…) from the environment, but NOT
+      # BODY__<field> — those are dropped without a warning, leaving the
+      # authenticator to POST an empty body and the backend to reject every
+      # CONNECT with "clientid: must not be blank". The body must therefore be
+      # supplied as one JSON object. `$$` is compose escaping: the container
+      # receives the literal ${clientid} / ${cert_common_name} placeholders for
+      # EMQX to fill per connection.
+      EMQX_AUTHENTICATION__1__BODY: '{"clientid":"$${clientid}","cn":"$${cert_common_name}"}'
       EMQX_AUTHENTICATION__1__CACHE__TTL: 300s
       # Short timeout: a hung backend must fail the CONNECT quickly, not stall
       # every device handshake behind it.
@@ -263,10 +271,18 @@ services:
       EMQX_AUTHENTICATION__1__BACKEND: http
       EMQX_AUTHENTICATION__1__METHOD: post
       EMQX_AUTHENTICATION__1__URL: http://she-backend:8080/internal/mqtt/auth
-      EMQX_AUTHENTICATION__1__HEADERS__CONTENT_TYPE: application/json
-      EMQX_AUTHENTICATION__1__HEADERS__X_INTERNAL_TOKEN: ${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}
-      EMQX_AUTHENTICATION__1__BODY__CLIENTID: $${clientid}
-      EMQX_AUTHENTICATION__1__BODY__CN: $${cert_common_name}
+      # Same trap as BODY: a header name containing a hyphen cannot be expressed
+      # as an env key, so HEADERS__X_INTERNAL_TOKEN is silently dropped and the
+      # backend answers 401 (invalid internal token) to every CONNECT.
+      EMQX_AUTHENTICATION__1__HEADERS: '{"content-type":"application/json","x-internal-token":"${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}"}'
+      # EMQX maps nested keys (HEADERS__…) from the environment, but NOT
+      # BODY__<field> — those are dropped without a warning, leaving the
+      # authenticator to POST an empty body and the backend to reject every
+      # CONNECT with "clientid: must not be blank". The body must therefore be
+      # supplied as one JSON object. `$$` is compose escaping: the container
+      # receives the literal ${clientid} / ${cert_common_name} placeholders for
+      # EMQX to fill per connection.
+      EMQX_AUTHENTICATION__1__BODY: '{"clientid":"$${clientid}","cn":"$${cert_common_name}"}'
       EMQX_AUTHENTICATION__1__CACHE__TTL: 300s
       # Short timeout: a hung backend must fail the CONNECT quickly, not stall
       # every device handshake behind it.
@@ -342,10 +358,18 @@ services:
       EMQX_AUTHENTICATION__1__BACKEND: http
       EMQX_AUTHENTICATION__1__METHOD: post
       EMQX_AUTHENTICATION__1__URL: http://she-backend:8080/internal/mqtt/auth
-      EMQX_AUTHENTICATION__1__HEADERS__CONTENT_TYPE: application/json
-      EMQX_AUTHENTICATION__1__HEADERS__X_INTERNAL_TOKEN: ${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}
-      EMQX_AUTHENTICATION__1__BODY__CLIENTID: $${clientid}
-      EMQX_AUTHENTICATION__1__BODY__CN: $${cert_common_name}
+      # Same trap as BODY: a header name containing a hyphen cannot be expressed
+      # as an env key, so HEADERS__X_INTERNAL_TOKEN is silently dropped and the
+      # backend answers 401 (invalid internal token) to every CONNECT.
+      EMQX_AUTHENTICATION__1__HEADERS: '{"content-type":"application/json","x-internal-token":"${EMQX_INTERNAL_TOKEN:-dev-internal-token-not-for-prod}"}'
+      # EMQX maps nested keys (HEADERS__…) from the environment, but NOT
+      # BODY__<field> — those are dropped without a warning, leaving the
+      # authenticator to POST an empty body and the backend to reject every
+      # CONNECT with "clientid: must not be blank". The body must therefore be
+      # supplied as one JSON object. `$$` is compose escaping: the container
+      # receives the literal ${clientid} / ${cert_common_name} placeholders for
+      # EMQX to fill per connection.
+      EMQX_AUTHENTICATION__1__BODY: '{"clientid":"$${clientid}","cn":"$${cert_common_name}"}'
       EMQX_AUTHENTICATION__1__CACHE__TTL: 300s
       # Short timeout: a hung backend must fail the CONNECT quickly, not stall
       # every device handshake behind it.
