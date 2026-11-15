@@ -958,7 +958,12 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
       // Abort. Sending a wrong address produces a device that joins Wi-Fi,
       // never checks in, and cannot be fixed without re-provisioning — the
       // exact failure that cost hours when the server IP moved.
-      _setStep(_ProvStep.sendCreds, _StepState.failed);
+      //
+      // Deliberately NO step is marked failed. The check happens before anything
+      // is sent, and the first step is labelled "Sending Wi-Fi credentials" — so
+      // marking it red claimed the credentials step had failed when nothing had
+      // been transmitted at all. Leaving the list untouched reads correctly:
+      // none of these steps were reached.
       _fail(serverConfigError);
       return;
     }
