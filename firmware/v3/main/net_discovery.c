@@ -43,7 +43,19 @@ static const char *TAG = "she_disc";
 #define PROBE_TIMEOUT_MS     400
 #define HTTP_TIMEOUT_S       2
 #define HEALTH_PATH          "/actuator/health"
-#define HEALTH_MAX_BYTES     512
+/* Spring Boot sends ~774 bytes of headers before the body on this endpoint
+ * (Strict-Transport-Security, CSP, X-Frame-Options, Permissions-Policy, ...).
+ *
+ * At 512 the buffer filled with headers, the read loop hit its limit and exited
+ * before a single byte of the body arrived — so `strstr(buf, "\"status\":\"UP\"")`
+ * never matched and a perfectly healthy backend was rejected as "not the SHE
+ * backend" while answering HTTP 200. That is the whole reason a device whose
+ * server address had moved could not find the new one and sat dialling a dead
+ * host until someone reflashed it.
+ *
+ * Measured, not guessed: `curl -D - -o /dev/null .../actuator/health | wc -c`
+ * reports 774 for headers alone; the body adds 246 more. */
+#define HEALTH_MAX_BYTES     2048
 
 /* ---------------------------------------------------------------------------
  * Non-blocking connect, left pending. Caller waits on the fd.
@@ -173,8 +185,14 @@ static bool http_is_backend(uint32_t ip_be, uint16_t port, char *why, size_t why
         if (n <= 0) break;
         total += n;
         buf[total] = '\0';
-        /* Spring Boot's health payload: {"status":"UP","components":{...}} */
-        if (strstr(buf, "\"status\":\"UP\"") != NULL) {
+        /* Spring Boot's health payload: {"status":"UP","components":{...}}.
+         *
+         * Match only inside the BODY. Searching the whole buffer would also
+         * match a header that happened to contain the string, and it is what
+         * made a 774-byte header block look like a complete response. */
+        const char *body = strstr(buf, "\r\n\r\n");
+        const char *haystack = (body != NULL) ? body + 4 : buf;
+        if (strstr(haystack, "\"status\":\"UP\"") != NULL) {
             matched = true;
             break;
         }

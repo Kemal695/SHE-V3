@@ -259,7 +259,17 @@ class _ProvisioningScreenState extends ConsumerState<ProvisioningScreen> {
       // reported success, the backend recorded the claim, and the device simply
       // never appeared anywhere. resolveActiveHomeId() is the same resolver the
       // Devices and Automations screens use, so the two can no longer disagree.
-      final active = await resolveActiveHomeId(ref);
+      // force: true is deliberate here, and it is the difference between the
+      // device appearing and vanishing.
+      //
+      // resolveActiveHomeId() normally trusts the cached home when the node
+      // lookup throws ("keeps cold starts instant"). That is right for a
+      // dashboard, and wrong for a claim: a transient error re-pins the wizard to
+      // a cached home that may hold no devices at all, and the device is then
+      // bound to a home the user never opens. force:true skips the cache and
+      // resolves to the first home that actually has nodes — the one the Devices
+      // screen is showing.
+      final active = await resolveActiveHomeId(ref, force: true);
       if (!mounted) return;
       setState(() {
         _homes = homes;
