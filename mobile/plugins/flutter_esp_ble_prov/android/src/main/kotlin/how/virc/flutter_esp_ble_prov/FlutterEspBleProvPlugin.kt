@@ -160,6 +160,20 @@ class Boss {
   val devices = mutableMapOf<String, BleConnector>()
 
   /**
+   * Live [ESPDevice] handles, keyed by Bluetooth address.
+   *
+   * Android permits only ONE GATT client per peripheral. An ESPDevice that is
+   * created and never disconnected keeps that slot forever, so the *next* call
+   * cannot connect at all: `connectAttempt` exhausts its retries, the Dart side
+   * hits its answer window and used to read the timeout as success.
+   *
+   * That is exactly how the wizard showed "Sending Wi-Fi credentials" as done
+   * while the board still logged `Device not provisioned` on every boot — the
+   * server-config write ran first, failed, and left its connection behind.
+   */
+  val espDevices = mutableMapOf<String, ESPDevice>()
+
+  /**
    * The available WiFi networks for the most recently scanned BLE device.
    */
   val networks = mutableSetOf<String>()
@@ -218,6 +232,18 @@ class Boss {
     onFailureCallback: (String) -> Unit,
   ) {
     val esp = espManager.createESPDevice(ESPConstants.TransportType.TRANSPORT_BLE, ESPConstants.SecurityType.SECURITY_1)
+    // Release any previous handle for this peripheral BEFORE connecting. Without
+    // this the old GATT client still owns the link and every attempt fails with
+    // a service-not-found that looks like a firmware fault.
+    val address = conn.device.address
+    espDevices.remove(address)?.let { previous ->
+      try {
+        previous.disconnectDevice()
+      } catch (e: Exception) {
+        d("pre-connect disconnect failed: $e")
+      }
+    }
+    espDevices[address] = esp
     // Both EventBus (ThreadMode.MAIN) and the Handler below run on the main thread, so a plain
     // flag is enough to keep the callbacks exclusive.
     var settled = false
@@ -618,6 +644,16 @@ class CustomDataProvisionManager(boss: Boss) : ActionManager(boss) {
 
             override fun onFailure(e: java.lang.Exception?) {
               boss.e("customData onFailure $e")
+              // Disconnect here TOO, not just on success. provisionWifi() runs
+              // immediately after this call and opens its own connection; if this
+              // one is still holding the GATT link, that connect cannot succeed
+              // and the wizard silently reports a provisioning that never
+              // happened.
+              try {
+                esp.disconnectDevice()
+              } catch (t: Exception) {
+                boss.e("customData disconnect after failure failed: $t")
+              }
               Handler(Looper.getMainLooper()).post {
                 ctx.result.error("E1", "Device rejected endpoint \"$endpoint\"", "$e")
               }
