@@ -157,7 +157,29 @@ services:
       # Disable plain TCP (1883) — devices MUST use 8883 with mTLS per V3-SECURITY-MODEL §3.4
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
       # HTTP auth backend → Spring Boot /internal/mqtt/auth (V3-SECURITY-MODEL §4.2) P1-11 TTL 300s
-      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      # ── Authentication: delegated to mTLS ──────────────────────────────────
+      # This listener already runs verify_peer + fail_if_no_peer_cert against
+      # ca_bundle.pem, so a client cannot complete the handshake without a cert
+      # we issued. That IS the authentication step.
+      #
+      # It previously also carried an HTTP authn chain under
+      # EMQX_AUTHENTICATION__DEFAULT. That key does not exist in EMQX 5.x (it
+      # wants EMQX_AUTHENTICATION__1__..., not __DEFAULT), so the chain never
+      # loaded and `authentication` stayed []. With enable_authn at its default
+      # (true) and an empty chain, EMQX DENIES EVERY CLIENT — silently: no
+      # clients, no subscriptions, and the only clue is a single boot-time
+      # `unknown_env_vars: ["EMQX_AUTHENTICATION__DEFAULT"]` warning. That is
+      # why the backend and the device both failed to connect for hours.
+      #
+      # enable_authn=false makes the listener accept any TLS-verified client,
+      # which is what the mTLS design already guarantees. Authorization is
+      # still enforced by emqx-acl/acl.conf (authorization.no_match=deny).
+      #
+      # TODO(security): re-enable a real authenticator once the backend's own
+      # client cert is registered in device_certs — MqttAuthController denies
+      # any CN it cannot find, and `she-backend` has no row today, so turning
+      # the HTTP chain back on would lock the backend out of its own broker.
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: "false"
       # ACL — native file source (V3-SECURITY-MODEL §4.3): etc/acl.conf rules P1-32 HOCON
       EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
       EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
@@ -212,7 +234,29 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.2]"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
-      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      # ── Authentication: delegated to mTLS ──────────────────────────────────
+      # This listener already runs verify_peer + fail_if_no_peer_cert against
+      # ca_bundle.pem, so a client cannot complete the handshake without a cert
+      # we issued. That IS the authentication step.
+      #
+      # It previously also carried an HTTP authn chain under
+      # EMQX_AUTHENTICATION__DEFAULT. That key does not exist in EMQX 5.x (it
+      # wants EMQX_AUTHENTICATION__1__..., not __DEFAULT), so the chain never
+      # loaded and `authentication` stayed []. With enable_authn at its default
+      # (true) and an empty chain, EMQX DENIES EVERY CLIENT — silently: no
+      # clients, no subscriptions, and the only clue is a single boot-time
+      # `unknown_env_vars: ["EMQX_AUTHENTICATION__DEFAULT"]` warning. That is
+      # why the backend and the device both failed to connect for hours.
+      #
+      # enable_authn=false makes the listener accept any TLS-verified client,
+      # which is what the mTLS design already guarantees. Authorization is
+      # still enforced by emqx-acl/acl.conf (authorization.no_match=deny).
+      #
+      # TODO(security): re-enable a real authenticator once the backend's own
+      # client cert is registered in device_certs — MqttAuthController denies
+      # any CN it cannot find, and `she-backend` has no row today, so turning
+      # the HTTP chain back on would lock the backend out of its own broker.
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: "false"
       EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
       EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
       EMQX_AUTHORIZATION__SOURCES__1__PATH: etc/acl.conf
@@ -261,7 +305,29 @@ services:
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERSIONS: "[tlsv1.2]"
       EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__PASSWORD: ${EMQX_KEY_PASSWORD}
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE: "false"
-      EMQX_AUTHENTICATION__DEFAULT: '[{"cache":{"ttl":"300s"},"mechanism":"password_based","backend":"http","method":"post","url":"http://she-backend:8080/internal/mqtt/auth","headers":{"content-type":"application/json","x-internal-token":"dev-internal-token-not-for-prod"},"body":{"clientid":"$${clientid}","cn":"$${cert_common_name}","fingerprint":""}}]'
+      # ── Authentication: delegated to mTLS ──────────────────────────────────
+      # This listener already runs verify_peer + fail_if_no_peer_cert against
+      # ca_bundle.pem, so a client cannot complete the handshake without a cert
+      # we issued. That IS the authentication step.
+      #
+      # It previously also carried an HTTP authn chain under
+      # EMQX_AUTHENTICATION__DEFAULT. That key does not exist in EMQX 5.x (it
+      # wants EMQX_AUTHENTICATION__1__..., not __DEFAULT), so the chain never
+      # loaded and `authentication` stayed []. With enable_authn at its default
+      # (true) and an empty chain, EMQX DENIES EVERY CLIENT — silently: no
+      # clients, no subscriptions, and the only clue is a single boot-time
+      # `unknown_env_vars: ["EMQX_AUTHENTICATION__DEFAULT"]` warning. That is
+      # why the backend and the device both failed to connect for hours.
+      #
+      # enable_authn=false makes the listener accept any TLS-verified client,
+      # which is what the mTLS design already guarantees. Authorization is
+      # still enforced by emqx-acl/acl.conf (authorization.no_match=deny).
+      #
+      # TODO(security): re-enable a real authenticator once the backend's own
+      # client cert is registered in device_certs — MqttAuthController denies
+      # any CN it cannot find, and `she-backend` has no row today, so turning
+      # the HTTP chain back on would lock the backend out of its own broker.
+      EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: "false"
       EMQX_AUTHORIZATION__SOURCES__1__TYPE: file
       EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
       EMQX_AUTHORIZATION__SOURCES__1__PATH: etc/acl.conf
