@@ -11,6 +11,8 @@
 #include "app_wifi.h"        /* app_wifi_set_provisioning_active() */
 #include "nvs_keys.h"
 #include "cJSON.h"
+#include <stdlib.h>          /* malloc — the protocomm response buffer */
+#include <string.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -271,8 +273,6 @@ static esp_err_t she_net_handler(uint32_t session_id,
                                  void *priv_data)
 {
     (void)session_id;
-    (void)outbuf;
-    (void)outlen;
     (void)priv_data;
 
     if (inbuf == NULL || inlen <= 0) {
@@ -329,8 +329,30 @@ static esp_err_t she_net_handler(uint32_t session_id,
                       "use it on the next boot");
     } else {
         ESP_LOGE(TAG, "she-net: commit failed (%s)", esp_err_to_name(err));
+        return err;
     }
-    return err;
+
+    /* The response is NOT optional. protocomm encrypts whatever the handler
+     * leaves in *outbuf, and with outlen == 0 the session layer fails with
+     * "Failed to allocate encrypt/decrypt buf len 0", protocomm reports
+     * "Encryption of response failed", and protocomm_ble then kills the link
+     * mid-provisioning:
+     *
+     *   E security1: Failed to allocate encrypt/decrypt buf len 0
+     *   E protocomm: Encryption of response failed for endpoint she-net
+     *   E protocomm_ble: Invalid content received, killing connection
+     *
+     * The write itself had already succeeded and committed, so the app saw a
+     * failure for an operation that worked. Returning one byte is enough;
+     * returning a small JSON body also gives the app something to log.
+     * protocomm frees the buffer, so it must be heap-allocated. */
+    static const char ok[] = "{\"ok\":true}";
+    char *resp = malloc(sizeof(ok));
+    if (resp == NULL) return ESP_ERR_NO_MEM;
+    memcpy(resp, ok, sizeof(ok));
+    *outbuf = (uint8_t *)resp;
+    *outlen = sizeof(ok) - 1;
+    return ESP_OK;
 }
 
 /* Custom endpoints need TWO calls in ESP-IDF, with opposite timing, and calling
