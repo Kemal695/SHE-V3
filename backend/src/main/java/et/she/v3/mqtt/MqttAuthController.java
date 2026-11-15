@@ -84,6 +84,30 @@ public class MqttAuthController {
 
         verifyInternalToken(httpReq);
 
+        // ---- Service identities (the backend itself) ----
+        // Checked before the device path on purpose: a service has no row in
+        // device_certs and cannot satisfy clientid == CN == MAC, because MQTT
+        // requires a unique client id per instance and the backend connects as
+        // "she-backend-pub-<uuid>". Applying the device rules to services is what
+        // made authentication impossible to enable — the broker's own client was
+        // denied, so the whole authenticator had to be switched off.
+        //
+        // The CN comes from the certificate EMQX already verified against our CA
+        // (verify_peer + fail_if_no_peer_cert), so it is not attacker-controlled.
+        // The clientid prefix check stops an unrelated client claiming the name.
+        if (isServiceIdentity(req.cn())) {
+            // Exactly the CN, or the CN followed by a separator. A bare
+            // startsWith() would also accept "she-backend-evil" for a client
+            // whose certificate CN is "she-backend".
+            if (!req.clientid().equals(req.cn()) && !req.clientid().startsWith(req.cn() + "-")) {
+                log.warn("MQTT auth DENY: service clientid does not match CN — clientid={}, cn={}",
+                        req.clientid(), req.cn());
+                return ResponseEntity.ok(MqttAuthDtos.AuthResponse.deny("clientid_service_mismatch"));
+            }
+            log.info("MQTT auth ALLOW (service): cn={}, clientid={}", req.cn(), req.clientid());
+            return ResponseEntity.ok(MqttAuthDtos.AuthResponse.allow());
+        }
+
         // Strip "sha256:" prefix if EMQX sends it
         String fingerprint = req.fingerprint();
         if (fingerprint != null && fingerprint.startsWith("sha256:")) {
@@ -144,6 +168,21 @@ public class MqttAuthController {
 
         verifyInternalToken(httpReq);
 
+        // Service clients (the backend) legitimately span every tenant: they
+        // consume all device telemetry through a shared subscription and publish
+        // commands to any home. The topic namespace check below is written for
+        // devices and would reject them, so they are handled first.
+        //
+        // Inferring "is a service" from the clientid is safe here: at CONNECT
+        // time the clientid was required to start with the service CN, and that
+        // CN came from a certificate EMQX verified against our CA. A device
+        // cannot present a service clientid, because /auth would have denied it.
+        if (isServiceClientId(req.clientid())) {
+            log.debug("MQTT acl ALLOW (service): clientid={}, topic={}, action={}",
+                    req.clientid(), req.topic(), req.action());
+            return ResponseEntity.ok(MqttAuthDtos.AclResponse.allow());
+        }
+
         Matcher m = TOPIC_PATTERN.matcher(req.topic());
         if (!m.matches()) {
             log.warn("MQTT acl DENY: topic doesn't match namespace — topic={}", req.topic());
@@ -189,6 +228,39 @@ public class MqttAuthController {
      * (The backend service cert CN="she-backend" has its own ACL rules in EMQX's
      * file-based source — those are NOT checked here, only device ACLs.)
      */
+    /**
+     * True when [cn] is one of the configured service identities.
+     *
+     * The value comes from a certificate EMQX has already verified against the
+     * CA bundle, so it is a trusted assertion, not user input.
+     */
+    private boolean isServiceIdentity(String cn) {
+        if (cn == null) return false;
+        String configured = props.mqtt().serviceIdentities();
+        if (configured == null || configured.isBlank()) return false;
+        for (String raw : configured.split(",")) {
+            if (raw.trim().equalsIgnoreCase(cn)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * True when [clientId] belongs to a configured service: either exactly the
+     * identity, or the identity followed by a separator (the backend uses
+     * `she-backend-<uuid>` and `she-backend-pub-<uuid>`).
+     */
+    private boolean isServiceClientId(String clientId) {
+        if (clientId == null) return false;
+        String configured = props.mqtt().serviceIdentities();
+        if (configured == null || configured.isBlank()) return false;
+        for (String raw : configured.split(",")) {
+            String id = raw.trim();
+            if (id.isEmpty()) continue;
+            if (clientId.equals(id) || clientId.startsWith(id + "-")) return true;
+        }
+        return false;
+    }
+
     private boolean isDirectionAllowed(String direction, boolean isPublish) {
         return switch (direction) {
             // Device PUBLISH directions

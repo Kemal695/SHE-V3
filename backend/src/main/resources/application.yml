@@ -220,6 +220,10 @@ she:
     ca-bundle-path: ${MQTT_CA_BUNDLE:/etc/she/ca/ca_bundle.pem}
     shared-subscription-group: ${MQTT_SHARED_SUBSCRIPTION_GROUP:she-backend}
     client-id-prefix: ${MQTT_CLIENT_ID_PREFIX:she-backend}
+    # Certificate CNs that identify SHE services (not devices). A service is
+    # allowed when its verified CN is listed here and its clientid starts with
+    # that CN. Devices are unaffected: they must still match device_certs.
+    service-identities: ${MQTT_SERVICE_IDENTITIES:she-backend}
     # Internal token verifying that /internal/mqtt/* calls come from EMQX, not external
     internal-token: ${EMQX_INTERNAL_TOKEN:dev-internal-token-not-for-prod}
 

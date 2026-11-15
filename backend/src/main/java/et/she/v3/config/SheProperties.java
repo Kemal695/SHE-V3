@@ -84,7 +84,23 @@ public record SheProperties(
             String caBundlePath,
             String sharedSubscriptionGroup,
             String clientIdPrefix,
-            String internalToken
+            String internalToken,
+            /**
+             * Comma-separated certificate CNs that identify SHE's own services
+             * rather than devices (V3-SECURITY-MODEL §4.2).
+             *
+             * Devices are authenticated against `device_certs` and must present
+             * clientid == CN == normalized MAC. Services cannot satisfy that:
+             * MQTT requires unique client ids per instance, so the backend
+             * connects as `she-backend-pub-<uuid>`, never as the bare CN. Without
+             * this list the backend is denied by its own authenticator, which is
+             * why authentication had to be switched off entirely.
+             *
+             * A service is accepted when its TLS-verified CN is listed here AND
+             * its clientid starts with that CN, so an unrelated client cannot
+             * borrow the name. TLS still enforces the CA chain and expiry.
+             */
+            String serviceIdentities
     ) {}
 
     /**

@@ -49,7 +49,8 @@ class MqttAuthControllerTest {
                 "/etc/she/ca/ca_bundle.pem",
                 "she-backend",
                 "she-backend",
-                "test-internal-token"
+                "test-internal-token",
+                "she-backend"
         );
         when(props.mqtt()).thenReturn(mqtt);
 
@@ -246,5 +247,124 @@ class MqttAuthControllerTest {
 
         assertEquals("deny", resp.getBody().result());
         assertEquals("invalid_topic_format", resp.getBody().reason());
+    }
+
+    // =========================================================================
+    // Service identities (F-01) — the backend must be able to reach its own
+    // broker. MQTT requires a unique client id per instance, so the backend
+    // connects as she-backend-<uuid> / she-backend-pub-<uuid>, never as the
+    // bare CN. Applying the device rules to it denied the broker's own client,
+    // which is why authentication had to be disabled entirely.
+    // =========================================================================
+
+    private HttpServletRequest internalRequestWithToken() {
+        HttpServletRequest httpReq = mock(HttpServletRequest.class);
+        when(httpReq.getHeader("X-Internal-Token")).thenReturn("test-internal-token");
+        return httpReq;
+    }
+
+    @Test
+    @DisplayName("Auth: service CN with prefixed clientid → ALLOW without touching device_certs")
+    void authServiceIdentityPrefixedClientId() {
+        MqttAuthDtos.AuthRequest req = new MqttAuthDtos.AuthRequest(
+                "she-backend-local-0fe42cc8", "she-backend", ""
+        );
+
+        ResponseEntity<MqttAuthDtos.AuthResponse> resp =
+                controller.authenticate(req, internalRequestWithToken());
+
+        assertEquals("allow", resp.getBody().result());
+        assertFalse(resp.getBody().is_superuser(), "is_superuser must be false per P1-10");
+        verifyNoInteractions(deviceCertRepository);
+    }
+
+    @Test
+    @DisplayName("Auth: service CN with bare CN as clientid → ALLOW")
+    void authServiceIdentityExactClientId() {
+        MqttAuthDtos.AuthRequest req = new MqttAuthDtos.AuthRequest(
+                "she-backend", "she-backend", ""
+        );
+
+        ResponseEntity<MqttAuthDtos.AuthResponse> resp =
+                controller.authenticate(req, internalRequestWithToken());
+
+        assertEquals("allow", resp.getBody().result());
+    }
+
+    @Test
+    @DisplayName("Auth: service CN with unrelated clientid → DENY (clientid_service_mismatch)")
+    void authServiceIdentityWrongClientId() {
+        // A certificate with CN=she-backend must not be able to drive a topic
+        // namespace that belongs to a device MAC.
+        MqttAuthDtos.AuthRequest req = new MqttAuthDtos.AuthRequest(
+                "10061cae5328", "she-backend", ""
+        );
+
+        ResponseEntity<MqttAuthDtos.AuthResponse> resp =
+                controller.authenticate(req, internalRequestWithToken());
+
+        assertEquals("deny", resp.getBody().result());
+        assertEquals("clientid_service_mismatch", resp.getBody().reason());
+    }
+
+    @Test
+    @DisplayName("Auth: clientid merely containing the service name → DENY")
+    void authServiceIdentitySpoofedClientId() {
+        // "she-backendX" starts with "she-backend" but is not the service.
+        MqttAuthDtos.AuthRequest req = new MqttAuthDtos.AuthRequest(
+                "she-backendX", "she-backend", ""
+        );
+
+        ResponseEntity<MqttAuthDtos.AuthResponse> resp =
+                controller.authenticate(req, internalRequestWithToken());
+
+        assertEquals("deny", resp.getBody().result());
+        assertEquals("clientid_service_mismatch", resp.getBody().reason());
+    }
+
+    @Test
+    @DisplayName("Auth: a non-service CN still goes through device_certs and is denied when unknown")
+    void authUnknownCnStillUsesDevicePath() {
+        when(deviceCertRepository.findActiveByCn("deadbeefdead")).thenReturn(Optional.empty());
+
+        MqttAuthDtos.AuthRequest req = new MqttAuthDtos.AuthRequest(
+                "deadbeefdead", "deadbeefdead", ""
+        );
+
+        assertThrows(SheException.class,
+                () -> controller.authenticate(req, internalRequestWithToken()),
+                "an unknown CN must be rejected, not treated as a service");
+        verify(deviceCertRepository).findActiveByCn("deadbeefdead");
+    }
+
+    @Test
+    @DisplayName("ACL: service clientid may span tenants")
+    void aclServiceClientSpansTenants() {
+        MqttAuthDtos.AclRequest req = new MqttAuthDtos.AclRequest(
+                "she-backend-pub-a75ab442",
+                "she/00000000/69b4294f/unassigned/10061cae5328/command",
+                "publish"
+        );
+
+        ResponseEntity<MqttAuthDtos.AclResponse> resp =
+                controller.authorize(req, internalRequestWithToken());
+
+        assertEquals("allow", resp.getBody().result());
+    }
+
+    @Test
+    @DisplayName("ACL: a device clientid still cannot publish another device's topic")
+    void aclDeviceStillScopedToOwnMac() {
+        MqttAuthDtos.AclRequest req = new MqttAuthDtos.AclRequest(
+                "10061cae5328",
+                "she/00000000/69b4294f/unassigned/aaaabbbbcccc/command",
+                "publish"
+        );
+
+        ResponseEntity<MqttAuthDtos.AclResponse> resp =
+                controller.authorize(req, internalRequestWithToken());
+
+        assertEquals("deny", resp.getBody().result());
+        assertEquals("mac_mismatch", resp.getBody().reason());
     }
 }
